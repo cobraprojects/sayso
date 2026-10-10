@@ -36,6 +36,7 @@ url = "2"
 raw-window-handle = "0.6"
 async-channel = "2"
 crossbeam-channel.workspace = true
+workspace-hack.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 sayso-platform-macos.workspace = true

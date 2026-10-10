@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 sayso-core.workspace = true
 sayso-platform.workspace = true
+workspace-hack.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 crossbeam-channel.workspace = true

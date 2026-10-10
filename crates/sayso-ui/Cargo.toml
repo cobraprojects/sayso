@@ -13,3 +13,4 @@ anyhow.workspace = true
 log.workspace = true
 image = { version = "0.25", default-features = false, features = ["png"] }
 rust-embed = "8"
+workspace-hack.workspace = true

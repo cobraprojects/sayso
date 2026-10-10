@@ -7331,6 +7331,7 @@ dependencies = [
  "tray-icon",
  "ureq 3.4.2",
  "url",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -7346,6 +7347,7 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -7366,6 +7368,7 @@ dependencies = [
  "tempfile",
  "tiny_http",
  "ureq 3.4.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -7380,6 +7383,7 @@ dependencies = [
  "sayso-platform",
  "serde_json",
  "tempfile",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -7397,6 +7401,7 @@ dependencies = [
  "tiny_http",
  "ureq 3.4.2",
  "wait-timeout",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -7406,6 +7411,7 @@ dependencies = [
  "crossbeam-channel",
  "sayso-core",
  "thiserror 2.0.21",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -7418,6 +7424,7 @@ dependencies = [
  "parking_lot",
  "rodio",
  "sayso-platform",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -7446,6 +7453,7 @@ dependencies = [
  "wayland-protocols",
  "wayland-protocols-misc",
  "wayland-protocols-wlr",
+ "workspace-hack",
  "x11rb",
  "zbus",
 ]
@@ -7471,6 +7479,7 @@ dependencies = [
  "sayso-platform-common",
  "serde_json",
  "thiserror 2.0.21",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -7490,6 +7499,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "windows 0.62.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -7509,6 +7519,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "uuid",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -7520,6 +7531,7 @@ dependencies = [
  "serde_json",
  "tiny_http",
  "ureq 3.4.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -7532,6 +7544,7 @@ dependencies = [
  "log",
  "rust-embed",
  "sayso-core",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -7552,6 +7565,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tiny_http",
  "ureq 3.4.2",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -10611,6 +10625,62 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
+
+[[package]]
+name = "workspace-hack"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "bitflags 2.13.2",
+ "block2 0.6.2",
+ "bytemuck",
+ "byteorder",
+ "cc",
+ "crc32fast",
+ "crossbeam-utils",
+ "digest 0.10.7",
+ "digest 0.11.3",
+ "dispatch2",
+ "futures-util",
+ "getrandom 0.3.4",
+ "getrandom 0.4.3",
+ "hashbrown 0.17.1",
+ "image",
+ "libc",
+ "linux-raw-sys",
+ "log",
+ "memchr",
+ "num-rational",
+ "num-traits",
+ "objc2 0.6.4",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "once_cell",
+ "percent-encoding",
+ "proc-macro2",
+ "quote",
+ "rustix",
+ "semver",
+ "serde",
+ "serde_core",
+ "serde_json",
+ "simd-adler32",
+ "smallvec",
+ "subtle",
+ "syn 2.0.119",
+ "syn 3.0.6",
+ "time",
+ "toml_parser",
+ "typenum",
+ "ureq 3.4.2",
+ "uuid",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+ "windows-sys 0.61.2",
+ "winnow 1.0.4",
+ "zbus",
+ "zeroize",
+]
 
 [[package]]
 name = "writeable"

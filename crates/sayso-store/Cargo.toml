@@ -21,3 +21,4 @@ claxon = "0.4"
 # The Pindrop import: a copy of the Pindrop store, and its archived string lists.
 tempfile.workspace = true
 plist = { version = "1", default-features = false }
+workspace-hack.workspace = true

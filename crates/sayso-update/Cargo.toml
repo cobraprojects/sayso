@@ -17,6 +17,7 @@ ed25519-dalek = "3"
 semver = { version = "1", features = ["serde"] }
 ureq = "3"
 sha2 = "0.11"
+workspace-hack.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

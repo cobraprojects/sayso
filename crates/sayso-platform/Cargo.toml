@@ -10,3 +10,4 @@ publish.workspace = true
 sayso-core.workspace = true
 thiserror.workspace = true
 crossbeam-channel.workspace = true
+workspace-hack.workspace = true

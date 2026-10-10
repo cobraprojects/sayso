@@ -26,6 +26,9 @@ base64 = "0.22"
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 libc = "0.2"
 
+[dependencies]
+workspace-hack.workspace = true
+
 [target.'cfg(not(target_os = "macos"))'.dev-dependencies]
 sayso-engine-client.workspace = true
 sayso-platform.workspace = true

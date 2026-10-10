@@ -21,5 +21,16 @@ check sayso-ui '^sayso-(store|enhance|engine-client)' "UI gets data through the 
 check sayso-platform-common '^(sayso-(platform-(macos|linux|windows)|engine|store|enhance|ui|app)|gpui)' "portable platform code only"
 check sayso-update '^(sayso-(platform|engine|store|enhance|transcribe|ui|app)|gpui)' "the updater has no UI and no platform code"
 check sayso-engine '^(sayso-(platform|store|enhance|ui|app)|gpui)' "the engine is a separate process"
+# workspace-hack (cargo hakari, .config/hakari.toml) must match the
+# dependencies. After you add, remove, or change a dependency, run:
+#   cargo hakari generate && cargo hakari manage-deps -y
+if command -v cargo-hakari >/dev/null; then
+  if ! cargo hakari generate --diff >/dev/null 2>&1 \
+    || ! cargo hakari manage-deps --dry-run 2>&1 | grep -q 'no operations to perform'; then
+    echo "FAIL: workspace-hack is out of date (run: cargo hakari generate && cargo hakari manage-deps -y)"; fail=1
+  fi
+else
+  echo "warning: workspace-hack not checked, because cargo-hakari is not installed (cargo install cargo-hakari --locked)"
+fi
 [ $fail -eq 0 ] && echo "dependency rules: ok"
 exit $fail

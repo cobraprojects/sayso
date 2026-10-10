@@ -36,7 +36,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      # cargo metadata --no-deps reads only the manifests, so the runner's own cargo is enough.
+      # cargo-hakari checks that workspace-hack is current. It resolves the
+      # dependencies, but builds nothing.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hakari@0.9.39
+      # The other rules read only the manifests (cargo metadata --no-deps).
       - name: Check the dependency rules
         run: RUSTUP_TOOLCHAIN=stable scripts/check-deps.sh
 
