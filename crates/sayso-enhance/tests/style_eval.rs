@@ -72,11 +72,26 @@ const CASES: &[Case] = &[
     clean("stutter", "I I I think the the server is down", &["I think the server is down"], &[]),
     clean("dictionary", "um open pin drop and check if say so has an update", &["Pindrop", "Sayso"], &["um", "Devhouse", "ForgeCAD"]),
     clean("long", LONG, &["import screen", "Monday", "Tuesday", "Dana", "release notes", "support team", "Thursday", "Friday morning", "typos"], &["um", "uh"]),
+    // The speaker's own words stay.
+    clean("voice-contractions", "sorry I don't think you understood me so let's start over really fast", &["don't", "really fast"], &["do not", "quickly"]),
+    clean("voice-cannot", "I can resize them but I can't actually move the entire room", &["can't", "actually"], &["cannot"]),
+    clean("voice-gonna", "I'm gonna throw some other things out so that we can consider them", &["I'm gonna"], &["going"]),
+    clean("voice-hedge", "oh you're probably going to need images", &["you're probably going to need"], &["will"]),
+    clean("voice-slang", "that whole demo was super sketchy to be honest", &["super sketchy"], &["suspicious", "questionable"]),
+    clean("voice-rare-word", "this is both in terms of the group settings and the doodad settings", &["oodad"], &["gadget", "application"]),
+    clean("voice-phrase", "one other thing that I want to do where the sidebar items are concerned is find a good balance", &["where the sidebar items are concerned"], &["regarding"]),
     // The other styles keep the base prompt.
     Case { name: "polished", style: "polished", transcript: "me and him was going to the store um yesterday and we buyed twelve apples", must: &["bought", "12"], must_not: &["um", "buyed"] },
     Case { name: "message", style: "message", transcript: "hey um are we still on for lunch tomorrow at noon no wait at one", must: &["lunch tomorrow"], must_not: &["um", "noon", "dear", "regards"] },
     Case { name: "email", style: "email", transcript: "hi dana can you send me the q three report by friday thanks", must: &["Dana", "Q3", "Friday", "\n"], must_not: &["subject", "apple", "your name"] },
     Case { name: "notes", style: "notes", transcript: "we need to fix the login bug update the docs and ship version two by friday", must: &["- ", "login bug", "docs", "Friday", "\n"], must_not: &[] },
+    // The other styles also keep the speaker's own words.
+    Case { name: "voice-polished", style: "polished", transcript: "honestly the new onboarding flow are kind of janky and it don't feel finished", must: &["onestly", "janky", "kind of"], must_not: &["it don't", "flow are"] },
+    Case { name: "voice-message-strong-word", style: "message", transcript: "the sesame street x account is so unhinged sometimes", must: &["unhinged"], must_not: &["wild", "crazy"] },
+    Case { name: "voice-message-phrase", style: "message", transcript: "I'll be up in a little bit", must: &["I'll be up in a little bit"], must_not: &["soon"] },
+    Case { name: "voice-message-hedge", style: "message", transcript: "okay no problem if wanted I can always just kind of yolo it and create a logo", must: &["f wanted", "yolo"], must_not: &["needed"] },
+    Case { name: "voice-email", style: "email", transcript: "hi dana the demo yesterday was kind of a mess and I can't make the thursday call thanks", must: &["Dana", "kind of a mess", "can't", "Thursday", "\n"], must_not: &["cannot", "unable"] },
+    Case { name: "voice-notes", style: "notes", transcript: "we gotta tidy up the janky settings page and then ping dana about that wonky chart", must: &["- ", "janky", "wonky", "\n"], must_not: &[] },
 ];
 
 fn vocabulary() -> Vec<String> {
@@ -96,6 +111,8 @@ fn has_words(reply: &str, phrase: &str) -> bool {
 
 /// The checks of `case` that `reply` fails.
 fn failures(case: &Case, reply: &str) -> Vec<String> {
+    // A model can write the apostrophe of "don't" as a typographic one.
+    let reply = &reply.replace('\u{2019}', "'");
     let mut out: Vec<String> = case.must.iter().filter(|m| !reply.contains(**m)).map(|m| format!("no {m:?}")).collect();
     out.extend(case.must_not.iter().filter(|m| has_words(reply, m)).map(|m| format!("has {m:?}")));
     out

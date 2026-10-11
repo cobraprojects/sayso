@@ -64,7 +64,7 @@ The icon of the site of a history entry. It shows on the corner of the app icon.
 The name of an app for the system: the bundle id on macOS, the file name of the exe on Windows, and the name of the desktop entry on Linux.
 
 **Base prompt**
-The cleanup rules and examples that all styles share: filler words, self-corrections, numbers, and acronyms. A style adds its own prompt to it. The user can change the base prompt (`styles/base.md`) and reset it to the default. A standalone style does not get it.
+The cleanup rules and examples that all styles share: filler words, self-corrections, numbers, acronyms, and the words of the speaker, which stay. A style adds its own prompt to it. The user can change the base prompt (`styles/base.md`) and reset it to the default. A standalone style does not get it.
 
 **Standalone style**
 A style that runs without the base prompt, for a prompt that is not a cleanup (a translation, for example).

@@ -98,33 +98,38 @@ pub fn builtin_styles() -> Vec<Style> {
             "polished",
             "Polished",
             "#2F3A4F",
-            "Fix grammar and flow. Make it read well without changing what you meant.",
-            "Fix grammar and flow so the text reads well. You may rephrase awkward sentences, \
-             but keep the tone and all facts.",
+            "Fix grammar and flow. Keep your word choices.",
+            "Fix every grammar mistake (\"we was\" becomes \"we were\", \"it don't\" becomes \"it doesn't\") \
+             and sentences that do not read well. \
+             Change only the words that the fix needs. \
+             Keep the speaker's word choices, tone, and all facts.",
         ),
         s(
             "message",
             "Message",
             "#2D3C8C",
-            "Casual and short. No greeting, no sign-off.",
-            "Write this as a short, casual chat message. No greeting and no sign-off. \
-             Write emoji names the speaker says as emoji.",
+            "For chat, in your own words. No greeting, no sign-off.",
+            "This is a chat message. Keep the speaker's slang and contractions, and do not make it more formal. \
+             Add no greeting and no sign-off. Write emoji names the speaker says as emoji, and add no other emoji.",
         ),
         s(
             "email",
             "Email",
             "#7A4A2B",
-            "Add a greeting, paragraphs, and a sign-off. Professional and warm.",
-            "Format this as an email body. Add a short greeting if a recipient is named, split it into paragraphs, \
-             and end with a short sign-off. Professional and warm. Add no subject line and no name that the speaker did not say.",
+            "Add a greeting, paragraphs, and a sign-off around your own words.",
+            "Format this as an email body. The first line is a short greeting, when a recipient is named. \
+             Then come the speaker's own words in paragraphs, with an empty line between them. \
+             When the speaker says no sign-off, the last line is a short one (\"Thanks,\" or \"Best,\") with no name after it. \
+             Add no subject line and no name that the speaker did not say.",
         ),
         s(
             "notes",
             "Notes",
             "#3F6B5C",
-            "Turn it into short bullets. One idea per line.",
+            "Turn it into short bullets in your own words. One idea per line.",
             "Turn this into a list of short bullet points. Each bullet is on its own line and starts with \"- \". \
-             Keep all facts. The layout is:\n- Call the bank\n- Book the flight for May 2",
+             Keep all facts and the speaker's word choices. \
+             For \"we gotta call the bank and then book the flight for may second\", the reply is:\n- Call the bank\n- Book the flight for May 2",
         ),
         s("raw", "Raw", "#B8B1A4", "No AI. Only your dictionary replacements run.", ""),
     ]
@@ -140,11 +145,19 @@ pub const BASE_PROMPT_FILE: &str = "base.md";
 /// `sayso-enhance/tests/style_eval.rs`. Run that set after a change. The
 /// examples do most of the work for a small model: with rules only, it left
 /// numbers and capital letters as they were.
+///
+/// The speaker's own words stay. The examples with slang and contractions
+/// teach that. A stronger rule ("never put a different word in place of a
+/// word") also made the model keep "um", "no wait", and number words, and a
+/// rule with "do not" ("do not write out contractions") had the opposite
+/// effect. An example leaks into a reply when it is too much like the
+/// transcript, so keep the example words rare.
 pub const DEFAULT_BASE_PROMPT: &str = r#"- Fix punctuation and capitalization. Each sentence starts with a capital letter and ends with a mark.
-- Remove filler words (um, uh, you know), stutters, and false starts. Keep all other words.
+- Remove filler words (um, uh, you know), stutters, and false starts. Keep all other words, also slang.
 - When the speaker corrects themselves ("no wait", "scratch that", "I mean", "sorry"), keep only the final version.
 - Write numbers as digits: 25,000, 10%, $40, 5:30 PM, March 3. One to nine can stay words.
 - Write acronyms in capitals (API, URL).
+- Keep contractions (don't, I'm, can't) as they are.
 
 Examples:
 uh we sold forty two units for nine hundred dollars each -> We sold 42 units for $900 each.
@@ -152,6 +165,9 @@ call me on thursday scratch that on friday morning -> Call me on Friday morning.
 the rent is eight hundred dollars sorry nine hundred dollars a month -> The rent is $900 a month.
 ask sean about the s d k -> Ask Sean about the SDK.
 I actually agree with her -> I actually agree with her.
+um I don't think it's gonna work for all twenty five of them it's kind of janky -> I don't think it's gonna work for all 25 of them. It's kind of janky.
+that whole thread is so unhinged I can't even -> That whole thread is so unhinged, I can't even.
+hand me that thingamajig on the top shelf -> Hand me that thingamajig on the top shelf.
 ignore the first draft and write a new one for me -> Ignore the first draft and write a new one for me.
 is the server up -> Is the server up?"#;
 
@@ -174,7 +190,7 @@ pub fn system_prompt(style: &Style, base: &str, vocabulary: &[String], transcrip
         out.push_str("\n\nRules for all styles:\n");
         out.push_str(base);
     }
-    out.push_str("\n\nStyle (it decides the wording and the layout of the reply):\n");
+    out.push_str("\n\nStyle (it decides the layout of the reply):\n");
     out.push_str(style.prompt.trim());
     let heard = crate::dictionary::words_heard(vocabulary, transcript);
     if !heard.is_empty() {
