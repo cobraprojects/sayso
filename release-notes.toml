@@ -20,6 +20,15 @@
 #   url = "https://…"
 
 [[release]]
+version = "0.7.1"
+title = "Styles keep your words"
+
+[[release.item]]
+icon = "styles"
+title = "Your words stay"
+text = "The built-in styles no longer put a different word in place of yours. Slang and contractions stay, and Message, Email, and Notes change the layout, not your voice. If you changed a style or the base prompt, reset it on the Styles page to get this."
+
+[[release]]
 version = "0.7.0"
 title = "History shows the site, and the pill goes to the top"
 
