@@ -9,6 +9,7 @@
 //!
 //! All calls block: run them on a background thread.
 
+use crate::auth::{Tool, config_env, push_config_env};
 use crate::cli::{Invocation, Session, looks_like_login_problem, workdir};
 use crate::detect::{detect_claude_cli, detect_codex_cli, fetch_model_choices};
 use crate::secrets::SecretStore;
@@ -50,11 +51,11 @@ pub fn list_provider_models(
         }
         ProviderKind::ClaudeCli { path, .. } => {
             let program = program(path.as_deref(), detect_claude_cli, "claude")?;
-            list_claude_models(&program, timeout)
+            list_claude_models(&program, provider.config_dir(), timeout)
         }
         ProviderKind::CodexCli { path, .. } => {
             let program = program(path.as_deref(), detect_codex_cli, "codex")?;
-            list_codex_models(&program, timeout)
+            list_codex_models(&program, provider.config_dir(), timeout)
         }
         // macOS chooses the model, so the list has one entry.
         ProviderKind::AppleIntelligence => {
@@ -78,9 +79,13 @@ fn program(
 
 fn list_claude_models(
     program: &std::path::Path,
+    config_dir: Option<&str>,
     timeout: Duration,
 ) -> Result<Vec<ModelChoice>, EnhanceError> {
     let workdir = workdir()?;
+    let dir_env = config_env(Tool::Claude, config_dir);
+    let mut envs = vec![("MAX_THINKING_TOKENS", "0")];
+    push_config_env(&mut envs, &dir_env);
     let mut session = Session::start(&Invocation {
         program,
         args: [
@@ -101,7 +106,7 @@ fn list_claude_models(
         .iter()
         .map(Into::into)
         .collect(),
-        envs: vec![("MAX_THINKING_TOKENS", "0")],
+        envs,
         cwd: workdir.path(),
         stdin: None,
         timeout,
@@ -155,13 +160,17 @@ fn parse_claude_models(message: &Value) -> Result<Vec<ModelChoice>, EnhanceError
 
 fn list_codex_models(
     program: &std::path::Path,
+    config_dir: Option<&str>,
     timeout: Duration,
 ) -> Result<Vec<ModelChoice>, EnhanceError> {
     let workdir = workdir()?;
+    let dir_env = config_env(Tool::Codex, config_dir);
+    let mut envs = Vec::new();
+    push_config_env(&mut envs, &dir_env);
     let mut session = Session::start(&Invocation {
         program,
         args: vec!["app-server".into()],
-        envs: vec![],
+        envs,
         cwd: workdir.path(),
         stdin: None,
         timeout,

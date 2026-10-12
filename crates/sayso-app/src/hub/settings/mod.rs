@@ -10,6 +10,7 @@ mod history_privacy;
 pub mod kit;
 mod overlay;
 mod permissions;
+mod providers;
 pub mod recorder;
 
 use super::{Route, SettingsPage};
@@ -20,6 +21,7 @@ pub struct SettingsView {
     model: Entity<AppModel>,
     general: Entity<general::GeneralSettings>,
     dictation: Entity<dictation::DictationSettings>,
+    providers: Entity<providers::ProviderSettings>,
     overlay: Entity<overlay::OverlaySettings>,
     audio: Entity<audio::AudioSettings>,
     appearance: Entity<appearance::AppearanceSettings>,
@@ -35,6 +37,7 @@ impl SettingsView {
         Self {
             general: cx.new(|cx| general::GeneralSettings::new(model.clone(), window, cx)),
             dictation: cx.new(|cx| dictation::DictationSettings::new(model.clone(), window, cx)),
+            providers: cx.new(|cx| providers::ProviderSettings::new(model.clone(), window, cx)),
             overlay: cx.new(|cx| overlay::OverlaySettings::new(model.clone(), window, cx)),
             audio: cx.new(|cx| audio::AudioSettings::new(model.clone(), window, cx)),
             appearance: cx.new(|cx| appearance::AppearanceSettings::new(model.clone(), window, cx)),
@@ -53,6 +56,7 @@ impl Render for SettingsView {
         match page {
             SettingsPage::General => self.general.clone().into_any_element(),
             SettingsPage::Dictation => self.dictation.clone().into_any_element(),
+            SettingsPage::Providers => self.providers.clone().into_any_element(),
             SettingsPage::Overlay => self.overlay.clone().into_any_element(),
             SettingsPage::Audio => self.audio.clone().into_any_element(),
             SettingsPage::Appearance => self.appearance.clone().into_any_element(),

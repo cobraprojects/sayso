@@ -27,6 +27,7 @@ pub enum Route {
 pub enum SettingsPage {
     General,
     Dictation,
+    Providers,
     Overlay,
     Audio,
     Appearance,
@@ -36,9 +37,10 @@ pub enum SettingsPage {
 }
 
 impl SettingsPage {
-    pub const ALL: [SettingsPage; 8] = [
+    pub const ALL: [SettingsPage; 9] = [
         SettingsPage::General,
         SettingsPage::Dictation,
+        SettingsPage::Providers,
         SettingsPage::Overlay,
         SettingsPage::Audio,
         SettingsPage::Appearance,

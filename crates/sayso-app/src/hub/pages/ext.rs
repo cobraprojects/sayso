@@ -41,7 +41,7 @@ pub fn short_model(model: &str) -> String {
     model.rsplit('/').next().unwrap_or(model).to_string()
 }
 
-/// A one-line description of a provider for the Providers strip.
+/// A one-line description of a provider for the Providers page.
 pub fn provider_detail(p: &Provider) -> String {
     match &p.kind {
         ProviderKind::OpenAiCompatible { base_url, zero_data_retention, .. } => {

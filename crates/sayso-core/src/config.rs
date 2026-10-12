@@ -286,12 +286,18 @@ pub enum ProviderKind {
         path: Option<String>,
         #[serde(default = "default_claude_model")]
         model: String,
+        /// The folder that holds the login of the tool (`CLAUDE_CONFIG_DIR`). None uses the tool's own default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        config_dir: Option<String>,
     },
     CodexCli {
         #[serde(default)]
         path: Option<String>,
         #[serde(default)]
         model: Option<String>,
+        /// The folder that holds the login of the tool (`CODEX_HOME`). None uses the tool's own default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        config_dir: Option<String>,
     },
     /// The language model of macOS, which the engine runs on this Mac.
     AppleIntelligence,
@@ -319,6 +325,16 @@ impl Provider {
             ProviderKind::AppleIntelligence => None,
         };
         model.filter(|m| !m.trim().is_empty())
+    }
+
+    /// The folder with the login of a CLI provider. None for the default folder of the tool, and for kinds without a login.
+    pub fn config_dir(&self) -> Option<&str> {
+        match &self.kind {
+            ProviderKind::ClaudeCli { config_dir, .. } | ProviderKind::CodexCli { config_dir, .. } => {
+                config_dir.as_deref().filter(|dir| !dir.trim().is_empty())
+            }
+            _ => None,
+        }
     }
 
     pub fn set_model(&mut self, id: String) {
@@ -768,14 +784,43 @@ mod tests {
 
     #[test]
     fn cli_providers_never_need_a_model() {
-        let mut codex = Provider { id: "c".into(), name: "Codex CLI".into(), kind: ProviderKind::CodexCli { path: None, model: None } };
+        let mut codex = Provider { id: "c".into(), name: "Codex CLI".into(), kind: ProviderKind::CodexCli { path: None, model: None, config_dir: None } };
         assert_eq!(codex.model(), None);
         assert!(!codex.needs_model(), "Codex uses its own default");
         codex.set_model("gpt-6.1-sol".into());
         assert_eq!(codex.model(), Some("gpt-6.1-sol"));
-        let claude = Provider { id: "k".into(), name: "Claude CLI".into(), kind: ProviderKind::ClaudeCli { path: None, model: "haiku".into() } };
+        let claude = Provider { id: "k".into(), name: "Claude CLI".into(), kind: ProviderKind::ClaudeCli { path: None, model: "haiku".into(), config_dir: None } };
         assert_eq!(claude.model(), Some("haiku"));
         assert!(!claude.needs_model());
+    }
+
+    #[test]
+    fn cli_config_dir_is_optional_and_not_written_when_unset() {
+        // An old file has no config_dir.
+        let old = "[[ai.providers]]\nid = \"k\"\nname = \"Claude CLI\"\nkind = \"claude_cli\"\nmodel = \"haiku\"\n";
+        let parsed = Config::parse(old);
+        assert!(parsed.issues.is_empty(), "{:?}", parsed.issues);
+        let provider = parsed.config.ai.providers.iter().find(|p| p.id == "k").unwrap();
+        assert_eq!(provider.config_dir(), None);
+
+        let mut claude = Provider { id: "k".into(), name: "Claude CLI".into(), kind: ProviderKind::ClaudeCli { path: None, model: "haiku".into(), config_dir: None } };
+        let unset = toml::to_string(&claude).unwrap();
+        assert!(!unset.contains("config_dir"), "{unset}");
+
+        let ProviderKind::ClaudeCli { config_dir, .. } = &mut claude.kind else { unreachable!() };
+        *config_dir = Some("~/.claude-work".into());
+        assert_eq!(claude.config_dir(), Some("~/.claude-work"));
+        let set = toml::to_string(&claude).unwrap();
+        assert!(set.contains("config_dir = \"~/.claude-work\""), "{set}");
+        assert_eq!(toml::from_str::<Provider>(&set).unwrap(), claude);
+
+        let ProviderKind::ClaudeCli { config_dir, .. } = &mut claude.kind else { unreachable!() };
+        *config_dir = Some("  ".into());
+        assert_eq!(claude.config_dir(), None, "a blank folder counts as unset");
+        let codex = Provider { id: "c".into(), name: "C".into(), kind: ProviderKind::CodexCli { path: None, model: None, config_dir: Some("/x".into()) } };
+        assert_eq!(codex.config_dir(), Some("/x"));
+        let apple = Provider { id: "a".into(), name: "A".into(), kind: ProviderKind::AppleIntelligence };
+        assert_eq!(apple.config_dir(), None);
     }
 
     #[test]

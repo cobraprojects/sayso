@@ -4,6 +4,7 @@
 //! so the Styles page says so. The instructions and the transcript go in
 //! through stdin (`-`), which keeps the text out of the process list.
 
+use crate::auth::{Tool, config_env, push_config_env};
 use crate::cli::{self, Invocation, tail};
 use crate::detect::detect_codex_cli;
 use sayso_core::enhance::{EnhanceError, EnhanceRequest, EnhanceResponse, Enhancer, output_schema, parse_output, user_message};
@@ -16,6 +17,7 @@ pub struct CodexCli {
     program: Option<PathBuf>,
     model: Option<String>,
     default_timeout: Duration,
+    config_dir: Option<PathBuf>,
 }
 
 impl CodexCli {
@@ -23,12 +25,18 @@ impl CodexCli {
     /// `model` None lets Codex pick its default.
     pub fn new(id: impl Into<String>, path: Option<PathBuf>, model: Option<String>) -> Self {
         let program = path.or_else(detect_codex_cli);
-        Self { id: id.into(), program, model, default_timeout: Duration::from_secs(12) }
+        Self { id: id.into(), program, model, default_timeout: Duration::from_secs(12), config_dir: None }
     }
 
     /// The timeout used when a request has a zero timeout.
     pub fn with_default_timeout(mut self, timeout: Duration) -> Self {
         self.default_timeout = timeout;
+        self
+    }
+
+    /// The folder with the login of the tool (`CODEX_HOME`). A leading `~/` is the home folder.
+    pub fn with_config_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.config_dir = dir;
         self
     }
 }
@@ -89,10 +97,13 @@ impl Enhancer for CodexCli {
         args.push("-".into()); // read the prompt from stdin
 
         let started = Instant::now();
+        let dir_env = config_env(Tool::Codex, self.config_dir.as_deref().and_then(|d| d.to_str()));
+        let mut envs = Vec::new();
+        push_config_env(&mut envs, &dir_env);
         let output = cli::run(&Invocation {
             program,
             args,
-            envs: Vec::new(),
+            envs,
             cwd: workdir.path(),
             stdin: Some(build_prompt(request)),
             timeout,

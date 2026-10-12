@@ -236,7 +236,7 @@ impl OnboardingView {
                     Provider {
                         id: "claude-cli".into(),
                         name: "Claude CLI".into(),
-                        kind: ProviderKind::ClaudeCli { path: Some(path.display().to_string()), model: "haiku".into() },
+                        kind: ProviderKind::ClaudeCli { path: Some(path.display().to_string()), model: "haiku".into(), config_dir: None },
                     },
                     None,
                 ))
@@ -267,7 +267,7 @@ impl OnboardingView {
     }
 
     /// Leave the step without a provider. A provider that "Test connection"
-    /// saved stays in Styles, but AI is off.
+    /// saved stays in Settings, but AI is off.
     pub(super) fn skip_ai(&mut self, cx: &mut Context<Self>) {
         self.ai.error = None;
         if self.model.read(cx).config.ai.enabled {
@@ -442,7 +442,7 @@ impl OnboardingView {
             .pb(px(24.))
             .child(heading(
                 "Add AI clean-up",
-                "Optional. A style can remove filler words, fix grammar, or format an email. Without it, Sayso inserts exactly what you said. You can also set this up later in Styles.",
+                "Optional. A style can remove filler words, fix grammar, or format an email. Without it, Sayso inserts exactly what you said. You can also set this up later in Settings.",
                 &c,
             ))
             .child(rows);

@@ -11,6 +11,7 @@
 //! the process list, and `--tools` takes a list, so a trailing prompt argument
 //! could be read as a tool name.
 
+use crate::auth::{Tool, config_env, push_config_env};
 use crate::cli::{self, Invocation, looks_like_login_problem, tail};
 use crate::detect::detect_claude_cli;
 use sayso_core::enhance::{EnhanceError, EnhanceRequest, EnhanceResponse, Enhancer, output_schema, parse_value, user_message};
@@ -23,18 +24,25 @@ pub struct ClaudeCli {
     program: Option<PathBuf>,
     model: String,
     default_timeout: Duration,
+    config_dir: Option<PathBuf>,
 }
 
 impl ClaudeCli {
     /// `path` is the binary from the provider config. None searches for it.
     pub fn new(id: impl Into<String>, path: Option<PathBuf>, model: impl Into<String>) -> Self {
         let program = path.or_else(detect_claude_cli);
-        Self { id: id.into(), program, model: model.into(), default_timeout: Duration::from_secs(8) }
+        Self { id: id.into(), program, model: model.into(), default_timeout: Duration::from_secs(8), config_dir: None }
     }
 
     /// The timeout used when a request has a zero timeout.
     pub fn with_default_timeout(mut self, timeout: Duration) -> Self {
         self.default_timeout = timeout;
+        self
+    }
+
+    /// The folder with the login of the tool (`CLAUDE_CONFIG_DIR`). A leading `~/` is the home folder.
+    pub fn with_config_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.config_dir = dir;
         self
     }
 
@@ -86,10 +94,13 @@ impl Enhancer for ClaudeCli {
         let model = request.model.clone().unwrap_or_else(|| self.model.clone());
         let workdir = cli::workdir()?;
         let started = Instant::now();
+        let dir_env = config_env(Tool::Claude, self.config_dir.as_deref().and_then(|d| d.to_str()));
+        let mut envs = vec![("MAX_THINKING_TOKENS", "0")];
+        push_config_env(&mut envs, &dir_env);
         let output = cli::run(&Invocation {
             program,
             args: self.args(&model, &request.system_prompt),
-            envs: vec![("MAX_THINKING_TOKENS", "0")],
+            envs,
             cwd: workdir.path(),
             stdin: Some(user_message(&request.transcript)),
             timeout,

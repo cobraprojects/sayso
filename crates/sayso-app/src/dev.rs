@@ -45,6 +45,7 @@ pub fn route() -> Option<Route> {
         s => {
             let page = match s.strip_prefix("settings-").unwrap_or("dictation") {
                 "general" => SettingsPage::General,
+                "providers" => SettingsPage::Providers,
                 "overlay" => SettingsPage::Overlay,
                 "audio" => SettingsPage::Audio,
                 "appearance" => SettingsPage::Appearance,

@@ -282,8 +282,8 @@ impl HomePage {
         let route = m.style_route(&style);
         let detail = match &route {
             StyleRoute::NoAi => format!("Nothing leaves your {}.", crate::shell::COMPUTER),
-            StyleRoute::NeedsProvider => "AI is off, so Sayso inserts the transcript. Add a provider in Styles.".into(),
-            StyleRoute::NeedsModel { provider } => format!("No model is chosen for {provider}, so Sayso inserts the transcript. Choose one in Styles."),
+            StyleRoute::NeedsProvider => "AI is off, so Sayso inserts the transcript. Add a provider in Settings.".into(),
+            StyleRoute::NeedsModel { provider } => format!("No model is chosen for {provider}, so Sayso inserts the transcript. Choose one in Settings."),
             StyleRoute::Local { provider, model } => format!("Runs on your {} with {provider} · {model}.", crate::shell::COMPUTER),
             StyleRoute::Cloud { provider, model } => format!("Sent to {provider} · {model}."),
         };

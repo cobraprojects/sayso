@@ -221,6 +221,7 @@ pub fn settings_label(page: SettingsPage) -> (&'static str, Icon) {
     match page {
         SettingsPage::General => ("General", Icon::General),
         SettingsPage::Dictation => ("Dictation", Icon::Mic),
+        SettingsPage::Providers => ("Providers", Icon::Sparkle),
         SettingsPage::Overlay => ("Overlay", Icon::Overlay),
         SettingsPage::Audio => ("Audio", Icon::Audio),
         SettingsPage::Appearance => ("Appearance", Icon::Drop),

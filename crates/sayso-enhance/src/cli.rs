@@ -60,7 +60,7 @@ fn collect(rx: Receiver<Vec<u8>>) -> String {
 
 /// Start the tool. `piped_stdin` gives it a pipe, else it reads an empty input.
 /// `quiet_stderr` sends its error output to the null device, else a pipe.
-fn spawn(inv: &Invocation, piped_stdin: bool, quiet_stderr: bool) -> Result<Child, EnhanceError> {
+pub(crate) fn spawn(inv: &Invocation, piped_stdin: bool, quiet_stderr: bool) -> Result<Child, EnhanceError> {
     let mut attempts = 0;
     loop {
         let mut command = new_command(inv);

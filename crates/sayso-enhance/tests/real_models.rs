@@ -30,6 +30,7 @@ fn claude_lists_models() {
         ProviderKind::ClaudeCli {
             path: None,
             model: "haiku".into(),
+            config_dir: None,
         },
     );
     assert!(!ids.is_empty());
@@ -49,6 +50,7 @@ fn codex_lists_models() {
         ProviderKind::CodexCli {
             path: None,
             model: None,
+            config_dir: None,
         },
     );
     assert!(!ids.is_empty());

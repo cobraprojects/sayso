@@ -38,6 +38,20 @@ pub struct Detected {
     pub done: bool,
 }
 
+/// The login of a CLI provider, as last read from the tool.
+#[derive(Clone, Default)]
+pub struct ProviderLogin {
+    /// None until the first check ends.
+    pub status: Option<sayso_enhance::AuthStatus>,
+    pub checking: bool,
+    /// The sign-in that runs now.
+    pub sign_in: Option<Arc<sayso_enhance::SignIn>>,
+    /// The sign-in page that the tool printed.
+    pub url: Option<String>,
+    /// Why the last sign-in did not work.
+    pub error: Option<String>,
+}
+
 /// A provider's models, as last fetched from the provider.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModelList {
@@ -102,6 +116,8 @@ pub struct AppModel {
     site_icons: crate::site_icons::SiteIcons,
     /// Model lists by provider id (or a draft key during onboarding).
     pub model_lists: HashMap<String, ModelList>,
+    /// The login of each CLI provider, by provider id.
+    pub logins: HashMap<String, ProviderLogin>,
     /// True when this Mac has Pindrop data to import.
     pub pindrop_found: bool,
     pub pindrop_import: crate::pindrop_import::PindropImport,
@@ -185,6 +201,7 @@ impl AppModel {
             icons,
             site_icons,
             model_lists: HashMap::new(),
+            logins: HashMap::new(),
             pindrop_found: sayso_store::pindrop::found(&crate::pindrop_import::pindrop_dir()),
             pindrop_import: Default::default(),
             update: sayso_update::Status::Idle { last_check: None },
@@ -891,6 +908,9 @@ impl AppModel {
     pub fn remove_provider(&mut self, id: &str, cx: &mut Context<Self>) {
         let id = id.to_string();
         self.model_lists.remove(&id);
+        if let Some(sign_in) = self.logins.remove(&id).and_then(|l| l.sign_in) {
+            sign_in.cancel();
+        }
         if let Some(Provider { kind: ProviderKind::OpenAiCompatible { api_key_account: Some(acc), .. }, .. }) =
             self.config.ai.providers.iter().find(|p| p.id == id)
         {
@@ -905,6 +925,161 @@ impl AppModel {
                 c.ai.enabled = false;
             }
         });
+    }
+
+    /// The folder of the login that Sayso keeps for a CLI provider, apart
+    /// from the login of the user's terminal.
+    pub fn sayso_login_dir(&self, id: &str) -> PathBuf {
+        self.paths.data_dir.join("logins").join(id)
+    }
+
+    /// Set the folder that holds the login of a CLI provider. None is the
+    /// folder that the tool uses by default.
+    pub fn set_provider_config_dir(&mut self, id: &str, dir: Option<String>, cx: &mut Context<Self>) {
+        let dir = dir.filter(|d| !d.trim().is_empty());
+        if self.config.ai.providers.iter().find(|p| p.id == id).is_none_or(|p| p.config_dir() == dir.as_deref()) {
+            return;
+        }
+        self.cancel_sign_in(id, cx);
+        // The models and the login belong to the account in the old folder.
+        self.model_lists.remove(id);
+        self.logins.remove(id);
+        let key = id.to_string();
+        self.edit_config(cx, move |c| {
+            if let Some(p) = c.ai.providers.iter_mut().find(|p| p.id == key)
+                && let ProviderKind::ClaudeCli { config_dir, .. } | ProviderKind::CodexCli { config_dir, .. } = &mut p.kind
+            {
+                *config_dir = dir;
+            }
+        });
+        self.check_provider_login(id, cx);
+    }
+
+    /// Ask the tool of a CLI provider if it is signed in. Does nothing for
+    /// other providers, and while a check or a sign-in runs.
+    pub fn check_provider_login(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(provider) = self.config.ai.providers.iter().find(|p| p.id == id).cloned() else { return };
+        if !matches!(provider.kind, ProviderKind::ClaudeCli { .. } | ProviderKind::CodexCli { .. }) {
+            return;
+        }
+        let login = self.logins.entry(id.to_string()).or_default();
+        if login.checking || login.sign_in.is_some() {
+            return;
+        }
+        login.checking = true;
+        cx.notify();
+        let key = id.to_string();
+        let checked = provider.config_dir().map(str::to_string);
+        cx.spawn(async move |this, cx| {
+            let status = cx.background_spawn(async move { sayso_enhance::auth_status(&provider, Duration::from_secs(10)) }).await;
+            let _ = this.update(cx, |m, cx| {
+                // The folder changed while the tool ran: the answer is about the old folder.
+                let stale = m.config.ai.providers.iter().find(|p| p.id == key).is_none_or(|p| p.config_dir() != checked.as_deref());
+                let Some(login) = m.logins.get_mut(&key) else { return };
+                login.checking = false;
+                if stale {
+                    m.check_provider_login(&key, cx);
+                    return;
+                }
+                // The names of the models come with the list.
+                let signed_in = matches!(status, Some(sayso_enhance::AuthStatus::SignedIn { .. }));
+                login.status = status;
+                if signed_in {
+                    m.load_provider_models(&key, false, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Start the sign-in of the tool of a CLI provider. The tool opens the
+    /// sign-in page in the browser.
+    pub fn sign_in_provider(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(provider) = self.config.ai.providers.iter().find(|p| p.id == id).cloned() else { return };
+        let login = self.logins.entry(id.to_string()).or_default();
+        if login.sign_in.is_some() {
+            return;
+        }
+        login.url = None;
+        login.error = None;
+        cx.notify();
+        let sign_in = match sayso_enhance::SignIn::start(&provider) {
+            Ok(sign_in) => Arc::new(sign_in),
+            Err(e) => {
+                login.error = Some(e.to_string());
+                return;
+            }
+        };
+        login.sign_in = Some(sign_in.clone());
+        let key = id.to_string();
+        cx.spawn(async move |this, cx| {
+            loop {
+                let waiting = sign_in.clone();
+                let event = cx.background_spawn(async move { waiting.next_event() }).await;
+                let more = matches!(event, Some(sayso_enhance::SignInEvent::Url(_)));
+                let _ = this.update(cx, |m, cx| m.sign_in_event(&key, &sign_in, event, cx));
+                if !more {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn sign_in_event(&mut self, id: &str, sign_in: &Arc<sayso_enhance::SignIn>, event: Option<sayso_enhance::SignInEvent>, cx: &mut Context<Self>) {
+        use sayso_enhance::{AuthStatus, SignInEvent};
+        let Some(login) = self.logins.get_mut(id) else { return };
+        // False after Cancel, and when a newer sign-in runs.
+        let current = login.sign_in.as_ref().is_some_and(|s| Arc::ptr_eq(s, sign_in));
+        match event {
+            Some(SignInEvent::Url(url)) => {
+                if current {
+                    login.url = Some(url);
+                }
+            }
+            Some(SignInEvent::Finished(status)) => {
+                let signed_in = matches!(status, AuthStatus::SignedIn { .. });
+                if current {
+                    login.sign_in = None;
+                    login.url = None;
+                    if !signed_in {
+                        login.error = Some("The sign-in did not finish. Select Sign in to try again.".into());
+                    }
+                }
+                if login.sign_in.is_none() {
+                    login.status = Some(status);
+                }
+                if signed_in {
+                    self.load_provider_models(id, true, cx);
+                }
+            }
+            None => {
+                if current {
+                    login.sign_in = None;
+                    login.url = None;
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Stop the sign-in of a provider, if one runs.
+    pub fn cancel_sign_in(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(login) = self.logins.get_mut(id) else { return };
+        if let Some(sign_in) = login.sign_in.take() {
+            sign_in.cancel();
+            login.url = None;
+            cx.notify();
+        }
+    }
+
+    /// Give the code from the sign-in page to the tool.
+    pub fn send_sign_in_code(&mut self, id: &str, code: &str, cx: &mut Context<Self>) {
+        let Some(login) = self.logins.get_mut(id) else { return };
+        let Some(sign_in) = login.sign_in.clone() else { return };
+        login.error = sign_in.send_code(code.trim()).err().map(|e| format!("Sayso could not send the code: {e}"));
+        cx.notify();
     }
 
     /// Fetch the model list of a saved provider. Without `force`, a list that

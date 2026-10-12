@@ -27,6 +27,7 @@ fn claude(path: &Path) -> Provider {
     provider(ProviderKind::ClaudeCli {
         path: Some(path.display().to_string()),
         model: "haiku".into(),
+        config_dir: None,
     })
 }
 
@@ -34,6 +35,7 @@ fn codex(path: &Path) -> Provider {
     provider(ProviderKind::CodexCli {
         path: Some(path.display().to_string()),
         model: None,
+        config_dir: None,
     })
 }
 

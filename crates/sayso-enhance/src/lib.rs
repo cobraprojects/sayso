@@ -11,6 +11,7 @@
 //! `Enhancer`. API keys come from a [`SecretStore`], never from the config.
 //! All calls block: run them on a background thread.
 
+mod auth;
 mod claude;
 mod cli;
 mod codex;
@@ -22,6 +23,7 @@ mod secrets;
 #[cfg(windows)]
 mod win_shim;
 
+pub use auth::{AuthStatus, SIGN_IN_LIMIT, SignIn, SignInEvent, auth_status};
 pub use claude::ClaudeCli;
 pub use codex::CodexCli;
 pub use engine::EngineModel;
@@ -67,11 +69,15 @@ pub fn build_enhancer(
             }
             Box::new(enhancer)
         }
-        ProviderKind::ClaudeCli { path, model } => {
-            Box::new(ClaudeCli::new(&provider.id, path.as_ref().map(PathBuf::from), model).with_default_timeout(cli_timeout))
-        }
-        ProviderKind::CodexCli { path, model } => Box::new(
-            CodexCli::new(&provider.id, path.as_ref().map(PathBuf::from), model.clone()).with_default_timeout(cli_timeout),
+        ProviderKind::ClaudeCli { path, model, .. } => Box::new(
+            ClaudeCli::new(&provider.id, path.as_ref().map(PathBuf::from), model)
+                .with_config_dir(provider.config_dir().map(PathBuf::from))
+                .with_default_timeout(cli_timeout),
+        ),
+        ProviderKind::CodexCli { path, model, .. } => Box::new(
+            CodexCli::new(&provider.id, path.as_ref().map(PathBuf::from), model.clone())
+                .with_config_dir(provider.config_dir().map(PathBuf::from))
+                .with_default_timeout(cli_timeout),
         ),
         ProviderKind::AppleIntelligence => Box::new(EngineModel::new(&provider.id, engine).with_default_timeout(http_timeout)),
     }
@@ -116,9 +122,9 @@ mod tests {
             zero_data_retention: false,
         });
         assert!(build_enhancer(&cloud, &secrets, &cfg, None).is_cloud());
-        let claude = provider(ProviderKind::ClaudeCli { path: Some("/nowhere/claude".into()), model: "haiku".into() });
+        let claude = provider(ProviderKind::ClaudeCli { path: Some("/nowhere/claude".into()), model: "haiku".into(), config_dir: None });
         assert!(build_enhancer(&claude, &secrets, &cfg, None).is_cloud());
-        let codex = provider(ProviderKind::CodexCli { path: Some("/nowhere/codex".into()), model: None });
+        let codex = provider(ProviderKind::CodexCli { path: Some("/nowhere/codex".into()), model: None, config_dir: None });
         assert!(build_enhancer(&codex, &secrets, &cfg, None).is_cloud());
     }
 
@@ -169,7 +175,7 @@ mod tests {
 
     #[test]
     fn missing_cli_binary_gives_not_configured() {
-        let p = provider(ProviderKind::ClaudeCli { path: Some("/nowhere/claude".into()), model: "haiku".into() });
+        let p = provider(ProviderKind::ClaudeCli { path: Some("/nowhere/claude".into()), model: "haiku".into(), config_dir: None });
         let e = build_enhancer(&p, &MemoryStore::new(), &Ai::default(), None);
         assert!(matches!(e.enhance(&request()), Err(EnhanceError::NotConfigured(_))));
     }

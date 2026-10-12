@@ -596,11 +596,11 @@ impl AppModel {
     pub fn enhance_entry(&mut self, entry: HistoryEntry, cx: &mut Context<Self>) {
         let style = self.active_style();
         let Some(provider) = self.provider_for(&style).cloned() else {
-            self.notice("Set up an AI provider in Styles first".into(), cx);
+            self.notice("Set up an AI provider in Settings first".into(), cx);
             return;
         };
         if provider.needs_model() {
-            self.notice(format!("Choose a model for {} in Styles first", provider.name), cx);
+            self.notice(format!("Choose a model for {} in Settings first", provider.name), cx);
             return;
         }
         let Some(store) = self.services.store.clone() else { return };
