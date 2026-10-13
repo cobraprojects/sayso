@@ -1,8 +1,9 @@
-//! The styles page. See the Paper board "Hub — Styles".
+//! The styles page. See the Paper page "Styles · Compact".
 //!
-//! A grid of style cards (click to make one active, Edit to change it), the
-//! style editor panel, and a line that names the default provider. The
-//! providers are in Settings.
+//! A panel that shows the featured style with an example, one row for each
+//! style (click to make it the default, Edit to change it), the style editor
+//! panel, and a line that names the default provider. The providers are in
+//! Settings.
 
 use super::ext::StyleRoute;
 use super::kit::{self, ui};
@@ -19,6 +20,13 @@ use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
 use sayso_ui::{ActivePaper, Colors, text};
+
+/// The style that the page shows with an example.
+const FEATURED_STYLE_ID: &str = "rambling";
+const FEATURED_SAID: &str = "so um I was looking at the checkout page and honestly the banner is too tall like way too tall on phones \
+    and I was thinking we could, well, anyway it covers the pay button so yeah we're gonna need the banner shorter";
+const FEATURED_WRITTEN: &str =
+    "I was looking at the checkout page. Honestly, the banner is way too tall on phones. It covers the pay button, so we're gonna need it shorter.";
 
 struct Editor {
     id: String,
@@ -877,53 +885,121 @@ impl StylesPage {
     }
 
     // -----------------------------------------------------------------------
-    // Cards
+    // Featured style and rows
     // -----------------------------------------------------------------------
 
-    fn card(&self, style: &Style, active: bool, cx: &mut Context<Self>) -> AnyElement {
+    fn edit_button(&self, id: &str, style: &Style, cx: &mut Context<Self>) -> Button {
+        let st = style.clone();
+        Button::new(SharedString::from(format!("{id}-{}", style.id)), "Edit").small().ghost().on_click(cx.listener(move |this, _, w, cx| {
+            cx.stop_propagation();
+            this.open_editor(Some(st.clone()), w, cx);
+        }))
+    }
+
+    /// The featured style: what it does, and one example of speech and the
+    /// text that the style makes from it.
+    fn featured(&self, style: &Style, active: bool, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
         let c = cx.paper().colors;
-        let route = self.model.read(cx).style_route(style);
-        let line_color = match &route {
+        let id = style.id.clone();
+        let actions = div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .pt(px(6.))
+            .map(|d| {
+                if active {
+                    d.child(Badge::new("Default", BadgeTone::Ink))
+                } else {
+                    d.child(Button::new("featured-default", "Make default").primary().small().on_click(cx.listener(move |this, _, _, cx| {
+                        let id = id.clone();
+                        this.model.update(cx, |m, cx| m.set_active_style(&id, cx));
+                    })))
+                }
+            })
+            .child(self.edit_button("featured-edit", style, cx));
+        let about = div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .when(!narrow, |d| d.w(px(252.)))
+            .gap(px(8.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .h(px(20.))
+                    .child(kit::seal_dot(Some(style.ink.as_str()), 14., cx))
+                    .child(kit::caps("Recommended", 11., c.graphite)),
+            )
+            .child(text::title(style.name.clone(), 26., &c).line_height(px(32.)))
+            .child(ui(style.description.clone(), 14., 20., FontWeight::NORMAL, c.graphite))
+            .child(actions);
+        let side = |label: &'static str, body: Div| div().flex().flex_col().flex_1().min_w_0().gap(px(6.)).py(px(14.)).px(px(16.)).child(kit::caps(label, 11., c.graphite)).child(body);
+        let example = div()
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .rounded(px(10.))
+            .debossed(&c)
+            .child(side("You say", kit::mono(FEATURED_SAID, 12., c.graphite).line_height(px(18.))))
+            .child(side("Sayso writes", ui(FEATURED_WRITTEN, 14., 20., FontWeight::MEDIUM, c.ink)).border_l_1().border_color(c.deboss_shade));
+        div()
+            .flex()
+            .when(narrow, |d| d.flex_col())
+            .gap(px(if narrow { 16. } else { 24. }))
+            .py(px(20.))
+            .px(px(22.))
+            .rounded(px(14.))
+            .bg(c.sheet_raised)
+            .shadow(vec![
+                BoxShadow::new(px(0.), px(1.), c.highlight(1.0)).inset(),
+                BoxShadow::new(px(0.), px(1.), c.shadow(0.14)).blur_radius(px(2.)),
+                BoxShadow::new(px(0.), px(8.), c.shadow(0.08)).blur_radius(px(22.)),
+            ])
+            .child(about)
+            .child(example)
+            .into_any_element()
+    }
+
+    /// The detail of a style row: the apps and sites of the style, or its
+    /// provider when that is not the default provider.
+    fn row_detail(&self, style: &Style, cx: &App) -> Option<(String, Hsla)> {
+        let c = cx.paper().colors;
+        if let Some(line) = self.target_line(&style.id, cx) {
+            return Some((line, c.ink));
+        }
+        let m = self.model.read(cx);
+        let route = m.style_route(style);
+        let color = match &route {
+            StyleRoute::NoAi => c.graphite,
+            StyleRoute::NeedsModel { .. } => c.danger,
+            // The line below the rows names the default provider.
+            _ if route == m.style_route(&Style { provider: None, model: None, ..style.clone() }) => return None,
             StyleRoute::Cloud { .. } => c.accent,
             StyleRoute::Local { .. } => c.success,
-            StyleRoute::NoAi => c.graphite,
             StyleRoute::NeedsProvider => c.pencil,
-            StyleRoute::NeedsModel { .. } => c.danger,
         };
+        Some((route.line(), color))
+    }
+
+    fn row(&self, style: &Style, active: bool, last: bool, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
+        let c = cx.paper().colors;
         let hovered = self.hovered.as_deref() == Some(style.id.as_str());
-        let rules_on = self.model.read(cx).config.ai.style_rules.enabled;
-        let targets = self.target_line(&style.id, cx);
+        let detail = self.row_detail(style, cx);
+        let has_rule = self.target_line(&style.id, cx).is_some();
         let id2 = style.id.clone();
         let id3 = style.id.clone();
-        let st = style.clone();
-        let edit = Button::new(SharedString::from(format!("edit-{}", style.id)), "Edit").small().ghost().on_click(cx.listener(
-            move |this, _, w, cx| {
-                cx.stop_propagation();
-                this.open_editor(Some(st.clone()), w, cx);
-            },
-        ));
-        let mut shadows = Vec::new();
-        if active {
-            shadows.push(BoxShadow::new(px(0.), px(0.), c.ink).spread_radius(px(2.)));
-        }
-        shadows.extend([
-            BoxShadow::new(px(0.), px(1.), c.highlight(1.0)).inset(),
-            BoxShadow::new(px(0.), px(1.), c.shadow(0.14)).blur_radius(px(2.)),
-            BoxShadow::new(px(0.), px(8.), c.shadow(if active { 0.12 } else { 0.08 })).blur_radius(px(22.)),
-        ]);
+        let edit = self.edit_button("edit", style, cx);
         div()
             .id(SharedString::from(format!("style-{}", style.id)))
             .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .h(px(if rules_on { 200. } else { 178. }))
-            .gap(px(10.))
-            .py(px(18.))
-            .px(px(20.))
-            .rounded(px(14.))
-            .bg(c.sheet_raised)
-            .shadow(shadows)
+            .items_center()
+            .gap(px(14.))
+            .h(px(48.))
+            .px(px(4.))
+            .when(!last, |d| d.border_b_1().border_color(c.rule))
+            .when(hovered, |d| d.bg(c.deboss.opacity(0.55)))
             .cursor_pointer()
             .on_hover(cx.listener(move |this, h: &bool, _, cx| {
                 if *h {
@@ -937,35 +1013,23 @@ impl StylesPage {
                 let id = id3.clone();
                 this.model.update(cx, |m, cx| m.set_active_style(&id, cx));
             }))
+            .child(kit::seal_dot(style.uses_ai().then_some(style.ink.as_str()), 14., cx))
+            .child(text::title(style.name.clone(), 18., &c).line_height(px(24.)).flex_none().w(px(112.)).truncate())
+            .child(ui(style.description.clone(), 14., 20., FontWeight::NORMAL, c.graphite).flex_1().min_w_0().truncate())
+            .child(div().flex().flex_none().items_center().gap(px(6.)).w(px(if narrow { 150. } else { 236. })).when_some(detail, |d, (line, color)| {
+                d.when(has_rule, |d| d.child(icon(Icon::ArrowRight, 11., c.graphite))).child(ui(line, 12., 16., FontWeight::MEDIUM, color).min_w_0().truncate())
+            }))
             .child(
                 div()
                     .flex()
+                    .flex_none()
                     .items_center()
-                    .justify_between()
-                    .h(px(22.))
-                    .child(kit::seal_dot(style.uses_ai().then_some(style.ink.as_str()), 16., cx))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .when(hovered || active, |d| d.child(edit))
-                            .when(active, |d| d.child(Badge::new("Default", BadgeTone::Ink))),
-                    ),
+                    .justify_end()
+                    .w(px(80.))
+                    // Edit takes the place of the badge, so the row keeps its columns.
+                    .when(hovered, |d| d.child(edit))
+                    .when(active && !hovered, |d| d.child(Badge::new("Default", BadgeTone::Ink))),
             )
-            .child(text::title(style.name.clone(), 24., &c).line_height(px(30.)))
-            .child(ui(style.description.clone(), 14., 20., FontWeight::NORMAL, c.graphite).flex_1().line_clamp(2).text_ellipsis())
-            .when_some(targets, |d, line| {
-                d.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .child(icon(Icon::ArrowRight, 11., c.graphite))
-                        .child(ui(line, 12., 16., FontWeight::MEDIUM, c.ink).truncate()),
-                )
-            })
-            .child(ui(route.line(), 12., 16., FontWeight::MEDIUM, line_color).truncate())
             .into_any_element()
     }
 
@@ -1049,18 +1113,11 @@ impl Render for StylesPage {
             cx,
         );
         let pad = crate::layout::page_pad(window, &self.model.read(cx).config);
-        // Three cards in a row, or two on a narrow page.
-        let columns = if crate::layout::page_narrow(window, &self.model.read(cx).config) { 2 } else { 3 };
-        let mut grid = div().flex().flex_col().gap(px(18.));
-        for chunk in styles.chunks(columns) {
-            let mut row = div().flex().gap(px(18.));
-            for s in chunk {
-                row = row.child(self.card(s, s.id == active, cx));
-            }
-            for _ in chunk.len()..columns {
-                row = row.child(div().flex_1());
-            }
-            grid = grid.child(row);
+        let narrow = crate::layout::page_narrow(window, &self.model.read(cx).config);
+        let featured = styles.iter().find(|s| s.id == FEATURED_STYLE_ID).map(|s| self.featured(s, s.id == active, narrow, cx));
+        let mut rows = div().flex().flex_col();
+        for (i, s) in styles.iter().enumerate() {
+            rows = rows.child(self.row(s, s.id == active, i + 1 == styles.len(), narrow, cx));
         }
         let errors = self.model.read(cx).styles.errors.clone();
         let providers = self.provider_line(cx);
@@ -1075,12 +1132,13 @@ impl Render for StylesPage {
                         .flex()
                         .flex_col()
                         .w_full()
-                        .gap(px(28.))
+                        .gap(px(24.))
                         .py(px(pad.min(44.)))
                         .px(px(pad))
                         .child(head)
                         .children(errors.into_iter().map(|e| Banner::new(BannerKind::Warning, format!("A style file has an error: {e}"))))
-                        .child(grid)
+                        .children(featured)
+                        .child(rows)
                         .child(providers),
                 ),
             )

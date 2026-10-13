@@ -20,6 +20,20 @@
 #   url = "https://…"
 
 [[release]]
+version = "0.8.0"
+title = "A style for when you think out loud"
+
+[[release.item]]
+icon = "sparkle"
+title = "The Rambling style"
+text = "Speak a long thought as it comes. Rambling joins the points that you repeat, removes the thoughts that you drop, and breaks run-on sentences into clear text, in your own words. Choose it on the Styles page. It works best with a large model."
+
+[[release.item]]
+icon = "styles"
+title = "A smaller Styles page"
+text = "Each style is now one row, and an example shows what Rambling does to your speech."
+
+[[release]]
 version = "0.7.1"
 title = "Styles keep your words"
 
