@@ -105,6 +105,24 @@ pub fn builtin_styles() -> Vec<Style> {
              Keep the speaker's word choices, tone, and all facts.",
         ),
         s(
+            "rambling",
+            "Rambling",
+            "#6B4A6E",
+            "For thinking out loud. Joins repeats and run-on sentences into clear text.",
+            "The speaker thinks out loud. Write the text that they would write after they have thought it through. \
+             Break run-on sentences into clear sentences and fix grammar mistakes. \
+             Say each point one time: when the speaker repeats a point or comes back to it, put it in one place. \
+             Remove a thought that the speaker drops, and phrases that only fill time (\"like I said\", \"anyway\", \"what was I saying\"). \
+             Keep every fact, name, number, request, and question, and the subject that the speaker names at the start. \
+             Keep the speaker's word choices, slang, and contractions. Words that show feeling (\"honestly\", \"really\", \"super\") stay. \
+             A sentence that starts with \"I mean\" or \"no wait\" and gives an opinion or a warning also stays. \
+             This is not a summary: the text gets shorter only by the repeats and the dropped thoughts. \
+             Start a new paragraph when the topic changes. \
+             For \"so I was looking at the checkout page and honestly the thing is the banner is too tall like way too tall on phones \
+             and I was thinking we could, well, anyway it covers the pay button so yeah we're gonna need the banner shorter on phones\", the reply is:\n\
+             I was looking at the checkout page. Honestly, the banner is way too tall on phones. It covers the pay button, so we're gonna need it shorter.",
+        ),
+        s(
             "message",
             "Message",
             "#2D3C8C",
@@ -152,9 +170,14 @@ pub const BASE_PROMPT_FILE: &str = "base.md";
 /// rule with "do not" ("do not write out contractions") had the opposite
 /// effect. An example leaks into a reply when it is too much like the
 /// transcript, so keep the example words rare.
+///
+/// Rules that say when a cue is not a correction ("no wait" as a warning), a
+/// rule for a thought that the speaker drops ("never mind"), and a rule to
+/// keep the language of the transcript all made Apple Intelligence worse on
+/// the cases that passed before. A large model does these without a rule.
 pub const DEFAULT_BASE_PROMPT: &str = r#"- Fix punctuation and capitalization. Each sentence starts with a capital letter and ends with a mark.
 - Remove filler words (um, uh, you know), stutters, and false starts. Keep all other words, also slang.
-- When the speaker corrects themselves ("no wait", "scratch that", "I mean", "sorry"), keep only the final version.
+- When the speaker corrects themselves ("no wait", "scratch that", "I mean", "sorry"), keep only the final version. The other parts of the sentence stay.
 - Write numbers as digits: 25,000, 10%, $40, 5:30 PM, March 3. One to nine can stay words.
 - Write acronyms in capitals (API, URL).
 - Keep contractions (don't, I'm, can't) as they are.
@@ -163,6 +186,7 @@ Examples:
 uh we sold forty two units for nine hundred dollars each -> We sold 42 units for $900 each.
 call me on thursday scratch that on friday morning -> Call me on Friday morning.
 the rent is eight hundred dollars sorry nine hundred dollars a month -> The rent is $900 a month.
+put sixty chairs in the hall actually make that eighty chairs and lock the side door -> Put 80 chairs in the hall and lock the side door.
 ask sean about the s d k -> Ask Sean about the SDK.
 I actually agree with her -> I actually agree with her.
 um I don't think it's gonna work for all twenty five of them it's kind of janky -> I don't think it's gonna work for all 25 of them. It's kind of janky.
@@ -334,7 +358,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let lib = StyleLibrary::load(dir.path());
         let ids: Vec<_> = lib.styles().map(|s| s.id.as_str()).collect();
-        assert_eq!(ids, ["clean", "polished", "message", "email", "notes", "raw"]);
+        assert_eq!(ids, ["clean", "polished", "rambling", "message", "email", "notes", "raw"]);
         assert!(!lib.get("raw").unwrap().uses_ai());
     }
 

@@ -41,6 +41,12 @@ const LONG: &str = "so um the plan for next week is that we finish the import sc
     the support team to read them before thursday because the release goes out on friday morning and nobody \
     wants to fix typos after that";
 
+const RAMBLE: &str = "okay so um I've been thinking about the onboarding and I think the problem is that there's too many steps \
+    like there's seven steps and nobody finishes seven steps so I think we should cut it down to three and uh what was I saying \
+    oh yeah the model download that should happen in the background because right now people just sit there and wait \
+    and like I said seven steps is too many so we cut it to three and the other thing is we should ask dana if the \
+    copy is okay before we ship it";
+
 const CASES: &[Case] = &[
     // Self-corrections.
     clean("correction-no-wait", "um so the meeting is on tuesday no wait wednesday at three thirty", &["Wednesday", "3:30"], &["tuesday", "wait", "um"]),
@@ -50,6 +56,11 @@ const CASES: &[Case] = &[
     clean("correction-in-question", "can you book the room for monday no wait tuesday", &["Tuesday", "?"], &["monday", "wait"]),
     clean("actually-with-meaning", "I actually like the second design better", &["actually", "second design"], &[]),
     clean("no-with-meaning", "no I do not think that is a good idea", &["No", "good idea"], &[]),
+    clean("correction-one-item", "let's schedule the design review for thursday morning actually no let's make it friday at ten", &["design review", "Friday"], &["thursday", "actually"]),
+    clean("correction-keeps-rest", "could you grab the green tea from the pantry actually make that peppermint tea and please check if we have any honey left", &["peppermint tea", "pantry", "honey"], &["green"]),
+    clean("wait-with-meaning", "watch the left lane no wait there's a truck coming so slow down", &["wait", "left lane", "truck coming", "slow down"], &[]),
+    clean("i-mean-with-meaning", "the demo went fine I mean honestly it was better than last time", &["he demo went fine", "onestly", "better than last time"], &[]),
+    clean("you-know-what", "you know what that sounds great let's do it", &["ou know what", "sounds great"], &[]),
     // Numbers.
     clean("numbers-large", "we processed twenty five thousand records in thirty five files", &["25,000", "35"], &["twenty", "thirty"]),
     clean("numbers-money-percent", "the price went up by ten percent to forty dollars", &["10%", "$40"], &[]),
@@ -72,7 +83,13 @@ const CASES: &[Case] = &[
     clean("stutter", "I I I think the the server is down", &["I think the server is down"], &[]),
     clean("dictionary", "um open pin drop and check if say so has an update", &["Pindrop", "Sayso"], &["um", "Devhouse", "ForgeCAD"]),
     clean("long", LONG, &["import screen", "Monday", "Tuesday", "Dana", "release notes", "support team", "Thursday", "Friday morning", "typos"], &["um", "uh"]),
+    clean("filler-mid-sentence", "I am uh really tired and we were um about to leave", &["I am really tired", "we were about to leave"], &["uh", "um"]),
+    clean("like-with-meaning", "I like the blue one and it looks like the old logo", &["I like the blue one", "looks like the old logo"], &[]),
+    clean("dropped-thought", "I want to go to the never mind can you send me the address", &["send me the address", "?"], &["never mind", "want to go"]),
+    clean("language-stays", "euh la réunion est à quinze heures demain", &["réunion", "demain"], &["euh", "meeting", "tomorrow"]),
     // The speaker's own words stay.
+    clean("voice-greeting", "hey I am just so incredibly drained from this week", &["Hey", "just so incredibly drained"], &[]),
+    clean("voice-intensifier", "yo honestly that was a really great talk", &["Yo", "onestly", "really great talk"], &[]),
     clean("voice-contractions", "sorry I don't think you understood me so let's start over really fast", &["don't", "really fast"], &["do not", "quickly"]),
     clean("voice-cannot", "I can resize them but I can't actually move the entire room", &["can't", "actually"], &["cannot"]),
     clean("voice-gonna", "I'm gonna throw some other things out so that we can consider them", &["I'm gonna"], &["going"]),
@@ -85,6 +102,11 @@ const CASES: &[Case] = &[
     Case { name: "message", style: "message", transcript: "hey um are we still on for lunch tomorrow at noon no wait at one", must: &["lunch tomorrow"], must_not: &["um", "noon", "dear", "regards"] },
     Case { name: "email", style: "email", transcript: "hi dana can you send me the q three report by friday thanks", must: &["Dana", "Q3", "Friday", "\n"], must_not: &["subject", "apple", "your name"] },
     Case { name: "notes", style: "notes", transcript: "we need to fix the login bug update the docs and ship version two by friday", must: &["- ", "login bug", "docs", "Friday", "\n"], must_not: &[] },
+    Case { name: "rambling", style: "rambling", transcript: RAMBLE, must: &["onboarding", "three", "background", "Dana", "copy"], must_not: &["um", "uh", "like I said", "what was I saying", "oh yeah"] },
+    Case { name: "rambling-dropped-thought", style: "rambling", transcript: "we could move the launch to the, well, actually I don't know, anyway the launch stays on the ninth and and we need the press kit by the fifth because the the reporters want a few days with it", must: &["launch stays", "press kit", "reporters"], must_not: &["anyway", "and and", "the the"] },
+    Case { name: "rambling-short", style: "rambling", transcript: "is the staging server up yet", must: &["s the staging server up yet?"], must_not: &["yes", "sorry"] },
+    Case { name: "rambling-keeps-warning", style: "rambling", transcript: "so the deploy is um ready and the the tests pass I mean honestly I'm surprised they pass but no wait do not merge yet because the migration is still running", must: &["tests pass", "surprised", "merge yet", "migration"], must_not: &["um", "the the"] },
+    Case { name: "voice-rambling", style: "rambling", transcript: "honestly that whole migration was super janky and I don't wanna do it again I mean we lost like two days and I really don't wanna do that again", must: &["onestly", "super janky", "two days"], must_not: &["want to", "unreliable"] },
     // The other styles also keep the speaker's own words.
     Case { name: "voice-polished", style: "polished", transcript: "honestly the new onboarding flow are kind of janky and it don't feel finished", must: &["onestly", "janky", "kind of"], must_not: &["it don't", "flow are"] },
     Case { name: "voice-message-strong-word", style: "message", transcript: "the sesame street x account is so unhinged sometimes", must: &["unhinged"], must_not: &["wild", "crazy"] },

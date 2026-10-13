@@ -156,6 +156,7 @@ Settings shows the active path for each kind.
 - Built-in styles:
   - Clean (default)
   - Polished
+  - Rambling
   - Message
   - Email
   - Notes
