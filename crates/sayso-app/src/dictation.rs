@@ -434,7 +434,7 @@ impl AppModel {
                         timings.step_ms = started.elapsed().as_millis() as u64;
                         timings.setup_ms = setup_ms;
                         timings.provider_kind = provider.kind.name().into();
-                        timings.thinking = provider.thinking().map(|level| level.as_str().into());
+                        timings.thinking = provider.thinking_sent().map(str::to_string);
                     }
                     out
                 })

@@ -265,40 +265,30 @@ impl Default for Sounds {
     }
 }
 
-/// The thinking level of a CLI provider: how much the model thinks before it
-/// answers. More thinking is slower. The tools have no level below `low`
-/// that all their models take.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Thinking {
-    #[default]
-    Low,
-    Medium,
-    High,
+/// The thinking level that a CLI provider gets when the user chose none.
+/// All models of the two tools that have levels take it.
+pub const DEFAULT_CLI_THINKING: &str = "low";
+
+/// The thinking levels that Sayso knows, from the least thinking to the most.
+/// A provider can report other names; they sort after these.
+const THINKING_ORDER: [&str; 7] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/// Put thinking levels in order, from the least thinking to the most, without duplicates.
+pub fn sort_thinking(mut levels: Vec<String>) -> Vec<String> {
+    let rank = |level: &String| THINKING_ORDER.iter().position(|known| known == level).unwrap_or(THINKING_ORDER.len());
+    levels.sort_by_key(rank);
+    levels.dedup();
+    levels
 }
 
-impl Thinking {
-    pub const ALL: [Thinking; 3] = [Thinking::Low, Thinking::Medium, Thinking::High];
-
-    /// The value for the tools: `--effort` of Claude and `model_reasoning_effort` of Codex.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Thinking::Low => "low",
-            Thinking::Medium => "medium",
-            Thinking::High => "high",
+/// The name of a thinking level for the UI.
+pub fn thinking_label(level: &str) -> String {
+    match level {
+        "xhigh" => "Extra high".into(),
+        other => {
+            let mut chars = other.chars();
+            chars.next().map(|first| first.to_uppercase().chain(chars).collect()).unwrap_or_default()
         }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Thinking::Low => "Low",
-            Thinking::Medium => "Medium",
-            Thinking::High => "High",
-        }
-    }
-
-    fn is_low(&self) -> bool {
-        *self == Thinking::Low
     }
 }
 
@@ -317,6 +307,9 @@ pub enum ProviderKind {
         /// OpenRouter only: route to zero-data-retention endpoints.
         #[serde(default)]
         zero_data_retention: bool,
+        /// The thinking level. None sends no level, and the model uses its own default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thinking: Option<String>,
     },
     ClaudeCli {
         #[serde(default)]
@@ -326,8 +319,9 @@ pub enum ProviderKind {
         /// The folder that holds the login of the tool (`CLAUDE_CONFIG_DIR`). None uses the tool's own default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         config_dir: Option<String>,
-        #[serde(default, skip_serializing_if = "Thinking::is_low")]
-        thinking: Thinking,
+        /// The thinking level. None uses [`DEFAULT_CLI_THINKING`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thinking: Option<String>,
     },
     CodexCli {
         #[serde(default)]
@@ -337,8 +331,9 @@ pub enum ProviderKind {
         /// The folder that holds the login of the tool (`CODEX_HOME`). None uses the tool's own default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         config_dir: Option<String>,
-        #[serde(default, skip_serializing_if = "Thinking::is_low")]
-        thinking: Thinking,
+        /// The thinking level. None uses [`DEFAULT_CLI_THINKING`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thinking: Option<String>,
     },
     /// The language model of macOS, which the engine runs on this Mac.
     AppleIntelligence,
@@ -390,17 +385,41 @@ impl Provider {
         }
     }
 
-    /// The thinking level. None for a kind that has no such setting.
-    pub fn thinking(&self) -> Option<Thinking> {
+    /// The thinking level that the user chose. None when the user chose
+    /// none, and for a kind without levels.
+    pub fn thinking(&self) -> Option<&str> {
         match &self.kind {
-            ProviderKind::ClaudeCli { thinking, .. } | ProviderKind::CodexCli { thinking, .. } => Some(*thinking),
-            _ => None,
+            ProviderKind::OpenAiCompatible { thinking, .. }
+            | ProviderKind::ClaudeCli { thinking, .. }
+            | ProviderKind::CodexCli { thinking, .. } => thinking.as_deref().filter(|level| !level.trim().is_empty()),
+            ProviderKind::AppleIntelligence => None,
         }
     }
 
-    pub fn set_thinking(&mut self, level: Thinking) {
-        if let ProviderKind::ClaudeCli { thinking, .. } | ProviderKind::CodexCli { thinking, .. } = &mut self.kind {
+    /// The thinking level that goes to the provider. None sends no level.
+    pub fn thinking_sent(&self) -> Option<&str> {
+        let default = matches!(self.kind, ProviderKind::ClaudeCli { .. } | ProviderKind::CodexCli { .. }).then_some(DEFAULT_CLI_THINKING);
+        self.thinking().or(default)
+    }
+
+    pub fn set_thinking(&mut self, level: Option<String>) {
+        if let ProviderKind::OpenAiCompatible { thinking, .. }
+        | ProviderKind::ClaudeCli { thinking, .. }
+        | ProviderKind::CodexCli { thinking, .. } = &mut self.kind
+        {
             *thinking = level;
+        }
+    }
+
+    /// Make the thinking level fit a model that offers `levels`, from the
+    /// least thinking to the most. A level that the model does not have
+    /// becomes its lowest level. A model without levels gets none.
+    pub fn fit_thinking(&mut self, levels: &[String]) {
+        let fits = self.thinking_sent().is_some_and(|sent| levels.iter().any(|level| level == sent));
+        if levels.is_empty() {
+            self.set_thinking(None);
+        } else if !fits {
+            self.set_thinking(levels.first().cloned());
         }
     }
 
@@ -827,6 +846,7 @@ mod tests {
                 model: "meta-llama/llama-3.3-8b-instruct".into(),
                 api_key_account: Some("openrouter".into()),
                 zero_data_retention: true,
+                thinking: None,
             },
         });
         c.ai.default_provider = Some("openrouter".into());
@@ -842,24 +862,48 @@ mod tests {
         let old = "[[ai.providers]]\nid = \"claude\"\nname = \"Claude CLI\"\nkind = \"claude_cli\"\nmodel = \"haiku\"\n";
         let read = Config::parse(old);
         assert!(read.issues.is_empty(), "{:?}", read.issues);
-        assert_eq!(read.config.ai.providers[0].thinking(), Some(Thinking::Low));
-        assert!(!read.config.to_toml().contains("thinking"), "the default level is not written");
+        let claude = &read.config.ai.providers[0];
+        assert_eq!((claude.thinking(), claude.thinking_sent()), (None, Some("low")));
+        assert!(!read.config.to_toml().contains("thinking"), "no level is written until the user chooses one");
 
         let mut c = read.config;
-        c.ai.providers[0].set_thinking(Thinking::High);
-        assert!(c.to_toml().contains("thinking = \"high\""));
+        c.ai.providers[0].set_thinking(Some("xhigh".into()));
+        assert!(c.to_toml().contains("thinking = \"xhigh\""));
         let back = Config::parse(&c.to_toml());
         assert!(back.issues.is_empty(), "{:?}", back.issues);
-        assert_eq!(back.config.ai.providers[0].thinking(), Some(Thinking::High));
+        assert_eq!(back.config.ai.providers[0].thinking_sent(), Some("xhigh"));
 
-        // A kind without the setting ignores it.
+        // An HTTP provider sends no level until the user chooses one.
+        let http = Provider {
+            id: "o".into(),
+            name: "O".into(),
+            kind: ProviderKind::OpenAiCompatible { base_url: "http://x".into(), model: "m".into(), api_key_account: None, zero_data_retention: false, thinking: None },
+        };
+        assert_eq!(http.thinking_sent(), None);
+    }
+
+    #[test]
+    fn a_new_model_gets_a_level_that_it_has() {
+        let levels = |names: &[&str]| sort_thinking(names.iter().map(|n| n.to_string()).collect());
+        assert_eq!(levels(&["high", "odd", "none", "low", "high"]), ["none", "low", "high", "odd"]);
+        assert_eq!((thinking_label("xhigh"), thinking_label("none")), ("Extra high".to_string(), "None".to_string()));
+
+        let mut claude = Provider { id: "k".into(), name: "K".into(), kind: ProviderKind::ClaudeCli { path: None, model: "haiku".into(), config_dir: None, thinking: None } };
+        claude.fit_thinking(&levels(&["low", "medium", "high"]));
+        assert_eq!(claude.thinking(), None, "the default level fits, so nothing is written");
+        claude.set_thinking(Some("max".into()));
+        claude.fit_thinking(&levels(&["low", "medium", "high"]));
+        assert_eq!(claude.thinking(), Some("low"), "a level that the model does not have becomes its lowest");
+        claude.fit_thinking(&[]);
+        assert_eq!(claude.thinking(), None, "a model without levels has none");
+
         let mut http = Provider {
             id: "o".into(),
             name: "O".into(),
-            kind: ProviderKind::OpenAiCompatible { base_url: "http://x".into(), model: "m".into(), api_key_account: None, zero_data_retention: false },
+            kind: ProviderKind::OpenAiCompatible { base_url: "http://x".into(), model: "m".into(), api_key_account: None, zero_data_retention: false, thinking: None },
         };
-        http.set_thinking(Thinking::High);
-        assert_eq!(http.thinking(), None);
+        http.fit_thinking(&levels(&["high", "minimal", "low"]));
+        assert_eq!(http.thinking_sent(), Some("minimal"));
     }
 
     #[test]

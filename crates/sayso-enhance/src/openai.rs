@@ -79,6 +79,9 @@ pub(crate) fn map_ureq_error(error: ureq::Error, timeout_ms: u64) -> EnhanceErro
     }
 }
 
+/// The room that a reply gets for thinking, when the provider has a thinking level.
+const THINKING_TOKENS: u32 = 4096;
+
 /// A provider for any server that speaks `POST {base_url}/chat/completions`.
 pub struct OpenAiCompatible {
     id: String,
@@ -91,6 +94,8 @@ pub struct OpenAiCompatible {
     cloud: bool,
     /// None detects OpenRouter from the base URL.
     openrouter: Option<bool>,
+    /// The thinking level for the model. None sends no level.
+    thinking: Option<String>,
     default_timeout: Duration,
     agent: ureq::Agent,
 }
@@ -109,8 +114,16 @@ impl OpenAiCompatible {
             setup_error: None,
             zero_data_retention: false,
             openrouter: None,
+            thinking: None,
             default_timeout: Duration::from_secs(4),
         }
+    }
+
+    /// The thinking level, a name from the model list of the server. None
+    /// sends no level, and the model uses its own default.
+    pub fn with_thinking(mut self, level: Option<&str>) -> Self {
+        self.thinking = level.map(str::to_string);
+        self
     }
 
     /// Send `Authorization: Bearer <key>` with every request.
@@ -184,6 +197,18 @@ impl OpenAiCompatible {
             "max_tokens": Self::max_tokens(request),
             "stream": false,
         });
+        if let Some(level) = &self.thinking {
+            // OpenRouter has its own field, which more of its models take.
+            if self.is_openrouter() {
+                body["reasoning"] = json!({ "effort": level });
+            } else {
+                body["reasoning_effort"] = json!(level);
+            }
+            // The thinking counts in the limit. Without room for it, the reply stops before the text.
+            if level != "none" {
+                body["max_tokens"] = json!(Self::max_tokens(request) + THINKING_TOKENS);
+            }
+        }
         match mode {
             Mode::JsonSchema => {
                 body["response_format"] = json!({
@@ -386,6 +411,26 @@ mod tests {
         assert_eq!(body["tools"][0]["function"]["parameters"], output_schema());
         assert_eq!(body["tool_choice"]["function"]["name"], "return_text");
         assert!(body.get("response_format").is_none());
+    }
+
+    #[test]
+    fn the_thinking_level_goes_in_the_field_of_the_server() {
+        let request = request("hi");
+        let none = OpenAiCompatible::new("p", "https://api.openai.com/v1", "m");
+        let body = none.build_body(Mode::JsonSchema, "m", &request);
+        assert!(body.get("reasoning_effort").is_none() && body.get("reasoning").is_none(), "no level, no field");
+        let plain = body["max_tokens"].as_u64().unwrap();
+
+        let openai = none.with_thinking(Some("minimal"));
+        let body = openai.build_body(Mode::JsonSchema, "m", &request);
+        assert_eq!(body["reasoning_effort"], "minimal");
+        assert_eq!(body["max_tokens"].as_u64().unwrap(), plain + u64::from(THINKING_TOKENS), "room for the thinking");
+
+        let router = OpenAiCompatible::new("p", "https://openrouter.ai/api/v1", "m").with_thinking(Some("none"));
+        let body = router.build_body(Mode::JsonSchema, "m", &request);
+        assert_eq!(body["reasoning"], json!({ "effort": "none" }));
+        assert!(body.get("reasoning_effort").is_none());
+        assert_eq!(body["max_tokens"].as_u64().unwrap(), plain, "no thinking, no more room");
     }
 
     #[test]

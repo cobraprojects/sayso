@@ -1,7 +1,8 @@
 //! Claude Code CLI provider: `claude -p` with a JSON schema.
 //!
 //! Measured on this Mac (research §9): 1.6 to 1.9 s for one sentence with
-//! `--effort low`. The thinking level of the provider sets `--effort`. With
+//! `--effort low`. The thinking level of the provider sets `--effort`. The
+//! tool reports the levels of each model with its model list (see `models`). With
 //! Haiku 5.5 (6 runs of two sentences for each level, tool 2.1.296) the model
 //! thought in 0 runs at `low`, 2 at `medium`, and 5 at `high`, and a run with
 //! thinking wrote 200 to 450 tokens more and took about 0.5 to 1 s longer.
@@ -21,7 +22,7 @@
 use crate::auth::{Tool, config_env, push_config_env};
 use crate::cli::{self, Invocation, looks_like_login_problem, tail};
 use crate::detect::detect_claude_cli;
-use sayso_core::config::Thinking;
+use sayso_core::config::DEFAULT_CLI_THINKING;
 use sayso_core::enhance::{
     EnhanceError, EnhanceRequest, EnhanceResponse, Enhancer, ProviderReport, output_schema, parse_value, user_message,
 };
@@ -35,7 +36,8 @@ pub struct ClaudeCli {
     model: String,
     default_timeout: Duration,
     config_dir: Option<PathBuf>,
-    thinking: Thinking,
+    /// A name from the `supportedEffortLevels` of the model.
+    thinking: String,
 }
 
 impl ClaudeCli {
@@ -48,7 +50,7 @@ impl ClaudeCli {
             model: model.into(),
             default_timeout: Duration::from_secs(8),
             config_dir: None,
-            thinking: Thinking::default(),
+            thinking: DEFAULT_CLI_THINKING.into(),
         }
     }
 
@@ -64,8 +66,9 @@ impl ClaudeCli {
         self
     }
 
-    pub fn with_thinking(mut self, level: Thinking) -> Self {
-        self.thinking = level;
+    /// The thinking level. None keeps the default, `low`.
+    pub fn with_thinking(mut self, level: Option<&str>) -> Self {
+        self.thinking = level.unwrap_or(DEFAULT_CLI_THINKING).into();
         self
     }
 
@@ -77,7 +80,7 @@ impl ClaudeCli {
             "--model",
             model,
             "--effort",
-            self.thinking.as_str(),
+            &self.thinking,
             "--output-format",
             "json",
             "--json-schema",
@@ -120,7 +123,7 @@ impl Enhancer for ClaudeCli {
         let dir_env = config_env(Tool::Claude, self.config_dir.as_deref().and_then(|d| d.to_str()));
         // A limit of 0 at a higher level would work against the choice of the user.
         let mut envs = Vec::new();
-        if self.thinking == Thinking::Low {
+        if self.thinking == DEFAULT_CLI_THINKING {
             envs.push(("MAX_THINKING_TOKENS", "0"));
         }
         push_config_env(&mut envs, &dir_env);
@@ -248,7 +251,7 @@ mod tests {
         let has_pair = |a: &str, b: &str| args.windows(2).any(|w| w[0] == a && w[1] == b);
         assert!(has_pair("--model", "haiku"));
         assert!(has_pair("--effort", "low"));
-        let high = cli.with_thinking(Thinking::High).args("haiku", "SYSTEM");
+        let high = cli.with_thinking(Some("high")).args("haiku", "SYSTEM");
         assert!(high.windows(2).any(|w| w[0] == "--effort" && w[1] == "high"));
         assert!(has_pair("--output-format", "json"));
         assert!(has_pair("--tools", ""));

@@ -157,6 +157,8 @@ pub(crate) fn fetch_model_choices(
 
 /// Read a `{"data": [{"id": ..., "name": ...}]}` body. The name is the entry's
 /// `"name"` when it has one, else the id. Sorted by id, without duplicates.
+/// The thinking levels are the `reasoning.supported_efforts` of the entry,
+/// which OpenRouter sends. Most other servers do not say.
 /// Ollama with no models pulled sends `"data": null`, which is an empty list.
 fn parse_model_list(text: &str) -> Result<Vec<ModelChoice>, EnhanceError> {
     let json: serde_json::Value =
@@ -171,7 +173,8 @@ fn parse_model_list(text: &str) -> Result<Vec<ModelChoice>, EnhanceError> {
         .filter_map(|m| {
             let id = m["id"].as_str()?;
             let name = m["name"].as_str().filter(|n| !n.is_empty()).unwrap_or(id);
-            Some(ModelChoice { id: id.to_string(), name: name.to_string(), description: None })
+            let thinking = crate::models::levels(&m["reasoning"]["supported_efforts"], |level| level.as_str());
+            Some(ModelChoice { id: id.to_string(), name: name.to_string(), description: None, thinking })
         })
         .collect();
     choices.sort_by(|a, b| a.id.cmp(&b.id));
@@ -277,6 +280,16 @@ mod tests {
         let pairs: Vec<(&str, &str)> = choices.iter().map(|c| (c.id.as_str(), c.name.as_str())).collect();
         assert_eq!(pairs, [("a/one", "a/one"), ("b/two", "Two"), ("c", "c")]);
         assert!(choices.iter().all(|c| c.description.is_none()));
+        assert!(choices.iter().all(|c| c.thinking.is_empty()), "a server that does not say has no levels");
+    }
+
+    #[test]
+    fn model_list_reads_the_thinking_levels_of_openrouter() {
+        let body = r#"{"data":[{"id":"a","reasoning":{"mandatory":true,"supported_efforts":["high","medium","low","minimal"],"default_effort":"medium"}},
+            {"id":"b","reasoning":{"mandatory":true}}]}"#;
+        let choices = parse_model_list(body).unwrap();
+        assert_eq!(choices[0].thinking, ["minimal", "low", "medium", "high"]);
+        assert!(choices[1].thinking.is_empty());
     }
 
     #[test]

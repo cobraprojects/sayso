@@ -186,6 +186,7 @@ fn authorization_header_comes_from_the_secret_store() {
             model: "from-config".into(),
             api_key_account: Some("my-account".into()),
             zero_data_retention: false,
+            thinking: None,
         },
     };
     let enhancer = build_enhancer(&config, &secrets, &Ai::default(), None);

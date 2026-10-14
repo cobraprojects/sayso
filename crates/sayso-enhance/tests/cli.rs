@@ -6,7 +6,6 @@
 mod common;
 
 use common::fake_tool;
-use sayso_core::config::Thinking;
 use sayso_core::enhance::{EnhanceError, EnhanceRequest, Enhancer, output_schema};
 use sayso_enhance::{ClaudeCli, CodexCli};
 use std::path::Path;
@@ -77,7 +76,7 @@ fn claude_success_reads_structured_output() {
     assert_eq!(read(dir.path(), "stdin"), "<transcript>\nme and him goes home\n</transcript>", "the transcript goes in tags on stdin");
 
     // A higher thinking level goes to the tool, with no limit that works against it.
-    claude_with(&script, dir.path()).with_thinking(Thinking::Medium).enhance(&request(20_000)).unwrap();
+    claude_with(&script, dir.path()).with_thinking(Some("medium")).enhance(&request(20_000)).unwrap();
     let args: Vec<String> = read(dir.path(), "args").lines().map(String::from).collect();
     let effort = args.iter().position(|a| a == "--effort").unwrap();
     assert_eq!(args[effort + 1], "medium");

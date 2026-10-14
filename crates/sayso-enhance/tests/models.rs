@@ -242,6 +242,7 @@ fn http_provider(server: &MockServer, account: Option<&str>) -> Provider {
         model: "unused".into(),
         api_key_account: account.map(String::from),
         zero_data_retention: false,
+        thinking: None,
     })
 }
 

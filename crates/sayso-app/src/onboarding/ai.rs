@@ -160,6 +160,7 @@ impl OnboardingView {
                 model: String::new(),
                 api_key_account: (!key.is_empty()).then(|| DRAFT_ACCOUNT.to_string()),
                 zero_data_retention: false,
+                thinking: None,
             },
         };
         let api_key = (!key.is_empty()).then_some(key);
@@ -199,6 +200,7 @@ impl OnboardingView {
                             model,
                             api_key_account: None,
                             zero_data_retention: false,
+                            thinking: None,
                         },
                     },
                     None,
@@ -225,6 +227,7 @@ impl OnboardingView {
                             model,
                             api_key_account: (!key.is_empty()).then_some(id),
                             zero_data_retention: false,
+                            thinking: None,
                         },
                     },
                     (!key.is_empty()).then_some(key),

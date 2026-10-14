@@ -6,12 +6,14 @@
 //!
 //! The thinking level of the provider sets `model_reasoning_effort`. One run
 //! for each level (tool 0.162.1, its default model) took 4.9 to 5.7 s: the
-//! start of the agent is most of the time. `minimal` gave no answer there.
+//! start of the agent is most of the time. `minimal` gave no answer there,
+//! and the tool does not list it for that model. The tool reports the levels
+//! of each model with its model list (see `models`).
 
 use crate::auth::{Tool, config_env, push_config_env};
 use crate::cli::{self, Invocation, tail};
 use crate::detect::detect_codex_cli;
-use sayso_core::config::Thinking;
+use sayso_core::config::DEFAULT_CLI_THINKING;
 use sayso_core::enhance::{EnhanceError, EnhanceRequest, EnhanceResponse, Enhancer, output_schema, parse_output, user_message};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -23,7 +25,8 @@ pub struct CodexCli {
     model: Option<String>,
     default_timeout: Duration,
     config_dir: Option<PathBuf>,
-    thinking: Thinking,
+    /// A name from the `supportedReasoningEfforts` of the model.
+    thinking: String,
 }
 
 impl CodexCli {
@@ -31,7 +34,7 @@ impl CodexCli {
     /// `model` None lets Codex pick its default.
     pub fn new(id: impl Into<String>, path: Option<PathBuf>, model: Option<String>) -> Self {
         let program = path.or_else(detect_codex_cli);
-        Self { id: id.into(), program, model, default_timeout: Duration::from_secs(12), config_dir: None, thinking: Thinking::default() }
+        Self { id: id.into(), program, model, default_timeout: Duration::from_secs(12), config_dir: None, thinking: DEFAULT_CLI_THINKING.into() }
     }
 
     /// The timeout used when a request has a zero timeout.
@@ -46,8 +49,9 @@ impl CodexCli {
         self
     }
 
-    pub fn with_thinking(mut self, level: Thinking) -> Self {
-        self.thinking = level;
+    /// The thinking level. None keeps the default, `low`.
+    pub fn with_thinking(mut self, level: Option<&str>) -> Self {
+        self.thinking = level.unwrap_or(DEFAULT_CLI_THINKING).into();
         self
     }
 }
@@ -106,7 +110,7 @@ impl Enhancer for CodexCli {
             args.push(m.into());
         }
         args.push("-c".into());
-        args.push(format!("model_reasoning_effort={}", self.thinking.as_str()).into());
+        args.push(format!("model_reasoning_effort={}", self.thinking).into());
         args.push("-".into()); // read the prompt from stdin
 
         let started = Instant::now();

@@ -96,6 +96,10 @@ pub struct ModelChoice {
     pub name: String,
     /// A short note from the provider, for example "Fastest for quick answers".
     pub description: Option<String>,
+    /// The thinking levels of the model, from the least thinking to the most.
+    /// Empty when the model has none, and when the provider does not say.
+    #[serde(default)]
+    pub thinking: Vec<String>,
 }
 
 /// An AI provider. Calls block. Run them on a background thread.

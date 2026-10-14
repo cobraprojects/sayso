@@ -19,6 +19,10 @@ fn show(label: &str, kind: ProviderKind) -> Vec<String> {
         ids.len(),
         ids.iter().take(5).collect::<Vec<_>>()
     );
+    for choice in &choices {
+        eprintln!("  {}: thinking {:?}", choice.id, choice.thinking);
+    }
+    assert!(choices.iter().any(|c| c.thinking.iter().any(|level| level == "low")), "no model reports a low thinking level");
     ids
 }
 

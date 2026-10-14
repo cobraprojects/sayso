@@ -955,13 +955,21 @@ impl AppModel {
         self.check_provider_login(id, cx);
     }
 
-    pub fn set_provider_thinking(&mut self, id: &str, level: sayso_core::config::Thinking, cx: &mut Context<Self>) {
+    pub fn set_provider_thinking(&mut self, id: &str, level: String, cx: &mut Context<Self>) {
         let key = id.to_string();
         self.edit_config(cx, move |c| {
             if let Some(p) = c.ai.providers.iter_mut().find(|p| p.id == key) {
-                p.set_thinking(level);
+                p.set_thinking(Some(level));
             }
         });
+    }
+
+    /// The thinking levels of the model of a provider, from the least
+    /// thinking to the most. None until the model list of the provider is
+    /// here, and for a model that is not in it.
+    pub fn thinking_levels(&self, provider: &Provider) -> Option<Vec<String>> {
+        let Some(ModelList::Ready(list)) = self.model_lists.get(&provider.id) else { return None };
+        list.iter().find(|m| Some(m.id.as_str()) == provider.model()).map(|m| m.thinking.clone())
     }
 
     /// Ask the tool of a CLI provider if it is signed in. Does nothing for
@@ -1143,10 +1151,18 @@ impl AppModel {
 
     /// Choose the model a provider uses when a style does not name one.
     pub fn set_provider_model(&mut self, id: &str, model: String, cx: &mut Context<Self>) {
+        // The new model can have other thinking levels than the old one.
+        let levels = match self.model_lists.get(id) {
+            Some(ModelList::Ready(list)) => list.iter().find(|m| m.id == model).map(|m| m.thinking.clone()),
+            _ => None,
+        };
         let id = id.to_string();
         self.edit_config(cx, move |c| {
             if let Some(p) = c.ai.providers.iter_mut().find(|p| p.id == id) {
                 p.set_model(model);
+                if let Some(levels) = levels {
+                    p.fit_thinking(&levels);
+                }
             }
         });
     }

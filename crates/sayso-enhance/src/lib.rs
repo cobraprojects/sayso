@@ -54,10 +54,11 @@ pub fn build_enhancer(
     let http_timeout = Duration::from_millis(cfg.http_timeout_ms);
     let cli_timeout = Duration::from_millis(cfg.cli_timeout_ms);
     match &provider.kind {
-        ProviderKind::OpenAiCompatible { base_url, model, api_key_account, zero_data_retention } => {
+        ProviderKind::OpenAiCompatible { base_url, model, api_key_account, zero_data_retention, .. } => {
             let mut enhancer = OpenAiCompatible::new(&provider.id, base_url, model)
                 .with_cloud(provider.is_cloud())
                 .with_zero_data_retention(*zero_data_retention)
+                .with_thinking(provider.thinking_sent())
                 .with_default_timeout(http_timeout);
             if let Some(account) = api_key_account {
                 match secrets.get(account) {
@@ -69,15 +70,15 @@ pub fn build_enhancer(
             }
             Box::new(enhancer)
         }
-        ProviderKind::ClaudeCli { path, model, thinking, .. } => Box::new(
+        ProviderKind::ClaudeCli { path, model, .. } => Box::new(
             ClaudeCli::new(&provider.id, path.as_ref().map(PathBuf::from), model)
-                .with_thinking(*thinking)
+                .with_thinking(provider.thinking_sent())
                 .with_config_dir(provider.config_dir().map(PathBuf::from))
                 .with_default_timeout(cli_timeout),
         ),
-        ProviderKind::CodexCli { path, model, thinking, .. } => Box::new(
+        ProviderKind::CodexCli { path, model, .. } => Box::new(
             CodexCli::new(&provider.id, path.as_ref().map(PathBuf::from), model.clone())
-                .with_thinking(*thinking)
+                .with_thinking(provider.thinking_sent())
                 .with_config_dir(provider.config_dir().map(PathBuf::from))
                 .with_default_timeout(cli_timeout),
         ),
@@ -113,6 +114,7 @@ mod tests {
             model: "llama".into(),
             api_key_account: None,
             zero_data_retention: false,
+            thinking: None,
         });
         let e = build_enhancer(&local, &secrets, &cfg, None);
         assert_eq!(e.id(), "p");
@@ -122,6 +124,7 @@ mod tests {
             model: "m".into(),
             api_key_account: None,
             zero_data_retention: false,
+            thinking: None,
         });
         assert!(build_enhancer(&cloud, &secrets, &cfg, None).is_cloud());
         let claude = provider(ProviderKind::ClaudeCli { path: Some("/nowhere/claude".into()), model: "haiku".into(), config_dir: None, thinking: Default::default() });
@@ -137,6 +140,7 @@ mod tests {
             model: "m".into(),
             api_key_account: Some("openrouter".into()),
             zero_data_retention: false,
+            thinking: None,
         });
         let e = build_enhancer(&p, &MemoryStore::new(), &Ai::default(), None);
         assert!(matches!(e.enhance(&request()), Err(EnhanceError::NotConfigured(m)) if m.contains("openrouter")));

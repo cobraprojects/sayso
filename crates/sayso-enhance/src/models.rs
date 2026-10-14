@@ -13,7 +13,7 @@ use crate::auth::{Tool, config_env, push_config_env};
 use crate::cli::{Invocation, Session, looks_like_login_problem, workdir};
 use crate::detect::{detect_claude_cli, detect_codex_cli, fetch_model_choices};
 use crate::secrets::SecretStore;
-use sayso_core::config::{Provider, ProviderKind};
+use sayso_core::config::{Provider, ProviderKind, sort_thinking};
 use sayso_core::enhance::{EnhanceError, LanguageModel, ModelChoice};
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -148,11 +148,9 @@ fn parse_claude_models(message: &Value) -> Result<Vec<ModelChoice>, EnhanceError
             let id = m["value"]
                 .as_str()
                 .filter(|v| !v.is_empty() && *v != "default")?;
-            Some(choice(
-                id,
-                m["displayName"].as_str(),
-                m["description"].as_str(),
-            ))
+            let mut choice = choice(id, m["displayName"].as_str(), m["description"].as_str());
+            choice.thinking = levels(&m["supportedEffortLevels"], |level| level.as_str());
+            Some(choice)
         })
         .collect();
     Ok(dedup(choices))
@@ -238,11 +236,9 @@ fn parse_codex_page(result: &Value) -> Result<(Vec<ModelChoice>, Option<String>)
                 .as_str()
                 .or_else(|| m["id"].as_str())
                 .filter(|v| !v.is_empty())?;
-            Some(choice(
-                id,
-                m["displayName"].as_str(),
-                m["description"].as_str(),
-            ))
+            let mut choice = choice(id, m["displayName"].as_str(), m["description"].as_str());
+            choice.thinking = levels(&m["supportedReasoningEfforts"], |level| level["reasoningEffort"].as_str());
+            Some(choice)
         })
         .collect();
     let next = result["nextCursor"]
@@ -258,7 +254,15 @@ fn choice(id: &str, name: Option<&str>, description: Option<&str>) -> ModelChoic
         id: id.to_string(),
         name: name.filter(|n| !n.is_empty()).unwrap_or(id).to_string(),
         description: description.filter(|d| !d.is_empty()).map(str::to_string),
+        thinking: Vec::new(),
     }
+}
+
+/// The thinking levels in `list`, in order. `name` reads the name of one
+/// item. A missing list is a model without levels.
+pub(crate) fn levels<'a>(list: &'a Value, name: impl Fn(&'a Value) -> Option<&'a str>) -> Vec<String> {
+    let names = list.as_array().map(|items| items.iter().filter_map(name).filter(|n| !n.is_empty()).map(str::to_string).collect());
+    sort_thinking(names.unwrap_or_default())
 }
 
 /// Keep the first choice of each id, in order.
@@ -276,7 +280,7 @@ mod tests {
 
     const CLAUDE_LINE: &str = r#"{"type":"control_response","response":{"subtype":"success","request_id":"sayso-models","response":{"commands":[],"models":[
         {"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)","description":"Opus 5.5 · Best for everyday, complex tasks"},
-        {"value":"opus","displayName":"Opus 5.5","description":"For complex work and everyday tasks"},
+        {"value":"opus","displayName":"Opus 5.5","description":"For complex work and everyday tasks","supportsEffort":true,"supportedEffortLevels":["max","low","medium","high","xhigh"]},
         {"value":"haiku","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku 4.5","description":"Fastest for quick answers"},
         {"value":"bare"},
         {"value":"haiku","displayName":"Haiku again"}],"account":{}}}}"#;
@@ -295,6 +299,9 @@ mod tests {
             (choices[2].name.as_str(), choices[2].description.as_deref()),
             ("bare", None)
         );
+        // The levels of the tool, from the least thinking to the most. Haiku 4.5 has none.
+        assert_eq!(choices[0].thinking, ["low", "medium", "high", "xhigh", "max"]);
+        assert!(choices[1].thinking.is_empty());
     }
 
     #[test]
@@ -327,7 +334,8 @@ mod tests {
     fn codex_page_skips_hidden_and_applies_field_rules() {
         let result = json!({
             "data": [
-                { "id": "gpt-a", "model": "gpt-a-model", "displayName": "GPT A", "description": "Fast.", "hidden": false },
+                { "id": "gpt-a", "model": "gpt-a-model", "displayName": "GPT A", "description": "Fast.", "hidden": false,
+                  "supportedReasoningEfforts": [{ "reasoningEffort": "low", "description": "Fast" }, { "reasoningEffort": "high" }] },
                 { "id": "gpt-b", "model": "gpt-b", "displayName": "GPT B", "hidden": true },
                 { "id": "gpt-c", "displayName": "", "description": "" },
                 { "displayName": "No id" },
@@ -342,12 +350,14 @@ mod tests {
                 ModelChoice {
                     id: "gpt-a-model".into(),
                     name: "GPT A".into(),
-                    description: Some("Fast.".into())
+                    description: Some("Fast.".into()),
+                    thinking: vec!["low".into(), "high".into()],
                 },
                 ModelChoice {
                     id: "gpt-c".into(),
                     name: "gpt-c".into(),
-                    description: None
+                    description: None,
+                    thinking: vec![],
                 },
             ]
         );

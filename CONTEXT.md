@@ -79,7 +79,7 @@ A word that the speaker spells after a cue: "Dana Cats, that's K A T Z". Before 
 The trait that sends a transcript and a style prompt to an AI provider and returns schema-checked JSON. The implementations are the OpenAI-compatible endpoint, the Claude CLI, the Codex CLI, and the language model of the engine.
 
 **Thinking level**
-How much the model of a CLI provider thinks before it answers: low, medium, or high. Low is the default. A higher level is slower. The user sets it for each provider in Settings. It goes to the tool as `--effort` (Claude) or `model_reasoning_effort` (Codex). A provider with an OpenAI-compatible endpoint has no thinking level.
+How much the model of a provider thinks before it answers, for example low, medium, or high. A higher level is slower. The levels are those that the provider reports for the model, with its model list: the Claude tool, the Codex tool, and OpenRouter do. The user sets the level for each provider in Settings. With no choice, a CLI provider gets low, and an OpenAI-compatible provider gets no level, so the model uses its own default. When the user chooses another model, a level that the model does not have becomes its lowest level. The level goes out as `--effort` (Claude), `model_reasoning_effort` (Codex), `reasoning.effort` (OpenRouter), or `reasoning_effort` (other servers).
 
 **Apple Intelligence**
 The provider of a style that runs the language model of macOS (macOS 26 and later) in the engine. The transcript stays on the Mac. macOS chooses the model and owns its files, so there is no download and no model choice. It is not a model in the sense of this file, because it does not transcribe speech.

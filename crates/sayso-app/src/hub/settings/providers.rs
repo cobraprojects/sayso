@@ -13,7 +13,7 @@ use crate::model_picker;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use sayso_core::config::{Provider, ProviderKind, Thinking, is_local_url};
+use sayso_core::config::{DEFAULT_CLI_THINKING, Provider, ProviderKind, is_local_url, thinking_label};
 use sayso_enhance::AuthStatus;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
@@ -159,7 +159,11 @@ impl ProviderSettings {
             }
         });
         self.open = Some(Open { id: id.to_string(), folder, code, _subs: [folder_sub, code_sub] });
-        self.model.update(cx, |m, cx| m.check_provider_login(id, cx));
+        self.model.update(cx, |m, cx| {
+            m.check_provider_login(id, cx);
+            // The list has the thinking levels of the model.
+            m.load_provider_models(id, false, cx);
+        });
     }
 
     fn send_code(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -398,12 +402,15 @@ impl ProviderSettings {
         if p.kind != ProviderKind::AppleIntelligence {
             col = col.child(kit::row("Model", "A style can name another model.", self.model_picker(p, cx), cx));
         }
-        if let Some(level) = p.thinking() {
+        let levels = self.thinking_levels(p, cx);
+        if !levels.is_empty() {
             let model = self.model.clone();
             let id = p.id.clone();
-            let selected = Thinking::ALL.iter().position(|l| *l == level).unwrap_or(0);
-            let choice = Segmented::new(SharedString::from(format!("thinking-{}", p.id)), Thinking::ALL.map(Thinking::label), selected)
-                .on_select(move |i, _, cx| model.update(cx, |m, cx| m.set_provider_thinking(&id, Thinking::ALL[i], cx)));
+            let selected = p.thinking_sent().and_then(|sent| levels.iter().position(|level| level == sent));
+            let labels: Vec<String> = levels.iter().map(|level| thinking_label(level)).collect();
+            // No segment is on when the model uses its own default.
+            let choice = Segmented::new(SharedString::from(format!("thinking-{}", p.id)), labels, selected.unwrap_or(usize::MAX))
+                .on_select(move |i, _, cx| model.update(cx, |m, cx| m.set_provider_thinking(&id, levels[i].clone(), cx)));
             col = col.child(kit::row(
                 "Thinking",
                 "How much the model thinks before it answers. A higher level is slower, and it changes short text very little.",
@@ -563,6 +570,21 @@ impl ProviderSettings {
         div().w_full().min_w_0().pb(px(6.)).child(panel)
     }
 
+    /// The thinking levels to offer for the model of a provider. They come
+    /// from the model list of the provider. Until the list is here, a CLI
+    /// provider offers the levels that all its models with levels take.
+    /// Empty for a model without levels: the row does not show then.
+    fn thinking_levels(&self, p: &Provider, cx: &App) -> Vec<String> {
+        let mut levels = self.model.read(cx).thinking_levels(p).unwrap_or_else(|| {
+            if is_cli(p) { [DEFAULT_CLI_THINKING, "medium", "high"].map(String::from).to_vec() } else { Vec::new() }
+        });
+        // A level from the config file that the list does not have still shows.
+        if let Some(chosen) = p.thinking().filter(|chosen| !levels.iter().any(|level| level == chosen)) {
+            levels.push(chosen.to_string());
+        }
+        levels
+    }
+
     /// The model of a provider. A click opens the provider's list.
     fn model_picker(&self, p: &Provider, cx: &mut Context<Self>) -> AnyElement {
         let m = self.model.read(cx);
@@ -645,7 +667,7 @@ impl ProviderSettings {
         if let (Some(models), false) = (&detected.ollama, has_ollama) {
             // With no model pulled, the picker opens after Add instead.
             let first = models.first().cloned().unwrap_or_default();
-            let kind = ProviderKind::OpenAiCompatible { base_url: "http://localhost:11434/v1".into(), model: first, api_key_account: None, zero_data_retention: false };
+            let kind = ProviderKind::OpenAiCompatible { base_url: "http://localhost:11434/v1".into(), model: first, api_key_account: None, zero_data_retention: false, thinking: None };
             let detail = if models.is_empty() {
                 format!("Running on this {} · no models pulled yet", crate::shell::COMPUTER)
             } else {
@@ -746,6 +768,7 @@ impl ProviderSettings {
                 zero_data_retention: base_url.contains("openrouter.ai"),
                 base_url,
                 model: String::new(),
+                thinking: None,
             },
             // Haiku is the fast choice for cleanup; the picker offers the rest.
             (AddKind::Claude, _) => ProviderKind::ClaudeCli { path: detected.claude_cli.map(|p| p.display().to_string()), model: "haiku".into(), config_dir: None, thinking: Default::default() },
