@@ -94,6 +94,7 @@ fn icon_named(name: &str) -> Option<Icon> {
         "download" => Icon::Download,
         "settings" => Icon::Settings,
         "code" => Icon::Code,
+        "globe" => Icon::Globe,
         _ => return None,
     })
 }

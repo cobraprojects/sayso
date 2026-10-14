@@ -21,32 +21,32 @@
 
 [[release]]
 version = "0.8.0"
-title = "A style for when you think out loud"
+title = "Sayso speaks your language"
+
+[[release.item]]
+icon = "globe"
+title = "Four new languages"
+text = "The whole app is now in Spanish, Brazilian Portuguese, Simplified Chinese, and Japanese. Sayso follows your system. To choose another language, go to Settings › General."
 
 [[release.item]]
 icon = "sparkle"
 title = "The Rambling style"
-text = "Speak a long thought as it comes. Rambling joins the points that you repeat, removes the thoughts that you drop, and breaks run-on sentences into clear text, in your own words. Choose it on the Styles page. It works best with a large model."
-
-[[release.item]]
-icon = "styles"
-title = "A smaller Styles page"
-text = "Each style is now one row, and an example shows what Rambling does to your speech."
-
-[[release.item]]
-icon = "settings"
-title = "A thinking level for each provider"
-text = "Choose how much the model thinks before it answers. The levels come from the model that you chose, and a low level is the fastest. The setting is on each provider in Settings, for Claude CLI, Codex CLI, and OpenRouter."
-
-[[release.item]]
-icon = "code"
-title = "Copy metadata from History"
-text = "Each new dictation keeps the time of each step. When a dictation is slow, choose Copy metadata in the menu of its history entry and put the result in a bug report. Your dictated text is not in it."
+text = "Speak a long thought as it comes. Rambling joins the points that you repeat, drops the thoughts that you leave, and makes clear sentences, in your own words."
 
 [[release.item]]
 icon = "audio"
 title = "Pause media while you dictate"
 text = "Sayso can pause your music and videos when you start to dictate, and play them again when you stop. Turn on Pause media in Settings › Audio."
+
+[[release.item]]
+icon = "settings"
+title = "A thinking level for each provider"
+text = "Choose how much the model thinks before it answers, on each provider in Settings: Claude CLI, Codex CLI, and OpenRouter."
+
+[[release.item]]
+icon = "code"
+title = "Copy metadata from History"
+text = "When a dictation is slow, choose Copy metadata in its menu in History and add it to a bug report. Your text is not in it."
 
 [[release]]
 version = "0.7.1"
