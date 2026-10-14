@@ -26,10 +26,9 @@ pub fn size_label(info: &ModelInfo) -> String {
 }
 
 /// The groups of the local catalog, in display order.
-pub const LOCAL_GROUPS: [(&str, Family); 3] = [("Parakeet", Family::Parakeet), ("Whisper", Family::Whisper), ("More local models", Family::Other)];
+pub const LOCAL_GROUPS: [Family; 3] = [Family::Parakeet, Family::Whisper, Family::Other];
 
-/// The title of a group, in the interface language. The strings in
-/// `LOCAL_GROUPS` are the English names; show this instead.
+/// The title of a group, in the interface language.
 pub fn group_title(family: Family) -> String {
     match family {
         Family::Parakeet => "Parakeet".into(),
@@ -725,7 +724,7 @@ impl Render for ModelsPage {
             catalog.iter().filter(|i| i.id != active && !i.is_remote() && i.engine.family() == family).cloned().collect()
         };
         let mut tables = div().flex().flex_col().gap(px(20.));
-        for (_, family) in LOCAL_GROUPS {
+        for family in LOCAL_GROUPS {
             let models = local(family);
             if !models.is_empty() {
                 tables = tables.child(self.group(group_title(family), &models, cx));

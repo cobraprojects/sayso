@@ -3,7 +3,7 @@
 
 use super::OnboardingView;
 use crate::hub::pages::kit::{self, caps};
-use crate::hub::pages::models::{LOCAL_GROUPS, size_label, speed_meter};
+use crate::hub::pages::models::{LOCAL_GROUPS, group_title, size_label, speed_meter};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -140,7 +140,8 @@ impl OnboardingView {
                 c.graphite,
             )));
         }
-        for (title, family) in LOCAL_GROUPS {
+        for family in LOCAL_GROUPS {
+            let title = group_title(family);
             let group: Vec<&ModelInfo> = models.iter().filter(|i| i.engine.family() == family).collect();
             if group.is_empty() {
                 continue;
