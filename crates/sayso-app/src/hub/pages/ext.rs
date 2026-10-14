@@ -66,7 +66,7 @@ impl AppModel {
 
     /// The style name for a history entry, or its id when the style is gone.
     pub fn style_name(&self, id: &str) -> String {
-        self.styles.get(id).map(|s| s.name.clone()).unwrap_or_else(|| id.to_string())
+        self.styles.get(id).map(|s| s.display_name()).unwrap_or_else(|| id.to_string())
     }
 
     pub fn provider_name(&self, id: &str) -> String {

@@ -11,7 +11,7 @@ use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
 use sayso_ui::text;
-use sayso_update::{Manual, Package, Status};
+use sayso_update::{Failure, Manual, Package, Status};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
@@ -149,12 +149,42 @@ pub fn view(status: &Status) -> View {
             short: Some((t!("update.newer_available"), Label::Download, Action::DownloadPage)),
             ..plain(t!("update.newer_available"), t!("update.unreadable_detail", version = version))
         },
-        Status::Failed { message } => View {
+        Status::Failed { failure } => View {
             tone: Tone::Danger,
             action: Some((Label::TryAgain, Action::Check)),
             short: Some((t!("update.failed"), Label::SeeWhy, Action::OpenSettings)),
-            ..plain(t!("update.failed"), message.clone())
+            ..plain(t!("update.failed"), failure_text(failure))
         },
+    }
+}
+
+/// Why an update did not succeed, in the interface language. A detail from
+/// the system stays as it is.
+fn failure_text(failure: &Failure) -> String {
+    match failure {
+        Failure::Unknown => t!("update.failure.unknown"),
+        // A record from an older Sayso has only the English text.
+        Failure::Recorded(text) | Failure::Verify(text) => text.clone(),
+        Failure::Busy => t!("update.failure.busy"),
+        Failure::CannotUpdateItself => t!("update.failure.cannot_update_itself"),
+        Failure::NothingStaged => t!("update.failure.nothing_staged"),
+        Failure::NotInstalled => t!("update.failure.not_installed"),
+        Failure::BadSignature => t!("update.failure.bad_signature"),
+        Failure::Moved => t!("update.failure.moved"),
+        Failure::NotNewer => t!("update.failure.not_newer"),
+        Failure::StagingGone => t!("update.failure.staging_gone"),
+        Failure::WriteRecord(error) => t!("update.failure.write_record", error = error),
+        Failure::Exchange(error) => t!("update.failure.exchange", error = error),
+        Failure::Relaunch(error) => t!("update.failure.relaunch", error = error),
+        Failure::RelaunchAndRestore { error, back } => t!("update.failure.relaunch_and_restore", error = error, back = back),
+        Failure::Unreachable(error) => t!("update.failure.unreachable", error = error),
+        Failure::CheckFailed(error) => t!("update.failure.check_failed", error = error),
+        Failure::NotAccepted(error) => t!("update.failure.not_accepted", error = error),
+        Failure::Replayed(version) => t!("update.failure.replayed", version = version),
+        Failure::Mismatch => t!("update.failure.mismatch"),
+        Failure::Disk(error) => t!("update.failure.disk", error = error),
+        Failure::Download(error) => t!("update.failure.download", error = error),
+        Failure::Prepare(error) => t!("update.failure.prepare", error = error),
     }
 }
 
@@ -454,7 +484,7 @@ mod tests {
             Status::Preparing { version: "9.9.9".parse().unwrap() },
             Status::Ready { version: "9.9.9".parse().unwrap() },
             Status::Unreadable,
-            Status::Failed { message: "x".into() },
+            Status::Failed { failure: sayso_update::Failure::Busy },
         ] {
             assert!(view(&status).short.is_some(), "{status:?}");
         }

@@ -22,7 +22,7 @@ fn run(kind: SpeechProviderKind, env_var: &str) {
     };
     let provider = SpeechProvider {
         id: "real".into(),
-        name: kind.label().into(),
+        name: kind.label(),
         kind,
         base_url: None,
         api_key_account: Some("speech.real".into()),

@@ -35,6 +35,8 @@ pub enum Notice {
     InsertFailed { text: String, reason: String },
     Cancelled,
     Error { message: String },
+    /// The recording had no speech.
+    NoSpeech,
     /// A dictation was too short (accidental press). No sound, no history.
     Discarded,
 }
@@ -187,7 +189,7 @@ impl Machine {
                 if text.trim().is_empty() {
                     self.state = State::Showing {
                         session,
-                        notice: Notice::Error { message: "No speech was heard.".into() },
+                        notice: Notice::NoSpeech,
                         until_ms: Some(now_ms + self.timing.error_ms),
                     };
                     fx.push(Effect::Discard { session });
@@ -468,7 +470,7 @@ mod tests {
             machine.handle(Event::Transcribed { session: 1, text: "  ".into() }, 1100)
         };
         assert!(has(&fx, &Effect::Discard { session: 1 }));
-        assert!(matches!(machine.state, State::Showing { notice: Notice::Error { .. }, .. }));
+        assert!(matches!(machine.state, State::Showing { notice: Notice::NoSpeech, .. }));
     }
 
     #[test]

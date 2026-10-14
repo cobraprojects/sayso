@@ -61,7 +61,7 @@ pub fn list_provider_models(
         ProviderKind::AppleIntelligence => {
             let engine = engine.ok_or_else(|| EnhanceError::NotConfigured("the engine does not run".into()))?;
             let name = engine.model_name()?;
-            Ok(vec![choice(&name, None, Some("Runs on this Mac"))])
+            Ok(vec![choice(&name, None, Some(&sayso_i18n::t!("enhance.runs_on_this_mac")))])
         }
     }
 }

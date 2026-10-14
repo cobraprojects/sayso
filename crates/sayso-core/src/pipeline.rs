@@ -25,8 +25,9 @@ pub struct PipelineOutput {
     pub text: String,
     pub replacements: Vec<AppliedReplacement>,
     pub enhance: EnhanceOutcome,
-    /// Set when the style failed. Short form for the overlay.
-    pub enhance_error: Option<String>,
+    /// Set when the style failed: the id of the provider and the error. The
+    /// overlay shows it.
+    pub enhance_error: Option<(String, EnhanceError)>,
     /// The attempts, when a provider ran. The caller knows the time of the
     /// whole step, the setup time, and the kind of the provider.
     pub timings: Option<EnhanceTimings>,
@@ -105,7 +106,7 @@ impl TextPipeline<'_> {
                     text: replaced,
                     replacements,
                     enhance: EnhanceOutcome::Failed { provider_id: enhancer.id().to_string(), reason: err.to_string() },
-                    enhance_error: Some(format!("{} {}", enhancer.id(), err.short())),
+                    enhance_error: Some((enhancer.id().to_string(), err)),
                     timings,
                 }
             }
@@ -198,7 +199,7 @@ mod tests {
         let p = TextPipeline { replacer: &replacer, style: &clean, base_prompt: "", vocabulary: &[], enhancer: Some(&fake), timeout: Duration::from_secs(4) };
         let out = p.run("on git hub");
         assert_eq!(out.text, "on GitHub");
-        assert_eq!(out.enhance_error.as_deref(), Some("fake timed out after 4 s"));
+        assert_eq!(out.enhance_error, Some(("fake".to_string(), EnhanceError::Timeout(4000))));
         assert!(matches!(out.enhance, EnhanceOutcome::Failed { .. }));
     }
 

@@ -68,7 +68,7 @@ impl AppearanceSettings {
                             .shadow(well_shadow(selected, &c))
                             .child(ink_drop(named.color())),
                     )
-                    .child(well_label(named.name(), selected, &c))
+                    .child(well_label(&named.label(), selected, &c))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.custom_open = false;
                         this.model.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.ink = Ink::Named(named)));

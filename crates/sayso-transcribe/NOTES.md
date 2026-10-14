@@ -27,7 +27,7 @@ Error text per kind: OpenAI-compatible `error.message`, then `message`, `detail`
 
 ## Behavior
 
-- Setup is checked before any request. No address gives `NotConfigured("no address is set")`. A cloud provider (`SpeechProvider::is_cloud`) with a missing, empty, or blank key gives `NotConfigured("no API key is saved")`. A local server may have no key. Then no auth header is sent. With a key, the header is sent.
+- Setup is checked before any request. No address gives `NotConfigured(MissingSetup::Address)` ("no address is set"). A cloud provider (`SpeechProvider::is_cloud`) with a missing, empty, or blank key gives `NotConfigured(MissingSetup::ApiKey)` ("no API key is saved"). A local server may have no key. Then no auth header is sent. With a key, the header is sent.
 - `request.timeout` is one deadline for the whole call, retries included. A zero timeout means 30 s. `check` and `list_models` use their `timeout` argument in the same way.
 - Errors: a timeout is `Timeout(ms)` with the deadline that was set. Other transport errors are `Network`. A non-2xx answer is `Http { status, message }`. The message is the provider's error text. If the body has none, it is the first 200 characters of the body. A 2xx body without a transcript string is `InvalidResponse`.
 - Retry without hints, for every provider: if the first answer is HTTP 400 or 422 and the request had a language or a dictionary word, `transcribe` sends the request once more without the language and the words. It returns the second result. A provider that rejects a hint (an unknown field, a language it does not support, a word it does not accept) then still gives a transcript. The retry uses what is left of the deadline.

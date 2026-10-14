@@ -285,7 +285,7 @@ impl HomePage {
             StyleRoute::Local { provider, model } => t!("home.style.detail_local", computer = crate::shell::computer(), provider = provider, model = model),
             StyleRoute::Cloud { provider, model } => t!("home.style.detail_cloud", provider = provider, model = model),
         };
-        let description = if style.description.is_empty() { detail } else { format!("{} {}", style.description, detail) };
+        let description = if style.description.is_empty() { detail } else { format!("{} {}", style.display_description(), detail) };
         let badge = match &route {
             StyleRoute::Cloud { .. } => Some(kit::place_badge(true, cx)),
             StyleRoute::Local { .. } | StyleRoute::NoAi => Some(kit::place_badge(false, cx)),
@@ -343,7 +343,7 @@ impl HomePage {
                             .child(caps(t!("home.style.default"), 12., c.graphite))
                             .when_some(badge, |d, b| d.child(b)),
                     )
-                    .child(text::display(style.name.clone(), 28., &c))
+                    .child(text::display(style.display_name(), 28., &c))
                     .child(ui(description, 14., 20., FontWeight::NORMAL, c.graphite))
                     .child(div().flex().gap(px(6.)).pt(px(4.)).child(change).when_some(cycle, |d, k| d.child(k))),
             )

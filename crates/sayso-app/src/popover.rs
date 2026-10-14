@@ -523,7 +523,7 @@ impl Render for PopoverView {
         let styles: Vec<(String, String, Hsla)> = m
             .styles
             .styles()
-            .map(|s| (s.id.clone(), s.name.clone(), sayso_core::ink::Rgb::parse(&s.ink).map(sayso_ui::theme::hsla).unwrap_or(c.ink)))
+            .map(|s| (s.id.clone(), s.display_name(), sayso_core::ink::Rgb::parse(&s.ink).map(sayso_ui::theme::hsla).unwrap_or(c.ink)))
             .collect();
         let model_name = m.active_model().name;
         let devices = m.input_devices();

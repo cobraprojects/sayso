@@ -379,8 +379,8 @@ impl ProviderSettings {
         } else if let Some(problem) = problem {
             col = col.child(self.problem(&p.id, problem, cx));
         }
-        if let Some(error) = login.and_then(|l| l.error.clone()) {
-            col = col.child(kit::banner(BannerKind::Warning, error, cx));
+        if let Some(error) = login.and_then(|l| l.error.as_ref()) {
+            col = col.child(kit::banner(BannerKind::Warning, error.text(), cx));
         }
 
         if is_cli(p) {

@@ -50,7 +50,29 @@ pub struct ProviderLogin {
     /// The sign-in page that the tool printed.
     pub url: Option<String>,
     /// Why the last sign-in did not work.
-    pub error: Option<String>,
+    pub error: Option<LoginError>,
+}
+
+/// Why a sign-in did not work. It keeps the kind and the text of the tool,
+/// so the banner changes with the interface language.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LoginError {
+    /// The tool could not start the sign-in. The error of the tool.
+    Start(String),
+    /// The sign-in ended, but the tool is not signed in.
+    NotFinished,
+    /// The tool did not take the code. The error of the tool.
+    Code(String),
+}
+
+impl LoginError {
+    pub fn text(&self) -> String {
+        match self {
+            LoginError::Start(error) => t!("app.sign_in.start_failed", error = error),
+            LoginError::NotFinished => t!("app.sign_in.not_finished"),
+            LoginError::Code(error) => t!("app.sign_in.code_failed", error = error),
+        }
+    }
 }
 
 /// A provider's models, as last fetched from the provider.
@@ -300,7 +322,7 @@ impl AppModel {
         self.update_notice = state.notice;
         self.update = match &found {
             AtStart::Ready(version) => Status::Ready { version: version.clone() },
-            AtStart::Failed(message) => Status::Failed { message: message.clone() },
+            AtStart::Failed(failure) => Status::Failed { failure: failure.clone() },
             AtStart::Nothing | AtStart::Updated(_) | AtStart::Relaunching | AtStart::Stale => Status::Idle { last_check: state.last_check },
         };
         let (tx, statuses) = async_channel::unbounded();
@@ -384,9 +406,9 @@ impl AppModel {
             // The installed app is the new version now. Quit, and it starts.
             Ok(()) => cx.quit(),
             Err(sayso_update::SwapError::Busy) => {
-                self.update = sayso_update::Status::Failed { message: t!("app.update.busy") };
+                self.update = sayso_update::Status::Failed { failure: sayso_update::Failure::Busy };
             }
-            Err(sayso_update::SwapError::Failed(message)) => self.update = sayso_update::Status::Failed { message },
+            Err(sayso_update::SwapError::Failed(failure)) => self.update = sayso_update::Status::Failed { failure },
         }
         cx.notify();
     }
@@ -858,7 +880,7 @@ impl AppModel {
         let i = ids.iter().position(|id| *id == self.config.ai.active_style).unwrap_or(0);
         let next = ids[(i + 1) % ids.len()].clone();
         self.set_active_style(&next, cx);
-        let name = self.active_style().name;
+        let name = self.active_style().display_name();
         self.blocked_notice = Some(OverlayNotice::new(NoticeIcon::Style, t!("overlay.notice.style", name = name)));
     }
 
@@ -1073,7 +1095,7 @@ impl AppModel {
         let sign_in = match sayso_enhance::SignIn::start(&provider) {
             Ok(sign_in) => Arc::new(sign_in),
             Err(e) => {
-                login.error = Some(e.to_string());
+                login.error = Some(LoginError::Start(e.to_string()));
                 return;
             }
         };
@@ -1110,7 +1132,7 @@ impl AppModel {
                     login.sign_in = None;
                     login.url = None;
                     if !signed_in {
-                        login.error = Some(t!("app.sign_in.not_finished"));
+                        login.error = Some(LoginError::NotFinished);
                     }
                 }
                 if login.sign_in.is_none() {
@@ -1144,7 +1166,7 @@ impl AppModel {
     pub fn send_sign_in_code(&mut self, id: &str, code: &str, cx: &mut Context<Self>) {
         let Some(login) = self.logins.get_mut(id) else { return };
         let Some(sign_in) = login.sign_in.clone() else { return };
-        login.error = sign_in.send_code(code.trim()).err().map(|e| t!("app.sign_in.code_failed", error = e));
+        login.error = sign_in.send_code(code.trim()).err().map(|e| LoginError::Code(e.to_string()));
         cx.notify();
     }
 

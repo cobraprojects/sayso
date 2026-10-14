@@ -9,6 +9,7 @@ use sayso_i18n::t;
 use parking_lot::Mutex;
 use sayso_core::dictation::{Effect, Event, SessionId, Sound, State};
 use sayso_core::dictionary::AppliedReplacement;
+use sayso_core::enhance::EnhanceError;
 use sayso_core::history::{
     Diagnostics, EnhanceOutcome, HistoryEntry, InsertOutcome, InsertTimings, TargetApp, TranscribeTimings, waveform_summary,
 };
@@ -421,7 +422,7 @@ impl AppModel {
             }
             _ => ai.cli_timeout_ms,
         });
-        let style_name = style.name.clone();
+        let style_name = style.display_name();
         cx.spawn(async move |this, cx| {
             let out = cx
                 .background_spawn(async move {
@@ -444,7 +445,7 @@ impl AppModel {
                 let applied = matches!(out.enhance, EnhanceOutcome::Applied { .. });
                 m.session(session).enhance = Some(out.enhance.clone());
                 m.session(session).diagnostics.enhance = out.timings.clone();
-                let name = provider_display(m, out.enhance_error.as_deref());
+                let name = out.enhance_error.as_ref().map(|(id, error)| style_error_text(&m.provider_name(id), error));
                 m.dispatch(
                     Event::ReadyToInsert {
                         session,
@@ -517,10 +518,7 @@ impl AppModel {
                         InsertError::NoFocusedField => "No text field is focused".to_string(),
                         other => other.to_string(),
                     };
-                    let reason = match e {
-                        InsertError::NoFocusedField => t!("overlay.error.no_focused_field"),
-                        other => other.to_string(),
-                    };
+                    let reason = insert_error_text(&e);
                     m.session(session).insert = Some(InsertOutcome::Failed { reason: stored });
                     m.dispatch(Event::InsertFailed { session, text, reason }, cx);
                 }
@@ -550,7 +548,7 @@ impl AppModel {
             cx.background_executor().timer(Duration::from_millis(150)).await;
             let result = cx.background_spawn(async move { inserter.insert(&text, method) }).await;
             if let Err(e) = result {
-                let _ = this.update(cx, |m, cx| m.notice(NoticeIcon::Info, e.to_string(), cx));
+                let _ = this.update(cx, |m, cx| m.notice(NoticeIcon::Info, insert_error_text(&e), cx));
             }
         })
         .detach();
@@ -867,14 +865,32 @@ impl FinalPass {
     }
 }
 
-fn provider_display(m: &AppModel, error: Option<&str>) -> Option<String> {
-    let error = error?;
-    // "openrouter timed out after 4 s" → "OpenRouter timed out after 4 s"
-    let mut parts = error.splitn(2, ' ');
-    let id = parts.next().unwrap_or("");
-    let rest = parts.next().unwrap_or("");
-    let name = m.config.ai.providers.iter().find(|p| p.id == id).map(|p| p.name.clone()).unwrap_or_else(|| id.to_string());
-    Some(format!("{name} {rest}"))
+/// Why a style failed, for the overlay: "OpenRouter timed out after 4 s".
+fn style_error_text(provider: &str, error: &EnhanceError) -> String {
+    match error {
+        EnhanceError::Timeout(ms) => t!("overlay.style_error.timeout", provider = provider, seconds = (*ms as f64 / 1000.0).round() as u64),
+        EnhanceError::NotConfigured(_) => t!("overlay.style_error.not_configured", provider = provider),
+        EnhanceError::Http { status, .. } => t!("overlay.style_error.http", provider = provider, status = status),
+        EnhanceError::Network(_) => t!("overlay.style_error.network", provider = provider),
+        EnhanceError::InvalidOutput(_) => t!("overlay.style_error.invalid_output", provider = provider),
+        EnhanceError::Refused(_) => t!("overlay.style_error.refused", provider = provider),
+        EnhanceError::Cli(_) => t!("overlay.style_error.failed", provider = provider),
+    }
+}
+
+/// Why the text could not go in, in the interface language. The text of
+/// the system stays as it is.
+fn insert_error_text(error: &InsertError) -> String {
+    match error {
+        InsertError::NoFocusedField => t!("overlay.error.no_focused_field"),
+        InsertError::NotTaken => t!("overlay.error.not_taken"),
+        InsertError::NotTrusted => t!("overlay.error.not_trusted"),
+        InsertError::SecureInput => t!("overlay.error.secure_input"),
+        InsertError::Elevated { app: Some(app) } => t!("overlay.error.elevated", app = app),
+        InsertError::Elevated { app: None } => t!("overlay.error.elevated_unknown"),
+        InsertError::Clipboard(error) => t!("overlay.error.clipboard", error = error),
+        InsertError::Failed(detail) => detail.clone(),
+    }
 }
 
 /// Forward a blocking crossbeam receiver into an async channel, on its own thread.

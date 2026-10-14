@@ -7,6 +7,7 @@
 use crate::config::is_local_url;
 use crate::languages;
 use crate::models::{EngineKind, ModelId, ModelInfo};
+use sayso_i18n::t;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -31,7 +32,6 @@ pub struct KnownModel {
     /// The id Sayso sends to the provider.
     pub id: &'static str,
     pub name: &'static str,
-    pub description: &'static str,
     /// The provider takes dictionary words as a hint for this model.
     pub vocabulary: bool,
     /// 1 (slow) to 5 (fast).
@@ -49,16 +49,17 @@ impl SpeechProviderKind {
         SpeechProviderKind::OpenAiCompatible,
     ];
 
-    /// The name to show, and the default name of a new provider.
-    pub fn label(self) -> &'static str {
+    /// The name to show, and the default name of a new provider. "Custom
+    /// endpoint" is in the interface language.
+    pub fn label(self) -> String {
         match self {
-            SpeechProviderKind::OpenAi => "OpenAI",
-            SpeechProviderKind::Groq => "Groq",
-            SpeechProviderKind::Mistral => "Mistral",
-            SpeechProviderKind::ElevenLabs => "ElevenLabs",
-            SpeechProviderKind::Deepgram => "Deepgram",
-            SpeechProviderKind::AssemblyAi => "AssemblyAI",
-            SpeechProviderKind::OpenAiCompatible => "Custom endpoint",
+            SpeechProviderKind::OpenAi => "OpenAI".into(),
+            SpeechProviderKind::Groq => "Groq".into(),
+            SpeechProviderKind::Mistral => "Mistral".into(),
+            SpeechProviderKind::ElevenLabs => "ElevenLabs".into(),
+            SpeechProviderKind::Deepgram => "Deepgram".into(),
+            SpeechProviderKind::AssemblyAi => "AssemblyAI".into(),
+            SpeechProviderKind::OpenAiCompatible => t!("core.speech.custom_endpoint"),
         }
     }
 
@@ -91,27 +92,27 @@ impl SpeechProviderKind {
     /// The models Sayso offers for this provider. A provider's `models` list
     /// in `config.toml` adds more.
     pub fn known_models(self) -> &'static [KnownModel] {
-        const fn m(id: &'static str, name: &'static str, description: &'static str, vocabulary: bool, speed: u8) -> KnownModel {
-            KnownModel { id, name, description, vocabulary, speed }
+        const fn m(id: &'static str, name: &'static str, vocabulary: bool, speed: u8) -> KnownModel {
+            KnownModel { id, name, vocabulary, speed }
         }
         const OPEN_AI: &[KnownModel] = &[
-            m("gpt-4o-transcribe", "GPT-4o Transcribe", "High accuracy in many languages.", true, 4),
-            m("gpt-4o-mini-transcribe", "GPT-4o mini Transcribe", "Faster and cheaper, a little less accurate.", true, 5),
-            m("gpt-transcribe", "GPT Transcribe", "OpenAI's newest transcription model.", true, 4),
-            m("whisper-1", "Whisper", "Whisper large-v2 on OpenAI's servers.", true, 3),
+            m("gpt-4o-transcribe", "GPT-4o Transcribe", true, 4),
+            m("gpt-4o-mini-transcribe", "GPT-4o mini Transcribe", true, 5),
+            m("gpt-transcribe", "GPT Transcribe", true, 4),
+            m("whisper-1", "Whisper", true, 3),
         ];
         const GROQ: &[KnownModel] = &[
-            m("whisper-large-v3-turbo", "Whisper large-v3 turbo", "Very fast. The cheapest cloud choice.", true, 5),
-            m("whisper-large-v3", "Whisper large-v3", "More accurate than turbo, still fast.", true, 5),
+            m("whisper-large-v3-turbo", "Whisper large-v3 turbo", true, 5),
+            m("whisper-large-v3", "Whisper large-v3", true, 5),
         ];
-        const MISTRAL: &[KnownModel] = &[m("voxtral-mini-latest", "Voxtral Mini Transcribe", "13 languages. Takes dictionary words.", true, 4)];
-        const ELEVEN_LABS: &[KnownModel] = &[m("scribe_v2", "Scribe v2", "High accuracy in many languages. Takes dictionary words.", true, 3)];
+        const MISTRAL: &[KnownModel] = &[m("voxtral-mini-latest", "Voxtral Mini Transcribe", true, 4)];
+        const ELEVEN_LABS: &[KnownModel] = &[m("scribe_v2", "Scribe v2", true, 3)];
         const DEEPGRAM: &[KnownModel] = &[
-            m("nova-3", "Nova-3", "Fast, with strong accuracy. Takes dictionary words.", true, 5),
-            m("nova-2", "Nova-2", "The earlier Nova model. More languages.", false, 5),
+            m("nova-3", "Nova-3", true, 5),
+            m("nova-2", "Nova-2", false, 5),
         ];
         const ASSEMBLY_AI: &[KnownModel] =
-            &[m("universal-3-5-pro", "Universal 3.5 Pro", "For dictations up to two minutes. Takes dictionary words.", true, 4)];
+            &[m("universal-3-5-pro", "Universal 3.5 Pro", true, 4)];
         match self {
             SpeechProviderKind::OpenAi => OPEN_AI,
             SpeechProviderKind::Groq => GROQ,
@@ -120,6 +121,26 @@ impl SpeechProviderKind {
             SpeechProviderKind::Deepgram => DEEPGRAM,
             SpeechProviderKind::AssemblyAi => ASSEMBLY_AI,
             SpeechProviderKind::OpenAiCompatible => &[],
+        }
+    }
+}
+
+impl KnownModel {
+    /// A short note about the model, in the interface language.
+    pub fn description(&self) -> String {
+        match self.id {
+            "gpt-4o-transcribe" => t!("core.speech.model.gpt_4o_transcribe"),
+            "gpt-4o-mini-transcribe" => t!("core.speech.model.gpt_4o_mini_transcribe"),
+            "gpt-transcribe" => t!("core.speech.model.gpt_transcribe"),
+            "whisper-1" => t!("core.speech.model.whisper_1"),
+            "whisper-large-v3-turbo" => t!("core.speech.model.whisper_large_v3_turbo"),
+            "whisper-large-v3" => t!("core.speech.model.whisper_large_v3"),
+            "voxtral-mini-latest" => t!("core.speech.model.voxtral_mini_latest"),
+            "scribe_v2" => t!("core.speech.model.scribe_v2"),
+            "nova-3" => t!("core.speech.model.nova_3"),
+            "nova-2" => t!("core.speech.model.nova_2"),
+            "universal-3-5-pro" => t!("core.speech.model.universal_3_5_pro"),
+            _ => String::new(),
         }
     }
 }
@@ -180,17 +201,17 @@ impl SpeechProvider {
         };
         let known = self.kind.known_models();
         let mut list: Vec<ModelInfo> =
-            known.iter().map(|k| entry(k.id, k.name.to_string(), k.description.to_string(), k.vocabulary, k.speed)).collect();
+            known.iter().map(|k| entry(k.id, k.name.to_string(), k.description(), k.vocabulary, k.speed)).collect();
         for id in &self.models {
             let id = id.trim();
             if id.is_empty() || known.iter().any(|k| k.id == id) || list.iter().any(|m| m.id == self.model_id(id)) {
                 continue;
             }
-            let place = if self.is_cloud() { "Runs on the provider's servers." } else { "Runs on your own server." };
+            let place = if self.is_cloud() { t!("core.speech.runs_on_provider") } else { t!("core.speech.runs_on_own_server") };
             // The OpenAI-compatible API takes a prompt, so the words go there.
             let vocabulary = matches!(self.kind, SpeechProviderKind::OpenAiCompatible | SpeechProviderKind::OpenAi | SpeechProviderKind::Groq);
             let name = id.rsplit('/').next().unwrap_or(id).to_string();
-            list.push(entry(id, name, place.to_string(), vocabulary, 3));
+            list.push(entry(id, name, place, vocabulary, 3));
         }
         list
     }
@@ -242,7 +263,7 @@ pub enum SpeechError {
     #[error("timed out after {0} ms")]
     Timeout(u64),
     #[error("the provider is not set up: {0}")]
-    NotConfigured(String),
+    NotConfigured(MissingSetup),
     #[error("HTTP {status}: {message}")]
     Http { status: u16, message: String },
     #[error("network error: {0}")]
@@ -251,20 +272,31 @@ pub enum SpeechError {
     InvalidResponse(String),
 }
 
+/// What a speech provider needs before Sayso can use it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum MissingSetup {
+    #[error("no address is set")]
+    Address,
+    #[error("no API key is saved")]
+    ApiKey,
+}
+
 impl SpeechError {
-    /// A sentence for the overlay and the Models page: what went wrong and what to do.
+    /// A sentence for the overlay and the Models page, in the interface
+    /// language: what went wrong and what to do. `Display` gives the English
+    /// text for the log.
     pub fn user_message(&self, provider: &str) -> String {
         match self {
-            SpeechError::Timeout(ms) => {
-                format!("{provider} did not answer in {} s. Check your connection, then try again.", (*ms as f64 / 1000.0).round() as u64)
-            }
-            SpeechError::NotConfigured(reason) => format!("{provider} is not set up: {reason}. Open Models to fix it."),
-            SpeechError::Http { status: 401 | 403, .. } => format!("{provider} did not accept the API key. Enter a new key in Models."),
-            SpeechError::Http { status: 429, .. } => format!("{provider} is over its rate limit or out of credit. Try again later."),
-            SpeechError::Http { status, message } if message.is_empty() => format!("{provider} returned HTTP {status}."),
-            SpeechError::Http { status, message } => format!("{provider} returned HTTP {status}: {message}"),
-            SpeechError::Network(_) => format!("Sayso could not reach {provider}. Check your connection, then try again."),
-            SpeechError::InvalidResponse(_) => format!("{provider} sent an answer Sayso could not read."),
+            SpeechError::Timeout(ms) => t!("core.speech.error.timeout", provider = provider, seconds = (*ms as f64 / 1000.0).round() as u64),
+            SpeechError::NotConfigured(MissingSetup::Address) => t!("core.speech.error.no_address", provider = provider),
+            SpeechError::NotConfigured(MissingSetup::ApiKey) => t!("core.speech.error.no_api_key", provider = provider),
+            SpeechError::Http { status: 401 | 403, .. } => t!("core.speech.error.key_refused", provider = provider),
+            SpeechError::Http { status: 429, .. } => t!("core.speech.error.rate_limit", provider = provider),
+            SpeechError::Http { status, message } if message.is_empty() => t!("core.speech.error.http", provider = provider, status = status),
+            // The text of the provider stays as it is.
+            SpeechError::Http { status, message } => t!("core.speech.error.http_message", provider = provider, status = status, message = message),
+            SpeechError::Network(_) => t!("core.speech.error.network", provider = provider),
+            SpeechError::InvalidResponse(_) => t!("core.speech.error.invalid_response", provider = provider),
         }
     }
 }

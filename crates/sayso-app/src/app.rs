@@ -34,7 +34,7 @@ pub fn run() {
     init_logging(&paths, loaded.config.advanced.log_level.as_deref());
     crate::shell::prepare();
     for issue in &loaded.issues {
-        log::warn!("config: {}: {}", issue.field, issue.message);
+        log::warn!("config: {}: {}", issue.field, issue.problem);
     }
     if loaded.created {
         let _ = loaded.config.save(&paths.config_file());
@@ -47,8 +47,8 @@ pub fn run() {
                 log::info!("update: the new version starts");
                 std::process::exit(0);
             }
-            if let sayso_update::AtStart::Failed(message) = &found {
-                log::warn!("update: {message}");
+            if let sayso_update::AtStart::Failed(failure) = &found {
+                log::warn!("update: {failure}");
             }
             (options, found)
         });

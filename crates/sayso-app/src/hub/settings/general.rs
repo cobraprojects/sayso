@@ -5,6 +5,7 @@ use super::kit::{self, group, row};
 use crate::model::AppModel;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::*;
+use sayso_core::config::ConfigProblem;
 use sayso_platform::LoginItemState;
 use sayso_ui::ActivePaper;
 use sayso_ui::components::*;
@@ -358,7 +359,7 @@ impl Render for GeneralSettings {
                         .flex()
                         .gap(px(8.))
                         .child(text::mono(issue.field.clone(), 12., c.danger).flex_none())
-                        .child(text::ui(issue.message.clone(), 13., FontWeight::NORMAL, c.ink).line_height(px(18.))),
+                        .child(text::ui(issue_text(&issue.problem), 13., FontWeight::NORMAL, c.ink).line_height(px(18.))),
                 );
             }
             let model = self.model.clone();
@@ -412,3 +413,24 @@ impl Render for GeneralSettings {
 }
 
 use gpui_kit::prelude::FluentBuilder as _;
+
+/// The text of a problem in config.toml. The text of the TOML parser and of
+/// the system stays as it is.
+fn issue_text(problem: &ConfigProblem) -> String {
+    match problem {
+        ConfigProblem::Unreadable { path, error } => t!("settings.general.issue.unreadable", path = path, error = error),
+        ConfigProblem::Syntax(message) => message.clone(),
+        ConfigProblem::BadSection(message) => t!("settings.general.issue.bad_section", message = message),
+        ConfigProblem::VolumeRange => t!("settings.general.issue.volume_range"),
+        ConfigProblem::AiTimeoutTooShort => t!("settings.general.issue.ai_timeout_too_short"),
+        ConfigProblem::PushToTalkIsToggle => t!("settings.general.issue.push_to_talk_is_toggle"),
+        ConfigProblem::UnknownProvider(id) => t!("settings.general.issue.unknown_provider", id = id),
+        ConfigProblem::UnknownModel(id) => t!("settings.general.issue.unknown_model", id = id),
+        ConfigProblem::UnknownInterfaceLanguage(code) => t!("settings.general.issue.unknown_interface_language", code = code),
+        ConfigProblem::UnknownDictationLanguage(code) => t!("settings.general.issue.unknown_dictation_language", code = code),
+        ConfigProblem::SpeechTimeoutTooShort => t!("settings.general.issue.speech_timeout_too_short"),
+        ConfigProblem::BadProviderId(id) => t!("settings.general.issue.bad_provider_id", id = id),
+        ConfigProblem::DuplicateProviderId(id) => t!("settings.general.issue.duplicate_provider_id", id = id),
+        ConfigProblem::NeedsBaseUrl(id) => t!("settings.general.issue.needs_base_url", id = id),
+    }
+}

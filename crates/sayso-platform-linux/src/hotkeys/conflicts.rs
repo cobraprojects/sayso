@@ -76,7 +76,9 @@ const CLASSIC: &[(&str, &str)] = &[
     ("<Primary><Alt>l", "Lock screen"),
 ];
 
-/// Desktop shortcuts and their names.
+/// Desktop shortcuts and their names. The app shows each name in the interface
+/// language (`shortcut_name` in `sayso-app/src/hub/settings/recorder.rs`), so
+/// a new name in the tables above goes there too.
 type Table = Vec<(Hotkey, &'static str)>;
 
 /// The desktop's shortcuts, read at most once per [`CACHE_TTL`].

@@ -176,7 +176,7 @@ pub fn paste_with_receipt(
     let receipts: SharedReceipts = Arc::default();
     let ours = clipboard
         .publish(Selection::Clipboard, text_content(text, restore_clipboard), Some(receipts.clone()))
-        .map_err(|e| InsertError::Failed(format!("Sayso cannot use the clipboard: {e}")))?;
+        .map_err(|e| InsertError::Clipboard(e.to_string()))?;
     let ours_primary = clipboard
         .publish(Selection::Primary, text_content(text, restore_clipboard), Some(receipts.clone()))
         .inspect_err(|e| log::warn!("cannot set the primary selection: {e}"))
@@ -404,7 +404,7 @@ impl LinuxInserter {
                 }
                 let Some(x) = xtest.as_ref() else { return Err(InsertError::NotTrusted) };
                 let result = f(x);
-                if matches!(result, Err(InsertError::Failed(_))) {
+                if matches!(result, Err(InsertError::Failed(_) | InsertError::Clipboard(_))) {
                     // A broken connection: connect again next time.
                     *xtest = None;
                 }

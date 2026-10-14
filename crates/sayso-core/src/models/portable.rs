@@ -7,6 +7,7 @@
 
 use super::{Entry, EngineKind, ModelInfo};
 use crate::languages;
+use sayso_i18n::t;
 
 /// Parakeet TDT v3: fast on a CPU, accurate, and 25 languages.
 pub(super) const DEFAULT_MODEL: &str = "parakeet-tdt-v3";
@@ -38,7 +39,7 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 id: "parakeet-tdt-v3",
                 name: "Parakeet TDT v3",
                 vendor: "NVIDIA",
-                description: "Fast and accurate on the processor of this computer. English and 24 European languages. Shows your words live while you speak.",
+                description: t!("core.model.parakeet_tdt_v3_portable"),
                 engine: parakeet("istupakov/parakeet-tdt-0.6b-v3-onnx"),
                 size_mb: PARAKEET_V3_MB,
                 languages: languages::parakeet_v3(),
@@ -53,7 +54,7 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 id: "parakeet-tdt-v2",
                 name: "Parakeet TDT v2",
                 vendor: "NVIDIA",
-                description: "The English Parakeet. Shows your words live while you speak.",
+                description: t!("core.model.parakeet_tdt_v2_portable"),
                 engine: parakeet("istupakov/parakeet-tdt-0.6b-v2-onnx"),
                 size_mb: PARAKEET_V2_MB,
                 languages: en(),
@@ -69,7 +70,7 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 id: "whisper-large-v3-turbo",
                 name: "Whisper large-v3 turbo",
                 vendor: "OpenAI",
-                description: "Nearly as accurate as large-v3 and much faster. Quantized to 5 bits.",
+                description: t!("core.model.whisper_large_v3_turbo_portable"),
                 engine: ggml("ggml-large-v3-turbo-q5_0.bin"),
                 size_mb: 574,
                 languages: languages::whisper(),
@@ -84,7 +85,7 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 id: "whisper-large-v3",
                 name: "Whisper large-v3",
                 vendor: "OpenAI",
-                description: "Good with strong accents and mixed language. Slow without a fast processor. Quantized to 5 bits.",
+                description: t!("core.model.whisper_large_v3_portable"),
                 engine: ggml("ggml-large-v3-q5_0.bin"),
                 size_mb: 1081,
                 languages: languages::whisper(),
@@ -99,7 +100,7 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 id: "whisper-medium",
                 name: "Whisper medium",
                 vendor: "OpenAI",
-                description: "Between small and large. Quantized to 5 bits.",
+                description: t!("core.model.whisper_medium_portable"),
                 engine: ggml("ggml-medium-q5_0.bin"),
                 size_mb: 539,
                 languages: languages::whisper(),
@@ -114,7 +115,7 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 id: "whisper-small",
                 name: "Whisper small",
                 vendor: "OpenAI",
-                description: "Lower accuracy. Good for a quick try.",
+                description: t!("core.model.whisper_small"),
                 engine: ggml("ggml-small.bin"),
                 size_mb: 488,
                 languages: languages::whisper(),
@@ -129,7 +130,7 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 id: "whisper-base",
                 name: "Whisper base",
                 vendor: "OpenAI",
-                description: "Small and fast, with many mistakes.",
+                description: t!("core.model.whisper_base"),
                 engine: ggml("ggml-base.bin"),
                 size_mb: 148,
                 languages: languages::whisper(),
@@ -144,7 +145,7 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 id: "whisper-tiny",
                 name: "Whisper tiny",
                 vendor: "OpenAI",
-                description: "The smallest model. For tests and very old computers.",
+                description: t!("core.model.whisper_tiny_portable"),
                 engine: ggml("ggml-tiny.bin"),
                 size_mb: 78,
                 languages: languages::whisper(),

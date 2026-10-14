@@ -160,8 +160,9 @@ impl StylesPage {
         let origin = if is_new { None } else { self.model.read(cx).style_origin(&base.id) };
         let http_s = self.model.read(cx).config.ai.http_timeout_ms as f64 / 1000.0;
         let b = base.clone();
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder(t!("styles.editor.name_placeholder")).default_value(b.name.clone()));
-        let description = cx.new(|cx| InputState::new(window, cx).placeholder(t!("styles.editor.description_placeholder")).default_value(b.description.clone()));
+        // A built-in style shows its name and description in the interface language.
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder(t!("styles.editor.name_placeholder")).default_value(b.display_name()));
+        let description = cx.new(|cx| InputState::new(window, cx).placeholder(t!("styles.editor.description_placeholder")).default_value(b.display_description()));
         let prompt = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .placeholder(t!("styles.editor.prompt_placeholder"))
@@ -296,11 +297,16 @@ impl StylesPage {
             }
         };
         let id = if ed.is_new { self.model.read(cx).new_style_id(&name) } else { ed.id.clone() };
+        // A name or description that the user did not change keeps the text
+        // from before, so a built-in style still follows the interface language.
+        let description = ed.description.read(cx).value().trim().to_string();
+        let name = if name == ed.base.display_name() { ed.base.name.clone() } else { name };
+        let description = if description == ed.base.display_description() { ed.base.description.clone() } else { description };
         let style = Style {
             id,
             name,
             ink: ed.ink.clone(),
-            description: ed.description.read(cx).value().trim().to_string(),
+            description,
             prompt: ed.prompt.read(cx).value().trim().to_string(),
             provider: ed.provider.clone(),
             model: ed.model.clone(),
@@ -377,7 +383,7 @@ impl StylesPage {
         let ink_name = NamedInk::ALL
             .iter()
             .find(|n| ed.ink.eq_ignore_ascii_case(&format!("#{:06X}", n.color().0)))
-            .map(|n| n.name().to_string())
+            .map(|n| n.label())
             .unwrap_or_else(|| t!("styles.editor.ink_custom", ink = ed.ink));
         swatches = swatches.child(ui(ink_name, 13., 16., FontWeight::MEDIUM, c.graphite).pl(px(4.)));
 
@@ -959,8 +965,8 @@ impl StylesPage {
                     .child(kit::seal_dot(Some(style.ink.as_str()), 14., cx))
                     .child(kit::caps(t!("styles.recommended"), 11., c.graphite)),
             )
-            .child(text::title(style.name.clone(), 26., &c).line_height(px(32.)))
-            .child(ui(style.description.clone(), 14., 20., FontWeight::NORMAL, c.graphite))
+            .child(text::title(style.display_name(), 26., &c).line_height(px(32.)))
+            .child(ui(style.display_description(), 14., 20., FontWeight::NORMAL, c.graphite))
             .child(actions);
         let side = |label: String, body: Div| div().flex().flex_col().flex_1().min_w_0().gap(px(6.)).py(px(14.)).px(px(16.)).child(kit::caps(label, 11., c.graphite)).child(body);
         let example = div()
@@ -1041,8 +1047,8 @@ impl StylesPage {
                 this.model.update(cx, |m, cx| m.set_active_style(&id, cx));
             }))
             .child(kit::seal_dot(style.uses_ai().then_some(style.ink.as_str()), 14., cx))
-            .child(text::title(style.name.clone(), 18., &c).line_height(px(24.)).flex_none().w(px(112.)).truncate())
-            .child(ui(style.description.clone(), 14., 20., FontWeight::NORMAL, c.graphite).flex_1().min_w_0().truncate())
+            .child(text::title(style.display_name(), 18., &c).line_height(px(24.)).flex_none().w(px(112.)).truncate())
+            .child(ui(style.display_description(), 14., 20., FontWeight::NORMAL, c.graphite).flex_1().min_w_0().truncate())
             .child(div().flex().flex_none().items_center().gap(px(6.)).w(px(if narrow { 150. } else { 236. })).when_some(detail, |d, (line, color)| {
                 d.when(has_rule, |d| d.child(icon(Icon::ArrowRight, 11., c.graphite))).child(ui(line, 12., 16., FontWeight::MEDIUM, color).min_w_0().truncate())
             }))

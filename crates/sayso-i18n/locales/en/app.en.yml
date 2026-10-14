@@ -4,9 +4,8 @@ _version: 1
 app:
   hotkeys_not_built: "Hotkeys are not built for this system yet."
   insertion_not_built: "Insertion is not built for this system yet."
-  update:
-    busy: "Another Sayso runs from this app. Quit it, then try again."
   sign_in:
+    start_failed: "Sayso could not start the sign-in: %{error}"
     not_finished: "The sign-in did not finish. Select Sign in to try again."
     code_failed: "Sayso could not send the code: %{error}"
   # The status line at the foot of the Hub sidebar.

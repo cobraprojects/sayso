@@ -583,7 +583,44 @@ pub struct Onboarding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigIssue {
     pub field: String,
-    pub message: String,
+    pub problem: ConfigProblem,
+}
+
+/// What is wrong with a value. `Display` gives the English text for the log;
+/// the app shows the text of the interface language.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ConfigProblem {
+    /// The file is there, but Sayso cannot read it. `error` is the text of the system.
+    #[error("could not read {path}: {error}")]
+    Unreadable { path: String, error: String },
+    /// The TOML syntax is wrong. The text of the TOML parser.
+    #[error("{0}")]
+    Syntax(String),
+    /// A section has a bad value, so it uses its defaults. The text of the TOML parser.
+    #[error("{0} (using defaults for this section)")]
+    BadSection(String),
+    #[error("must be between 0.0 and 1.0")]
+    VolumeRange,
+    #[error("timeouts must be at least 500 ms")]
+    AiTimeoutTooShort,
+    #[error("is the same key as hotkeys.toggle")]
+    PushToTalkIsToggle,
+    #[error("no provider has the id \"{0}\"")]
+    UnknownProvider(String),
+    #[error("\"{0}\" is not a known model")]
+    UnknownModel(String),
+    #[error("\"{0}\" is not an interface language Sayso has. Sayso uses the language of the system")]
+    UnknownInterfaceLanguage(String),
+    #[error("\"{0}\" is not a language code Sayso knows. Use \"auto\" or a code such as \"en\"")]
+    UnknownDictationLanguage(String),
+    #[error("must be at least 1000 ms")]
+    SpeechTimeoutTooShort,
+    #[error("the provider id \"{0}\" must not be empty or contain a colon")]
+    BadProviderId(String),
+    #[error("two providers have the id \"{0}\"")]
+    DuplicateProviderId(String),
+    #[error("the provider \"{0}\" needs a base_url")]
+    NeedsBaseUrl(String),
 }
 
 #[derive(Debug)]
@@ -598,7 +635,8 @@ impl LoadedConfig {
     /// The defaults for a file that is there but cannot be read. Not
     /// `created`, so the app does not write the defaults over the file.
     pub fn unreadable(error: &ConfigError) -> Self {
-        let issue = ConfigIssue { field: "config.toml".into(), message: error.to_string() };
+        let ConfigError::Io(path, e) = error;
+        let issue = ConfigIssue { field: "config.toml".into(), problem: ConfigProblem::Unreadable { path: path.clone(), error: e.to_string() } };
         Self { config: Config::default(), issues: vec![issue], created: false }
     }
 }
@@ -635,7 +673,7 @@ impl Config {
                 let config = match toml::from_str::<toml::Table>(text) {
                     Ok(table) => Self::from_sections(table, &mut issues),
                     Err(_) => {
-                        issues.push(ConfigIssue { field: "config.toml".into(), message: whole.message().to_string() });
+                        issues.push(ConfigIssue { field: "config.toml".into(), problem: ConfigProblem::Syntax(whole.message().to_string()) });
                         Config::default()
                     }
                 };
@@ -655,7 +693,7 @@ impl Config {
                         Ok(parsed) => cfg.$field = parsed,
                         Err(e) => issues.push(ConfigIssue {
                             field: $name.into(),
-                            message: format!("{} (using defaults for this section)", toml::de::Error::message(&e)),
+                            problem: ConfigProblem::BadSection(toml::de::Error::message(&e).to_string()),
                         }),
                     }
                 }
@@ -680,41 +718,41 @@ impl Config {
 
     pub fn validate(&self) -> Vec<ConfigIssue> {
         let mut issues = Vec::new();
-        let mut issue = |field: &str, message: String| issues.push(ConfigIssue { field: field.into(), message });
+        let mut issue = |field: &str, problem: ConfigProblem| issues.push(ConfigIssue { field: field.into(), problem });
         if !(0.0..=1.0).contains(&self.sounds.volume) {
-            issue("sounds.volume", "must be between 0.0 and 1.0".into());
+            issue("sounds.volume", ConfigProblem::VolumeRange);
         }
         if self.ai.http_timeout_ms < 500 || self.ai.cli_timeout_ms < 500 {
-            issue("ai", "timeouts must be at least 500 ms".into());
+            issue("ai", ConfigProblem::AiTimeoutTooShort);
         }
         if self.hotkeys.toggle.is_some() && self.hotkeys.toggle == self.hotkeys.push_to_talk {
-            issue("hotkeys.push_to_talk", "is the same key as hotkeys.toggle".into());
+            issue("hotkeys.push_to_talk", ConfigProblem::PushToTalkIsToggle);
         }
         if let Some(id) = &self.ai.default_provider
             && !self.ai.providers.iter().any(|p| &p.id == id) {
-                issue("ai.default_provider", format!("no provider has the id \"{id}\""));
+                issue("ai.default_provider", ConfigProblem::UnknownProvider(id.clone()));
             }
         if crate::models::find_with(&self.speech, &self.dictation.model).is_none() {
-            issue("dictation.model", format!("\"{}\" is not a known model", self.dictation.model));
+            issue("dictation.model", ConfigProblem::UnknownModel(self.dictation.model.to_string()));
         }
         if !sayso_i18n::is_valid_setting(&self.general.language) {
-            issue("general.language", format!("\"{}\" is not an interface language Sayso has. Sayso uses the language of the system", self.general.language));
+            issue("general.language", ConfigProblem::UnknownInterfaceLanguage(self.general.language.clone()));
         }
         if !crate::languages::is_valid(&self.dictation.language) {
-            issue("dictation.language", format!("\"{}\" is not a language code Sayso knows. Use \"auto\" or a code such as \"en\"", self.dictation.language));
+            issue("dictation.language", ConfigProblem::UnknownDictationLanguage(self.dictation.language.clone()));
         }
         if self.speech.timeout_ms < 1000 {
-            issue("speech.timeout_ms", "must be at least 1000 ms".into());
+            issue("speech.timeout_ms", ConfigProblem::SpeechTimeoutTooShort);
         }
         for (i, p) in self.speech.providers.iter().enumerate() {
             if p.id.is_empty() || p.id.contains(':') {
-                issue("speech.providers", format!("the provider id \"{}\" must not be empty or contain a colon", p.id));
+                issue("speech.providers", ConfigProblem::BadProviderId(p.id.clone()));
             }
             if self.speech.providers[..i].iter().any(|q| q.id == p.id) {
-                issue("speech.providers", format!("two providers have the id \"{}\"", p.id));
+                issue("speech.providers", ConfigProblem::DuplicateProviderId(p.id.clone()));
             }
             if p.kind == SpeechProviderKind::OpenAiCompatible && p.base_url().is_none() {
-                issue("speech.providers", format!("the provider \"{}\" needs a base_url", p.id));
+                issue("speech.providers", ConfigProblem::NeedsBaseUrl(p.id.clone()));
             }
         }
         issues
@@ -746,7 +784,7 @@ mod tests {
         let loaded = LoadedConfig::unreadable(&error);
         assert!(!loaded.created);
         assert_eq!(loaded.issues.len(), 1);
-        assert!(loaded.issues[0].message.contains("config.toml"), "{}", loaded.issues[0].message);
+        assert!(loaded.issues[0].problem.to_string().contains("config.toml"), "{}", loaded.issues[0].problem);
         assert_eq!(loaded.config, Config::default());
     }
 
@@ -1075,7 +1113,7 @@ mod tests {
             api_key_account: None,
             models: vec![],
         });
-        let messages: Vec<_> = c.validate().into_iter().map(|i| i.message).collect();
+        let messages: Vec<_> = c.validate().into_iter().map(|i| i.problem.to_string()).collect();
         assert!(messages.iter().any(|m| m.contains("two providers")));
         assert!(messages.iter().any(|m| m.contains("base_url")));
     }

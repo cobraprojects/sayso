@@ -367,7 +367,7 @@ impl Render for OverlayView {
 
         let blocked = m.blocked_notice.clone();
         let incognito = m.incognito;
-        let recording_style = m.recording_style().map(|s| s.name);
+        let recording_style = m.recording_style().map(|s| s.display_name());
         let preview = m.preview.clone();
         let show_preview = m.config.overlay.show_preview;
         let toggle_caps = m.config.hotkeys.toggle.map(|h| h.keycaps()).unwrap_or_default();
@@ -571,6 +571,9 @@ impl Render for OverlayView {
                             .into_any_element()
                     }
                     Notice::Error { message } => notice_pill(Icon::Info, message, None, size, &c).child(capture()).into_any_element(),
+                    Notice::NoSpeech => {
+                        notice_pill(Icon::Info, &sayso_i18n::t!("overlay.error.no_speech"), None, size, &c).child(capture()).into_any_element()
+                    }
                     Notice::Discarded => div().into_any_element(),
                 },
             }

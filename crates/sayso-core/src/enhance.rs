@@ -72,21 +72,6 @@ pub enum EnhanceError {
     Cli(String),
 }
 
-impl EnhanceError {
-    /// Short text for the overlay, for example "timed out after 4 s".
-    pub fn short(&self) -> String {
-        match self {
-            EnhanceError::Timeout(ms) => format!("timed out after {} s", (*ms as f64 / 1000.0).round() as u64),
-            EnhanceError::NotConfigured(_) => "is not set up".into(),
-            EnhanceError::Http { status, .. } => format!("returned HTTP {status}"),
-            EnhanceError::Network(_) => "could not be reached".into(),
-            EnhanceError::InvalidOutput(_) => "returned text in the wrong format".into(),
-            EnhanceError::Refused(_) => "refused the request".into(),
-            EnhanceError::Cli(_) => "failed".into(),
-        }
-    }
-}
-
 /// One model a provider offers, for the model picker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelChoice {
@@ -230,10 +215,5 @@ mod tests {
         assert!(parse_output(r#"{"text": 3}"#).is_err());
         assert!(parse_output(r#"{"text": "  "}"#).is_err());
         assert!(parse_output(r#"["text"]"#).is_err());
-    }
-
-    #[test]
-    fn short_messages_read_well() {
-        assert_eq!(EnhanceError::Timeout(4000).short(), "timed out after 4 s");
     }
 }

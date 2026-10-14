@@ -72,12 +72,64 @@ pub enum StyleError {
 pub const RAW_STYLE_ID: &str = "raw";
 pub const DEFAULT_STYLE_ID: &str = "clean";
 
+/// The English name and description of a built-in style, as Sayso ships
+/// them. A user file can change them.
+fn shipped(id: &str) -> Option<(&'static str, &'static str)> {
+    Some(match id {
+        "clean" => ("Clean", "Remove filler words and fix punctuation. Keep your wording."),
+        "polished" => ("Polished", "Fix grammar and flow. Keep your word choices."),
+        "rambling" => ("Rambling", "For thinking out loud. Joins repeats and run-on sentences into clear text."),
+        "message" => ("Message", "For chat, in your own words. No greeting, no sign-off."),
+        "email" => ("Email", "Add a greeting, paragraphs, and a sign-off around your own words."),
+        "notes" => ("Notes", "Turn it into short bullets in your own words. One idea per line."),
+        "raw" => ("Raw", "No AI. Only your dictionary replacements run."),
+        _ => return None,
+    })
+}
+
+impl Style {
+    /// The name to show. A built-in style whose name is still the shipped
+    /// English shows the name of the interface language; else the user's name.
+    pub fn display_name(&self) -> String {
+        if shipped(&self.id).is_none_or(|(name, _)| name != self.name) {
+            return self.name.clone();
+        }
+        match self.id.as_str() {
+            "clean" => sayso_i18n::t!("styles.builtin.clean.name"),
+            "polished" => sayso_i18n::t!("styles.builtin.polished.name"),
+            "rambling" => sayso_i18n::t!("styles.builtin.rambling.name"),
+            "message" => sayso_i18n::t!("styles.builtin.message.name"),
+            "email" => sayso_i18n::t!("styles.builtin.email.name"),
+            "notes" => sayso_i18n::t!("styles.builtin.notes.name"),
+            "raw" => sayso_i18n::t!("styles.builtin.raw.name"),
+            _ => self.name.clone(),
+        }
+    }
+
+    /// The description to show, with the same rule as [`Style::display_name`].
+    pub fn display_description(&self) -> String {
+        if shipped(&self.id).is_none_or(|(_, description)| description != self.description) {
+            return self.description.clone();
+        }
+        match self.id.as_str() {
+            "clean" => sayso_i18n::t!("styles.builtin.clean.description"),
+            "polished" => sayso_i18n::t!("styles.builtin.polished.description"),
+            "rambling" => sayso_i18n::t!("styles.builtin.rambling.description"),
+            "message" => sayso_i18n::t!("styles.builtin.message.description"),
+            "email" => sayso_i18n::t!("styles.builtin.email.description"),
+            "notes" => sayso_i18n::t!("styles.builtin.notes.description"),
+            "raw" => sayso_i18n::t!("styles.builtin.raw.description"),
+            _ => self.description.clone(),
+        }
+    }
+}
+
 pub fn builtin_styles() -> Vec<Style> {
-    let s = |id: &str, name: &str, ink: &str, description: &str, prompt: &str| Style {
+    let s = |id: &str, ink: &str, prompt: &str| Style {
         id: id.into(),
-        name: name.into(),
+        name: shipped(id).map(|(name, _)| name).unwrap_or_default().into(),
         ink: ink.into(),
-        description: description.into(),
+        description: shipped(id).map(|(_, description)| description).unwrap_or_default().into(),
         prompt: prompt.into(),
         provider: None,
         model: None,
@@ -89,16 +141,12 @@ pub fn builtin_styles() -> Vec<Style> {
     vec![
         s(
             "clean",
-            "Clean",
             "#1D1B18",
-            "Remove filler words and fix punctuation. Keep your wording.",
             "Keep the speaker's own words and word order. Do not rephrase.",
         ),
         s(
             "polished",
-            "Polished",
             "#2F3A4F",
-            "Fix grammar and flow. Keep your word choices.",
             "Fix every grammar mistake (\"we was\" becomes \"we were\", \"it don't\" becomes \"it doesn't\") \
              and sentences that do not read well. \
              Change only the words that the fix needs. \
@@ -106,9 +154,7 @@ pub fn builtin_styles() -> Vec<Style> {
         ),
         s(
             "rambling",
-            "Rambling",
             "#6B4A6E",
-            "For thinking out loud. Joins repeats and run-on sentences into clear text.",
             "The speaker thinks out loud. Write the text that they would write after they have thought it through. \
              Break run-on sentences into clear sentences and fix grammar mistakes. \
              Say each point one time: when the speaker repeats a point or comes back to it, put it in one place. \
@@ -124,17 +170,13 @@ pub fn builtin_styles() -> Vec<Style> {
         ),
         s(
             "message",
-            "Message",
             "#2D3C8C",
-            "For chat, in your own words. No greeting, no sign-off.",
             "This is a chat message. Keep the speaker's slang and contractions, and do not make it more formal. \
              Add no greeting and no sign-off. Write emoji names the speaker says as emoji, and add no other emoji.",
         ),
         s(
             "email",
-            "Email",
             "#7A4A2B",
-            "Add a greeting, paragraphs, and a sign-off around your own words.",
             "Format this as an email body. The first line is a short greeting, when a recipient is named. \
              Then come the speaker's own words in paragraphs, with an empty line between them. \
              When the speaker says no sign-off, the last line is a short one (\"Thanks,\" or \"Best,\") with no name after it. \
@@ -142,14 +184,12 @@ pub fn builtin_styles() -> Vec<Style> {
         ),
         s(
             "notes",
-            "Notes",
             "#3F6B5C",
-            "Turn it into short bullets in your own words. One idea per line.",
             "Turn this into a list of short bullet points. Each bullet is on its own line and starts with \"- \". \
              Keep all facts and the speaker's word choices. \
              For \"we gotta call the bank and then book the flight for may second\", the reply is:\n- Call the bank\n- Book the flight for May 2",
         ),
-        s("raw", "Raw", "#B8B1A4", "No AI. Only your dictionary replacements run.", ""),
+        s("raw", "#B8B1A4", ""),
     ]
 }
 
@@ -352,6 +392,19 @@ pub(crate) fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_builtin_shows_the_catalog_text_until_the_user_changes_it() {
+        // The tests run in English, so the catalog text is the shipped text.
+        for style in builtin_styles() {
+            assert_eq!(style.display_name(), style.name, "{}", style.id);
+            assert_eq!(style.display_description(), style.description, "{}", style.id);
+        }
+        let clean = builtin_styles().remove(0);
+        let mine = Style { name: "Tidy".into(), description: "Mine.".into(), ..clean };
+        assert_eq!(mine.display_name(), "Tidy");
+        assert_eq!(mine.display_description(), "Mine.");
+    }
 
     #[test]
     fn builtins_load_in_order_without_files() {

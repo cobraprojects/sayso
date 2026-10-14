@@ -16,6 +16,7 @@
 
 pub mod check;
 pub mod download;
+mod failure;
 mod files;
 pub mod install;
 pub mod keys;
@@ -26,6 +27,7 @@ pub mod state;
 pub mod swap;
 mod updater;
 
+pub use failure::Failure;
 pub use install::{Manual, Package};
 pub use swap::{AtStart, SwapError};
 pub use updater::{Options, Status, Updater};

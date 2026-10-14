@@ -1087,7 +1087,7 @@ impl HistoryPage {
         }
 
         let style_name = m.style_name(&e.style_id);
-        let style_desc = m.styles.get(&e.style_id).map(|s| s.description.clone()).unwrap_or_default();
+        let style_desc = m.styles.get(&e.style_id).map(|s| s.display_description()).unwrap_or_default();
         match &e.enhance {
             EnhanceOutcome::Applied { provider_id, model, elapsed_ms } => steps.push((
                 t!(
