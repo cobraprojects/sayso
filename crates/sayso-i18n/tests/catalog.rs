@@ -136,7 +136,8 @@ fn every_english_key_is_used() {
         .keys()
         .filter(|key| {
             let base = plural.captures(key).map_or(key.as_str(), |c| c.get(1).unwrap().as_str());
-            !sources.contains(&format!("\"{base}\""))
+            // scripts/i18n-system-files.py reads the system texts.
+            !base.starts_with("system.") && !sources.contains(&format!("\"{base}\""))
         })
         .collect();
     assert!(unused.is_empty(), "keys in en.yml that no code uses:\n  {}", unused.iter().map(|k| k.as_str()).collect::<Vec<_>>().join("\n  "));

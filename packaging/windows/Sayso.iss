@@ -46,6 +46,17 @@ WizardStyle=modern
 ; Setup asks the user to quit Sayso first.
 AppMutex=Local\dev.sayso.Sayso.instance
 CloseApplications=yes
+; Pick the language from Windows without a question.
+ShowLanguageDialog=no
+
+; The language of the installer: the first one that matches the language of
+; Windows, else English. These files come with Inno Setup 6. Simplified
+; Chinese has no official file yet, so it gets English.
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
+Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
+Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
