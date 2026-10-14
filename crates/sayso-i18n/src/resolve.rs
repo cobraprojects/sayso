@@ -1,6 +1,6 @@
 //! Which locale to use, from the setting and the languages of the system.
 
-use crate::{PSEUDO, SYSTEM, available};
+use crate::{HAS_PSEUDO, PSEUDO, SYSTEM, available};
 
 /// The locale for the setting `general.language`. "system", and a value that
 /// is not an available locale, take the first system language that has one.
@@ -16,7 +16,7 @@ pub fn system_locales() -> Vec<String> {
 }
 
 fn resolve_in(setting: &str, system: &[String], codes: &[&'static str]) -> &'static str {
-    if setting == PSEUDO {
+    if setting == PSEUDO && HAS_PSEUDO {
         return PSEUDO;
     }
     if setting != SYSTEM
@@ -142,6 +142,6 @@ mod tests {
 
     #[test]
     fn pseudo_locale() {
-        assert_eq!(r(PSEUDO, &["ja"]), PSEUDO);
+        assert_eq!(r(PSEUDO, &["ja"]), if HAS_PSEUDO { PSEUDO } else { "ja" });
     }
 }

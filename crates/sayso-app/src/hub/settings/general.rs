@@ -72,8 +72,7 @@ impl GeneralSettings {
     /// It shows only when there is more than English to choose, and in a
     /// debug build, which also has the pseudo-locale.
     fn language(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let debug = cfg!(debug_assertions);
-        if sayso_i18n::available().count() < 2 && !debug {
+        if sayso_i18n::available().count() < 2 && !sayso_i18n::HAS_PSEUDO {
             return None;
         }
         let setting = self.model.read(cx).config.general.language.clone();
@@ -86,7 +85,7 @@ impl GeneralSettings {
             let here = sayso_i18n::language_name(l.code);
             (l.code.to_string(), l.name.to_string(), (here.to_lowercase() != l.name.to_lowercase()).then_some(here))
         }));
-        if debug {
+        if sayso_i18n::HAS_PSEUDO {
             choices.push((sayso_i18n::PSEUDO.into(), "Pseudo".into(), Some(sayso_i18n::PSEUDO.into())));
         }
         // An unknown setting acts as "system" (see `resolve`), so it shows so.

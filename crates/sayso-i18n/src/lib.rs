@@ -74,6 +74,10 @@ pub fn language_name(code: &str) -> String {
 /// and in brackets, so text that is not in a catalog stands out.
 pub const PSEUDO: &str = "en-XA";
 
+/// True when this build offers the pseudo-locale: debug builds only. A
+/// release treats `en-XA` as an unknown setting.
+pub const HAS_PSEUDO: bool = cfg!(debug_assertions);
+
 /// The locale of a code, if it is in [`LOCALES`] (also a draft).
 pub fn find(code: &str) -> Option<&'static Locale> {
     LOCALES.iter().find(|l| l.code.eq_ignore_ascii_case(code))
@@ -81,7 +85,7 @@ pub fn find(code: &str) -> Option<&'static Locale> {
 
 /// True for a value that `general.language` can have.
 pub fn is_valid_setting(value: &str) -> bool {
-    value == SYSTEM || value == PSEUDO || find(value).is_some()
+    value == SYSTEM || (value == PSEUDO && HAS_PSEUDO) || find(value).is_some()
 }
 
 /// Use this locale for all text from now on, also for the text of the kit
@@ -168,7 +172,7 @@ mod tests {
     #[test]
     fn every_setting_in_locales_is_valid() {
         assert!(is_valid_setting(SYSTEM));
-        assert!(is_valid_setting(PSEUDO));
+        assert_eq!(is_valid_setting(PSEUDO), HAS_PSEUDO);
         assert!(is_valid_setting("en"));
         assert!(!is_valid_setting("xx"));
     }
