@@ -494,8 +494,12 @@ impl Render for PickerWindow {
         let mut count = None;
         match &list {
             None | Some(ModelList::Loading) => rows = rows.child(message(t!("model_picker.loading"), c.graphite)),
-            Some(ModelList::Failed(e)) => {
-                rows = rows.child(message(t!("model_picker.load_failed", error = e), c.danger));
+            Some(ModelList::Failed(e, reason)) => {
+                let text = match reason {
+                    Some(reason) => crate::engine_text::describe(Some(*reason), e),
+                    None => t!("model_picker.load_failed", error = e),
+                };
+                rows = rows.child(message(text, c.danger));
             }
             Some(ModelList::Ready(models)) => {
                 count = Some(models.len());

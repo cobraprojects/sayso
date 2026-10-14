@@ -183,12 +183,12 @@ impl ModelsPage {
                     }))
                     .into_any_element(),
             ),
-            ModelStatus::Failed { message } => Some(
+            ModelStatus::Failed { message, reason } => Some(
                 div()
                     .flex()
                     .flex_col()
                     .gap(px(8.))
-                    .child(ui(format!("{message}."), 13., 18., FontWeight::NORMAL, c.danger))
+                    .child(ui(crate::engine_text::describe(*reason, message), 13., 18., FontWeight::NORMAL, c.danger))
                     .child(Button::new("hero-retry", t!("models.try_again")).small().on_click(cx.listener(move |this, _, _, cx| {
                         let id = id.clone();
                         this.model.update(cx, |m, cx| m.download_model(id, cx));
@@ -311,7 +311,7 @@ impl ModelsPage {
                     this.model.update(cx, |m, cx| m.download_model(id, cx));
                 }))
                 .into_any_element(),
-            ModelStatus::Failed { message } => div()
+            ModelStatus::Failed { message, reason } => div()
                 .flex()
                 .flex_col()
                 .items_end()
@@ -322,7 +322,7 @@ impl ModelsPage {
                         this.model.update(cx, |m, cx| m.download_model(id, cx));
                     },
                 )))
-                .child(ui(message.clone(), 11., 14., FontWeight::NORMAL, c.danger).truncate().max_w(px(150.)))
+                .child(ui(crate::engine_text::describe(*reason, message), 11., 14., FontWeight::NORMAL, c.danger).truncate().max_w(px(150.)))
                 .into_any_element(),
             ModelStatus::Optimizing => ui(t!("models.row.optimizing"), 12., 16., FontWeight::SEMIBOLD, c.graphite).into_any_element(),
             _ if remote => Button::new(SharedString::from(format!("use-{key}")), t!("models.row.use"))

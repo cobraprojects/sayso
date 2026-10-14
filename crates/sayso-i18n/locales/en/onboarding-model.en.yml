@@ -19,6 +19,7 @@ onboarding:
     minutes_left: "about %{minutes} min left"
     downloading: "Downloading %{name}"
     download_failed: "The download of %{name} stopped: %{error}. Check your internet connection, then try again."
+    download_failed_reason: "%{name} is not ready. %{reason} Try again."
     try_again: "Try again"
     not_downloaded: "%{name} is not downloaded yet"
     download_size: "Download %{size}"

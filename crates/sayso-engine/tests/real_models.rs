@@ -55,7 +55,7 @@ fn wait_for_download(client: &EngineClient, events: &Receiver<EngineEvent>, info
                     }
                 }
                 ModelStatus::Downloaded => break,
-                ModelStatus::Failed { message } => {
+                ModelStatus::Failed { message, .. } => {
                     panic!("{}: download failed: {message}", info.id)
                 }
                 _ => {}

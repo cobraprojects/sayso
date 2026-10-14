@@ -390,6 +390,8 @@ fn a_failed_download_reports_failed_and_leaves_nothing_complete() {
     let reply =
         h.call(json!({"v": 1, "type": "download", "id": "d1", "model": "m", "engine": engine}));
     assert_eq!(states(&reply), ["downloading", "failed"]);
+    let failed = reply.iter().find(|m| m["state"] == "failed").unwrap();
+    assert_eq!(failed["reason"], "download_failed");
     let error = last(&reply);
     assert_eq!(error["type"], "error");
     assert_eq!(error["id"], "d1");
@@ -414,6 +416,8 @@ fn an_archive_without_the_model_files_fails_the_download() {
     let reply =
         h.call(json!({"v": 1, "type": "download", "id": "d1", "model": "m", "engine": engine}));
     assert_eq!(states(&reply).last().unwrap(), "failed");
+    let failed = reply.iter().find(|m| m["state"] == "failed").unwrap();
+    assert_eq!(failed["reason"], "incomplete_download");
     assert!(
         last(&reply)["message"]
             .as_str()

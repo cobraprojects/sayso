@@ -15,9 +15,11 @@ import Foundation
 #endif
 
 /// A failure with a `code` that the client maps to its own error: `unavailable`, `refused`,
-/// or `timeout`.
+/// or `timeout`. `reason` is the stable code that the app translates (see NOTES.md of
+/// `sayso-engine-client`). `message` is the English detail.
 struct LanguageModelError: Error {
     let code: String
+    let reason: String
     let message: String
 }
 
@@ -31,21 +33,26 @@ enum SystemModel {
                 case .available:
                     return .success(name(of: model))
                 case .unavailable(.deviceNotEligible):
-                    return unavailable("this Mac does not support Apple Intelligence")
+                    return unavailable(
+                        "device_not_eligible", "this Mac does not support Apple Intelligence")
                 case .unavailable(.appleIntelligenceNotEnabled):
-                    return unavailable("Apple Intelligence is off in System Settings")
+                    return unavailable(
+                        "intelligence_off", "Apple Intelligence is off in System Settings")
                 case .unavailable(.modelNotReady):
-                    return unavailable("macOS still downloads the Apple Intelligence model")
+                    return unavailable(
+                        "model_not_ready", "macOS still downloads the Apple Intelligence model")
                 case .unavailable:
-                    return unavailable("Apple Intelligence is not available")
+                    return unavailable("unavailable", "Apple Intelligence is not available")
                 }
             }
         #endif
-        return unavailable("Apple Intelligence needs macOS 26 or later")
+        return unavailable("needs_macos_26", "Apple Intelligence needs macOS 26 or later")
     }
 
-    private static func unavailable(_ message: String) -> Result<String, LanguageModelError> {
-        .failure(LanguageModelError(code: "unavailable", message: message))
+    private static func unavailable(_ reason: String, _ message: String) -> Result<
+        String, LanguageModelError
+    > {
+        .failure(LanguageModelError(code: "unavailable", reason: reason, message: message))
     }
 
     /// Run the model and return the `text` field of its reply, with the name of the model.
@@ -76,7 +83,9 @@ enum SystemModel {
                 }
             }
         #endif
-        throw LanguageModelError(code: "unavailable", message: "Apple Intelligence needs macOS 26 or later")
+        throw LanguageModelError(
+            code: "unavailable", reason: "needs_macos_26",
+            message: "Apple Intelligence needs macOS 26 or later")
     }
 
     #if canImport(FoundationModels)
@@ -92,12 +101,15 @@ enum SystemModel {
 
     private static func describe(_ error: Error, timedOut: Bool, timeoutMs: Int) -> LanguageModelError {
         if timedOut {
-            return LanguageModelError(code: "timeout", message: "no reply within \(timeoutMs) ms")
+            return LanguageModelError(
+                code: "timeout", reason: "timeout", message: "no reply within \(timeoutMs) ms")
         }
         // The error types differ between the macOS 26 and macOS 27 SDKs, but the case names
         // are the same, so the name decides.
         let name = String(describing: error)
         let refused = name.hasPrefix("guardrailViolation") || name.hasPrefix("refusal")
-        return LanguageModelError(code: refused ? "refused" : "failed", message: error.localizedDescription)
+        return LanguageModelError(
+            code: refused ? "refused" : "failed", reason: refused ? "refused" : "failed",
+            message: error.localizedDescription)
     }
 }

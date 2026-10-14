@@ -36,6 +36,8 @@ pub struct Detected {
     pub ollama: Option<Vec<String>>,
     /// The name of the model when Apple Intelligence can run on this Mac.
     pub apple_intelligence: Option<String>,
+    /// Why Apple Intelligence cannot run, when the engine runs but the model does not.
+    pub apple_unavailable: Option<sayso_core::enhance::Unavailable>,
     pub done: bool,
 }
 
@@ -80,7 +82,8 @@ impl LoginError {
 pub enum ModelList {
     Loading,
     Ready(Vec<ModelChoice>),
-    Failed(String),
+    /// The English error, and the reason code of the engine when it sent one.
+    Failed(String, Option<sayso_core::stt::EngineReason>),
 }
 
 pub struct AppModel {
@@ -633,7 +636,7 @@ impl AppModel {
             let result = cx.background_spawn(async move { engine.download(&id2) }).await;
             let _ = this.update(cx, |m, cx| {
                 if let Err(e) = result {
-                    m.model_status.insert(id.clone(), ModelStatus::Failed { message: e.to_string() });
+                    m.model_status.insert(id.clone(), ModelStatus::Failed { message: e.to_string(), reason: None });
                 }
                 if id == m.config.dictation.model || Some(&id) == m.preview_model().as_ref() {
                     m.load_active_models(cx);
@@ -652,7 +655,7 @@ impl AppModel {
             let _ = this.update(cx, |m, cx| {
                 match result {
                     Ok(()) => m.model_status.insert(id, ModelStatus::NotDownloaded),
-                    Err(e) => m.model_status.insert(id, ModelStatus::Failed { message: e.to_string() }),
+                    Err(e) => m.model_status.insert(id, ModelStatus::Failed { message: e.to_string(), reason: None }),
                 };
                 // The deleted model may have given the live preview.
                 m.load_active_models(cx);
@@ -689,11 +692,18 @@ impl AppModel {
             let engine = engine.clone();
             cx.spawn(async move |this, cx| {
                 let id2 = id.clone();
-                let result = cx.background_spawn(async move { engine.load(&id2) }).await;
+                // After a failed load, the engine status holds the reason code from `model_state`.
+                let (result, after) = cx.background_spawn(async move { (engine.load(&id2), engine.status(&id2)) }).await;
                 let _ = this.update(cx, |m, cx| {
                     let status = match result {
                         Ok(()) => ModelStatus::Ready,
-                        Err(e) => ModelStatus::Failed { message: e.to_string() },
+                        Err(e) => ModelStatus::Failed {
+                            message: e.to_string(),
+                            reason: match after {
+                                ModelStatus::Failed { reason, .. } => reason,
+                                _ => None,
+                            },
+                        },
                     };
                     if id == m.config.dictation.model {
                         // A final pass that waited for this load must find the model.
@@ -1205,13 +1215,20 @@ impl AppModel {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    sayso_enhance::list_provider_models(&provider, secrets.as_ref(), engine.as_deref(), Duration::from_secs(10))
+                    sayso_enhance::list_provider_models(&provider, secrets.as_ref(), engine.as_deref(), Duration::from_secs(10)).map_err(|e| {
+                        // Apple Intelligence: the engine says why it cannot run, as a code the app translates.
+                        let reason = match (&provider.kind, engine.as_deref()) {
+                            (ProviderKind::AppleIntelligence, Some(engine)) => engine.availability().err().and_then(|u| u.reason),
+                            _ => None,
+                        };
+                        (e, reason)
+                    })
                 })
                 .await;
             let _ = this.update(cx, |m, cx| {
                 let list = match result {
                     Ok(models) => ModelList::Ready(models),
-                    Err(e) => ModelList::Failed(e.to_string()),
+                    Err((e, reason)) => ModelList::Failed(e.to_string(), reason),
                 };
                 m.model_lists.insert(key, list);
                 cx.notify();
@@ -1276,8 +1293,10 @@ impl AppModel {
         cx.spawn(async move |this, cx| {
             let found = cx
                 .background_spawn(async move {
+                    let apple = engine.map(|e| e.availability());
                     Detected {
-                        apple_intelligence: engine.and_then(|e| e.model_name().ok()),
+                        apple_intelligence: apple.as_ref().and_then(|a| a.as_ref().ok().cloned()),
+                        apple_unavailable: apple.and_then(|a| a.err()),
                         claude_cli: sayso_enhance::detect_claude_cli(),
                         codex_cli: sayso_enhance::detect_codex_cli(),
                         ollama: sayso_enhance::detect_ollama(Duration::from_millis(600)),

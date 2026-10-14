@@ -9,6 +9,7 @@ mod chrome;
 mod dev;
 mod diagnostics;
 mod dictation;
+mod engine_text;
 mod hub;
 mod icons;
 mod layout;

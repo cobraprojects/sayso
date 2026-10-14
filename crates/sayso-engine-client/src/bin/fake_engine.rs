@@ -7,7 +7,13 @@
 //!
 //! `generate` answers with its prompt in upper case. The prompt steers it: `refuse` and
 //! `unavailable` give an error with that code, and `slow` never answers. `language_model`
-//! reports the model `Fake LM`, or "not available" when the file `no-language-model` exists.
+//! reports the model `Fake LM`, or "not available" when the file `no-language-model` exists. The
+//! text of that file is the `reason` code of the reply. An empty file sends no `reason`, like an
+//! older engine.
+//!
+//! The file `fail-download` makes `download` end with `model_state failed` and then an `error`.
+//! The file `fail-load` does the same for `load`. The text of the file is the `reason` code
+//! (empty: no `reason`).
 //!
 //! `download` reports 50 % at once, waits 300 ms, then reports `downloaded`.
 
@@ -113,6 +119,9 @@ fn handle(out: &Arc<Mutex<std::io::Stdout>>, dir: &std::path::Path, request: &Va
                 with_state(&progress, "downloading"),
             );
             thread::sleep(Duration::from_millis(300));
+            if fail(out, dir, request, &model, "fail-download", "download stopped") {
+                return;
+            }
             fs::write(dir.join(format!("downloaded-{model}")), "").ok();
             reply(
                 out,
@@ -139,6 +148,9 @@ fn handle(out: &Arc<Mutex<std::io::Stdout>>, dir: &std::path::Path, request: &Va
                 "model_state",
                 json!({"model": model, "state": "optimizing"}),
             );
+            if fail(out, dir, request, &model, "fail-load", "load stopped") {
+                return;
+            }
             reply(
                 out,
                 request,
@@ -184,7 +196,12 @@ fn handle(out: &Arc<Mutex<std::io::Stdout>>, dir: &std::path::Path, request: &Va
         "stream_start" | "stream_end" => reply(out, request, "ok", json!({})),
         "language_model" => {
             let body = if dir.join("no-language-model").exists() {
-                json!({"available": false, "message": "Apple Intelligence is off"})
+                let mut body = json!({"available": false, "message": "Apple Intelligence is off"});
+                let reason = fs::read_to_string(dir.join("no-language-model")).unwrap_or_default();
+                if !reason.trim().is_empty() {
+                    body["reason"] = json!(reason.trim());
+                }
+                body
             } else {
                 json!({"available": true, "model": "Fake LM"})
             };
@@ -227,6 +244,28 @@ fn with_state(value: &Value, state: &str) -> Value {
 }
 
 /// Send a message that echoes the request id.
+/// When the marker file exists, send `model_state failed` (with the `reason` from the file)
+/// and then the `error` reply, like the real engines. Returns whether it did.
+fn fail(
+    out: &Arc<Mutex<std::io::Stdout>>,
+    dir: &std::path::Path,
+    request: &Value,
+    model: &str,
+    marker: &str,
+    message: &str,
+) -> bool {
+    let Ok(reason) = fs::read_to_string(dir.join(marker)) else {
+        return false;
+    };
+    let mut state = json!({"model": model, "state": "failed", "message": message});
+    if !reason.trim().is_empty() {
+        state["reason"] = json!(reason.trim());
+    }
+    reply(out, request, "model_state", state);
+    reply(out, request, "error", json!({"message": message}));
+    true
+}
+
 fn reply(out: &Arc<Mutex<std::io::Stdout>>, request: &Value, kind: &str, mut body: Value) {
     body["type"] = json!(kind);
     if let Some(id) = request.get("id") {

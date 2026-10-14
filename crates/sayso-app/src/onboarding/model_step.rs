@@ -194,13 +194,16 @@ impl OnboardingView {
                     .when_some(parts_note, |d, n| d.child(text::ui(n, 12., FontWeight::NORMAL, c.graphite)))
                     .into_any_element()
             }
-            ModelStatus::Failed { message } => div()
+            ModelStatus::Failed { message, reason } => div()
                 .flex()
                 .items_center()
                 .gap(px(12.))
                 .child(div().flex_1().min_w_0().child(crate::hub::settings::kit::notice(
                     BannerKind::Warning,
-                    t!("onboarding.model.download_failed", name = info.name, error = message), cx)))
+                    match reason {
+                        Some(reason) => t!("onboarding.model.download_failed_reason", name = info.name, reason = crate::engine_text::describe(Some(reason), &message)),
+                        None => t!("onboarding.model.download_failed", name = info.name, error = message),
+                    }, cx)))
                 .child(Button::new("retry-download", t!("onboarding.model.try_again")).on_click(cx.listener(|this, _, _, cx| this.ensure_download(cx))))
                 .into_any_element(),
             ModelStatus::NotDownloaded => well()

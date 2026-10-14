@@ -96,7 +96,7 @@ fn real_sidecar_transcribes_and_streams() {
                 EngineEvent::ModelStatus { model: m, status } if m == model => match status {
                     ModelStatus::Downloading { .. } => progress_events += 1,
                     ModelStatus::Downloaded => break,
-                    ModelStatus::Failed { message } => panic!("download failed: {message}"),
+                    ModelStatus::Failed { message, .. } => panic!("download failed: {message}"),
                     _ => {}
                 },
                 _ => {}

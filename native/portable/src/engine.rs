@@ -21,6 +21,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
+/// The message of a download that ended with incomplete files. It selects the
+/// reason `incomplete_download`; any other download error is `download_failed`.
+const INCOMPLETE_DOWNLOAD: &str = "download finished but the files are incomplete";
+
 /// Loads the files of a model folder. `recognizer::load` in the real engine.
 pub type Loader = dyn Fn(&Path, &EngineKind) -> Result<Box<dyn Recognizer>> + Send + Sync;
 
@@ -288,7 +292,7 @@ impl Engine {
                 if self.store.is_downloaded(model, &engine) {
                     Ok(())
                 } else {
-                    Err("download finished but the files are incomplete".to_string())
+                    Err(INCOMPLETE_DOWNLOAD.to_string())
                 }
             });
         self.release(model);
@@ -305,10 +309,11 @@ impl Engine {
                 Ok(())
             }
             Err(message) => {
+                let reason = if message == INCOMPLETE_DOWNLOAD { "incomplete_download" } else { "download_failed" };
                 self.out.send(
                     "model_state",
                     id,
-                    json!({"model": model, "state": "failed", "message": message}),
+                    json!({"model": model, "state": "failed", "message": message, "reason": reason}),
                 );
                 Err(message)
             }
@@ -429,7 +434,7 @@ impl Engine {
                 self.out.send(
                     "model_state",
                     id,
-                    json!({"model": model, "state": "failed", "message": message}),
+                    json!({"model": model, "state": "failed", "message": message, "reason": "load_failed"}),
                 );
                 Err(message)
             }
@@ -834,6 +839,7 @@ mod tests {
         );
         assert_eq!(types(&reply), ["model_state", "model_state", "error"]);
         assert_eq!(reply[1]["state"], "failed");
+        assert_eq!(reply[1]["reason"], "load_failed");
     }
 
     #[test]
@@ -975,11 +981,11 @@ mod tests {
         let rig = rig_with(false, &server.url);
         let reply = rig.send(json!({"type": "download", "id": "r1", "model": "parakeet-tdt-v3", "engine": parakeet()}));
         assert_eq!(reply.last().unwrap()["type"], "error");
-        assert!(
-            reply
-                .iter()
-                .any(|m| m["type"] == "model_state" && m["state"] == "failed")
-        );
+        let failed = reply
+            .iter()
+            .find(|m| m["type"] == "model_state" && m["state"] == "failed")
+            .expect("a failed state");
+        assert_eq!(failed["reason"], "download_failed");
         let folder = rig.dir.path().join("parakeet-tdt-v3");
         assert!(
             folder.join("encoder-model.int8.onnx").exists(),

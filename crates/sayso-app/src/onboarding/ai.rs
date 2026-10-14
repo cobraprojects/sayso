@@ -26,7 +26,8 @@ pub(super) enum AiChoice {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum AiError {
     Choose,
-    AppleUnavailable,
+    /// With the reason code of the engine, when it sent one.
+    AppleUnavailable(Option<sayso_core::stt::EngineReason>),
     OllamaNoModels,
     BaseUrl,
     ApiKey,
@@ -38,7 +39,8 @@ impl AiError {
     fn text(self) -> String {
         match self {
             AiError::Choose => t!("onboarding.ai.error_choose"),
-            AiError::AppleUnavailable => t!("onboarding.ai.error_apple"),
+            AiError::AppleUnavailable(Some(reason)) => t!("onboarding.ai.error_apple_reason", reason = crate::engine_text::describe(Some(reason), "")),
+            AiError::AppleUnavailable(None) => t!("onboarding.ai.error_apple"),
             AiError::OllamaNoModels => t!("onboarding.ai.error_ollama"),
             AiError::BaseUrl => t!("onboarding.ai.error_base_url"),
             AiError::ApiKey => t!("onboarding.ai.error_api_key", store = crate::shell::secret_store()),
@@ -210,7 +212,7 @@ impl OnboardingView {
         match choice {
             AiChoice::Apple => {
                 if m.detected.apple_intelligence.is_none() {
-                    return Err(AiError::AppleUnavailable);
+                    return Err(AiError::AppleUnavailable(m.detected.apple_unavailable.as_ref().and_then(|u| u.reason)));
                 }
                 Ok((
                     Provider { id: "apple-intelligence".into(), name: "Apple Intelligence".into(), kind: ProviderKind::AppleIntelligence },

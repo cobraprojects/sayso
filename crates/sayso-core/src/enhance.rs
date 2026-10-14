@@ -102,11 +102,32 @@ pub struct Generated {
     pub model: String,
 }
 
+/// Why the language model of the engine cannot run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unavailable {
+    /// The stable code, when the engine sent a known one.
+    pub reason: Option<crate::stt::EngineReason>,
+    /// The English detail from the engine.
+    pub message: String,
+}
+
 /// A language model that the engine runs on this computer, for example Apple
 /// Intelligence on macOS. Calls block. Run them on a background thread.
 pub trait LanguageModel: Send + Sync {
     /// The name of the model when it can run. `NotConfigured` says why it cannot.
     fn model_name(&self) -> Result<String, EnhanceError>;
+    /// Like `model_name`, but a model that cannot run gives the reason code of the
+    /// engine too, so the app can translate it. An engine that sends no code gives
+    /// `None`.
+    fn availability(&self) -> Result<String, Unavailable> {
+        self.model_name().map_err(|e| Unavailable {
+            reason: None,
+            message: match e {
+                EnhanceError::NotConfigured(message) => message,
+                other => other.to_string(),
+            },
+        })
+    }
     /// Run the model. The engine binds the reply to the `text` field of the schema.
     fn generate(
         &self,

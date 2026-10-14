@@ -8,7 +8,12 @@ let engineVersion = "0.1.0"
 /// A failure that is reported to the client as `{"type":"error"}`. Never crashes the process.
 struct EngineError: Error, CustomStringConvertible {
     let message: String
-    init(_ message: String) { self.message = message }
+    /// The stable code for `reason` in `model_state failed`, for example `incomplete_download`.
+    let reason: String?
+    init(_ message: String, reason: String? = nil) {
+        self.message = message
+        self.reason = reason
+    }
     var description: String { message }
 }
 
@@ -53,9 +58,10 @@ final class Output: @unchecked Sendable {
         send("log", ["level": level, "message": message])
     }
 
-    func error(_ message: String, id: String? = nil, code: String? = nil) {
+    func error(_ message: String, id: String? = nil, code: String? = nil, reason: String? = nil) {
         var fields: [String: Any] = ["message": message]
         if let code { fields["code"] = code }
+        if let reason { fields["reason"] = reason }
         send("error", id: id, fields)
     }
 

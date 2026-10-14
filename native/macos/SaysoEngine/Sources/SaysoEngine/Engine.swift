@@ -245,10 +245,16 @@ actor Engine {
             try await fetch(spec, reporter: reporter)
             try store.markDownloaded(spec)
             guard await onDisk(spec) else {
-                throw EngineError("download finished but the files are incomplete")
+                throw EngineError(
+                    "download finished but the files are incomplete", reason: "incomplete_download")
             }
         } catch {
-            out.send("model_state", id: id, ["model": model, "state": "failed", "message": "\(error)"])
+            out.send(
+                "model_state", id: id,
+                [
+                    "model": model, "state": "failed", "message": "\(error)",
+                    "reason": (error as? EngineError)?.reason ?? "download_failed",
+                ])
             throw error
         }
         reporter.report(1, force: true)
@@ -310,7 +316,10 @@ actor Engine {
                 progressHandler: reporter.stage(base: 0, weight: 1))
             guard let folder = store.ownFolder(spec),
                 AsrModels.modelsExist(at: folder, version: version.fluid)
-            else { throw EngineError("download finished but the files are incomplete") }
+            else {
+                throw EngineError(
+                    "download finished but the files are incomplete", reason: "incomplete_download")
+            }
         case .nemotron(let chunkMs):
             try await ModelHub.download(
                 ModelStore.nemotronRepo(chunkMs: chunkMs), to: store.root,
@@ -419,7 +428,12 @@ actor Engine {
         do {
             loaded[model] = try await loadModel(spec)
         } catch {
-            out.send("model_state", id: id, ["model": model, "state": "failed", "message": "\(error)"])
+            out.send(
+                "model_state", id: id,
+                [
+                    "model": model, "state": "failed", "message": "\(error)",
+                    "reason": (error as? EngineError)?.reason ?? "load_failed",
+                ])
             throw error
         }
         out.send(

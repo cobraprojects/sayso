@@ -824,7 +824,7 @@ impl FinalPass {
                 loop {
                     match engine.status(model) {
                         ModelStatus::Ready => break,
-                        ModelStatus::Failed { message } => return Err(message),
+                        ModelStatus::Failed { message, reason } => return Err(crate::engine_text::describe(reason, &message)),
                         _ if Instant::now() > deadline => return Err(t!("overlay.error.model_load_timeout")),
                         _ => std::thread::sleep(Duration::from_millis(150)),
                     }
@@ -1096,10 +1096,14 @@ mod tests {
 
     #[test]
     fn a_load_that_fails_ends_the_final_pass_with_the_reason() {
-        let engine = LoadingEngine::new(ModelStatus::Failed { message: "the model files are broken".into() });
+        let engine = LoadingEngine::new(ModelStatus::Failed { message: "the model files are broken".into(), reason: Some(sayso_core::stt::EngineReason::LoadFailed) });
         let pass = FinalPass::Local { engine: engine.clone(), model: ModelId::new("final") };
-        assert_eq!(pass.run(&[0.0; 1600], &options()).err().unwrap(), "the model files are broken");
+        assert_eq!(pass.run(&[0.0; 1600], &options()).err().unwrap(), "Sayso could not load the model: the model files are broken.");
         assert!(engine.calls.lock().is_empty());
+        // An engine without a reason code gives the general sentence with its message.
+        let engine = LoadingEngine::new(ModelStatus::Failed { message: "the model files are broken".into(), reason: None });
+        let pass = FinalPass::Local { engine: engine.clone(), model: ModelId::new("final") };
+        assert_eq!(pass.run(&[0.0; 1600], &options()).err().unwrap(), "Something went wrong: the model files are broken.");
     }
 
     #[test]

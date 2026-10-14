@@ -3,7 +3,7 @@
 use crossbeam_channel::Receiver;
 use sayso_core::enhance::{EnhanceError, LanguageModel};
 use sayso_core::models::{ModelId, default_model};
-use sayso_core::stt::{EngineEvent, ModelStatus, SessionOptions};
+use sayso_core::stt::{EngineEvent, EngineReason, ModelStatus, SessionOptions};
 use sayso_engine_client::{EngineClient, Options};
 use sayso_platform::SttBackend;
 use std::path::PathBuf;
@@ -166,6 +166,70 @@ fn the_language_model_reports_its_name_or_why_it_cannot_run() {
     assert_eq!(
         err,
         EnhanceError::NotConfigured("Apple Intelligence is off".into())
+    );
+    // An engine without `reason` gives the message only.
+    let unavailable = f.client.availability().unwrap_err();
+    assert_eq!(unavailable.reason, None);
+    assert_eq!(unavailable.message, "Apple Intelligence is off");
+}
+
+#[test]
+fn the_language_model_reason_code_reaches_the_app() {
+    let f = fixture();
+    let file = f.models.path().join("no-language-model");
+    std::fs::write(&file, "intelligence_off").unwrap();
+    let unavailable = f.client.availability().unwrap_err();
+    assert_eq!(unavailable.reason, Some(EngineReason::IntelligenceOff));
+    assert_eq!(unavailable.message, "Apple Intelligence is off");
+    // A code that this version does not know is the same as no code.
+    std::fs::write(&file, "from_the_future").unwrap();
+    assert_eq!(f.client.availability().unwrap_err().reason, None);
+}
+
+#[test]
+fn a_failed_load_keeps_its_reason_code() {
+    let f = fixture();
+    let model = ModelId::new("whisper-small");
+    std::fs::write(f.models.path().join("fail-load"), "load_failed").unwrap();
+    assert!(f.client.load(&model).is_err());
+    assert_eq!(
+        f.client.status(&model),
+        ModelStatus::Failed { message: "load stopped".into(), reason: Some(EngineReason::LoadFailed) }
+    );
+}
+
+#[test]
+fn a_failed_download_keeps_its_reason_code_after_the_error_reply() {
+    let f = fixture();
+    let events = f.client.subscribe();
+    let model = ModelId::new("whisper-small");
+    std::fs::write(f.models.path().join("fail-download"), "incomplete_download").unwrap();
+    f.client.download(&model).unwrap();
+    wait_for(&events, "failed event", |e| {
+        matches!(e, EngineEvent::ModelStatus { status: ModelStatus::Failed { .. }, .. }).then_some(())
+    });
+    // Give the `error` reply, which follows the event, time to arrive.
+    thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        f.client.status(&model),
+        ModelStatus::Failed { message: "download stopped".into(), reason: Some(EngineReason::IncompleteDownload) }
+    );
+}
+
+#[test]
+fn a_failed_download_from_an_older_engine_has_no_reason() {
+    let f = fixture();
+    let events = f.client.subscribe();
+    let model = ModelId::new("whisper-small");
+    std::fs::write(f.models.path().join("fail-download"), "").unwrap();
+    f.client.download(&model).unwrap();
+    wait_for(&events, "failed event", |e| {
+        matches!(e, EngineEvent::ModelStatus { status: ModelStatus::Failed { .. }, .. }).then_some(())
+    });
+    thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        f.client.status(&model),
+        ModelStatus::Failed { message: "download stopped".into(), reason: None }
     );
 }
 

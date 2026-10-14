@@ -122,7 +122,7 @@ fn the_client_downloads_and_reports_errors_through_the_engine() {
     loop {
         if let EngineEvent::ModelStatus {
             model,
-            status: ModelStatus::Failed { message },
+            status: ModelStatus::Failed { message, .. },
         } = events
             .recv_timeout(Duration::from_secs(30))
             .expect("download failed")
