@@ -1,0 +1,14 @@
+_version: 1
+
+model_picker:
+  filter: "Filtrar modelos"
+  default: "Predeterminado"
+  thinking: "Razonamiento"
+  loading: "Cargando modelos…"
+  load_failed: "Sayso no pudo cargar los modelos: %{error}. Revisa el proveedor y actualiza."
+  no_models: "Este proveedor no muestra ningún modelo."
+  no_match: "Ningún modelo coincide con el filtro."
+  refresh: "Actualizar"
+  count:
+    one: "%{count} modelo"
+    other: "%{count} modelos"

@@ -39,7 +39,10 @@ pub struct Locale {
 /// The locales with a catalog folder. The catalog tests check that each one
 /// has every key of English. Set `draft` to false when a native speaker has
 /// reviewed the catalog.
-pub const LOCALES: &[Locale] = &[Locale { code: "en", name: "English", draft: false }];
+pub const LOCALES: &[Locale] = &[
+    Locale { code: "en", name: "English", draft: false },
+    Locale { code: "es", name: "Español", draft: true },
+];
 
 /// The locales that the Language menu offers and that "system" can select:
 /// all in a debug build, the reviewed ones in a release.
