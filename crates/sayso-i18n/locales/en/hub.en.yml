@@ -21,6 +21,8 @@ hub:
   sidebar:
     expand: "Expand sidebar"
     collapse: "Collapse sidebar"
+    # The three theme labels share the bottom of the sidebar with an icon
+    # each. Keep each one to about 6 characters ("Auto", not "Automatic").
     theme_auto: "Auto"
     theme_light: "Light"
     theme_dark: "Dark"

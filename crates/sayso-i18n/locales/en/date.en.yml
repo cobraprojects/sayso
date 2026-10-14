@@ -4,6 +4,7 @@ _version: 1
 # the language, with its words between them ("%{day} de %{month}").
 date:
   pattern:
+    # In a narrow column of lists: keep it to about 6 characters.
     day_month_short: "%{month} %{day}"
     day_month: "%{month} %{day}"
     weekday_day_month: "%{weekday}, %{month} %{day}"
