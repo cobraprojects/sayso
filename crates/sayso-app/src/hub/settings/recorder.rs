@@ -159,8 +159,26 @@ pub fn start<V: 'static>(
     cx.notify();
 }
 
-/// Save a recorded key unless another Sayso action uses it. Returns a note for the UI.
+/// Why `slot` cannot use `hk`, as a note for the UI. Only push-to-talk can
+/// use a modifier key on its own: the other actions register system hotkeys,
+/// and those need a chord.
+fn unusable(slot: Slot, hk: &Hotkey) -> Option<String> {
+    match hk {
+        Hotkey::Solo(_) if slot != Slot::PushToTalk => Some(format!(
+            "{} on its own works only for Push to talk. Choose a key combination, for example {}.",
+            words(hk),
+            words(&Hotkey::toggle_default()),
+        )),
+        _ => None,
+    }
+}
+
+/// Save a recorded key unless the action cannot use it or another Sayso
+/// action uses it. Returns a note for the UI.
 fn finish(m: &mut AppModel, slot: Slot, hk: Hotkey, cx: &mut Context<AppModel>) -> Option<String> {
+    if let Some(note) = unusable(slot, &hk) {
+        return Some(note);
+    }
     if let Some(other) = slot.clash(&m.config, &hk) {
         return Some(format!("{} is already used by {other}. Choose another key.", words(&hk)));
     }
@@ -268,5 +286,23 @@ pub fn conflict_text(c: &HotkeyConflict, open_app: bool) -> String {
             system = crate::shell::os_text!("macOS", "Your desktop"),
             settings = crate::shell::os_text!("System Settings › Keyboard › Keyboard Shortcuts", "the keyboard settings of your desktop"),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Not `super::*`: the GPUI glob has its own `test` macro.
+    use super::{Slot, unusable};
+    use sayso_core::hotkey::{Hotkey, SoloModifier};
+
+    #[test]
+    fn solo_modifier_is_only_for_push_to_talk() {
+        let solo = Hotkey::Solo(SoloModifier::RightOption);
+        assert_eq!(unusable(Slot::PushToTalk, &solo), None);
+        for slot in [Slot::Toggle, Slot::PasteLast, Slot::CycleStyle, Slot::Incognito] {
+            let note = unusable(slot, &solo).expect("a solo modifier is rejected");
+            assert!(note.contains("only for Push to talk"), "{note}");
+        }
+        assert_eq!(unusable(Slot::Toggle, &Hotkey::toggle_default()), None);
     }
 }
