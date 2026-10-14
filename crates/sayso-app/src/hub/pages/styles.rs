@@ -15,6 +15,7 @@ use gpui_kit::*;
 use sayso_core::ink::NamedInk;
 use sayso_core::style::{Style, StyleOrigin};
 use sayso_core::style_rules::{self, TypedTarget};
+use sayso_i18n::t;
 use sayso_platform::AppInfo;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
@@ -23,10 +24,36 @@ use sayso_ui::{ActivePaper, Colors, text};
 
 /// The style that the page shows with an example.
 const FEATURED_STYLE_ID: &str = "rambling";
-const FEATURED_SAID: &str = "so um I was looking at the checkout page and honestly the banner is too tall like way too tall on phones \
-    and I was thinking we could, well, anyway it covers the pay button so yeah we're gonna need the banner shorter";
-const FEATURED_WRITTEN: &str =
-    "I was looking at the checkout page. Honestly, the banner is way too tall on phones. It covers the pay button, so we're gonna need it shorter.";
+
+/// Why the editor cannot save. It keeps the reason, not the sentence, so it
+/// changes with the language.
+enum EditError {
+    NeedsName,
+    BadTimeout,
+    SaveFailed(String),
+    BaseSaveFailed(String),
+}
+
+impl EditError {
+    fn text(&self) -> String {
+        match self {
+            EditError::NeedsName => t!("styles.error.needs_name"),
+            EditError::BadTimeout => t!("styles.error.bad_timeout"),
+            EditError::SaveFailed(e) => t!("styles.error.save_failed", error = e),
+            EditError::BaseSaveFailed(e) => t!("styles.error.base_save_failed", error = e),
+        }
+    }
+}
+
+/// The placeholder of the "add" field. Only some systems read the address of a page.
+fn target_placeholder(sites_ok: bool) -> String {
+    match (sites_ok, cfg!(target_os = "macos")) {
+        (true, true) => t!("styles.targets.placeholder_site_bundle"),
+        (true, false) => t!("styles.targets.placeholder_site_app"),
+        (false, true) => t!("styles.targets.placeholder_bundle"),
+        (false, false) => t!("styles.targets.placeholder_app"),
+    }
+}
 
 struct Editor {
     id: String,
@@ -44,7 +71,7 @@ struct Editor {
     timeout: Entity<InputState>,
     /// False for a standalone style.
     use_base: bool,
-    error: Option<String>,
+    error: Option<EditError>,
     confirm_delete: bool,
     /// The apps and sites that use this style (see `style_rules`).
     apps: Vec<String>,
@@ -72,7 +99,7 @@ const MAX_CHOICES: usize = 40;
 /// The editor of the base prompt.
 struct BaseEditor {
     prompt: Entity<TextareaState>,
-    error: Option<String>,
+    error: Option<EditError>,
 }
 
 pub struct StylesPage {
@@ -82,6 +109,8 @@ pub struct StylesPage {
     base_editor: Option<BaseEditor>,
     /// The apps on this computer, for the names and the picker of the style rules.
     apps: Vec<AppInfo>,
+    /// The locale of the text in the placeholders of the editors.
+    locale: String,
     _subs: Vec<Subscription>,
 }
 
@@ -105,6 +134,7 @@ impl StylesPage {
             editor: None,
             base_editor: None,
             apps: Vec::new(),
+            locale: sayso_i18n::locale(),
             _subs: vec![observe],
         }
     }
@@ -130,16 +160,16 @@ impl StylesPage {
         let origin = if is_new { None } else { self.model.read(cx).style_origin(&base.id) };
         let http_s = self.model.read(cx).config.ai.http_timeout_ms as f64 / 1000.0;
         let b = base.clone();
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder("For example, Slack").default_value(b.name.clone()));
-        let description = cx.new(|cx| InputState::new(window, cx).placeholder("One line about what the style does").default_value(b.description.clone()));
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder(t!("styles.editor.name_placeholder")).default_value(b.name.clone()));
+        let description = cx.new(|cx| InputState::new(window, cx).placeholder(t!("styles.editor.description_placeholder")).default_value(b.description.clone()));
         let prompt = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .placeholder("Tell the AI how to rewrite the text. Leave empty for no AI.")
+                .placeholder(t!("styles.editor.prompt_placeholder"))
                 .default_value(b.prompt.clone())
         });
         let timeout = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder(format!("Default, {} s", trim_float(http_s)))
+                .placeholder(t!("styles.editor.timeout_placeholder", seconds = trim_float(http_s)))
                 .default_value(b.timeout_ms.map(|ms| trim_float(ms as f64 / 1000.0)).unwrap_or_default())
         });
         name.update(cx, |s, cx| s.focus(window, cx));
@@ -149,12 +179,7 @@ impl StylesPage {
             (rule.apps, rule.sites, m.services.platform.context.reads_page_url())
         };
         let target = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(match (sites_ok, cfg!(target_os = "macos")) {
-                (true, true) => "Add an app, a site, or a bundle ID",
-                (true, false) => "Add an app, a site, or an app ID",
-                (false, true) => "Add an app or a bundle ID",
-                (false, false) => "Add an app or an app ID",
-            })
+            InputState::new(window, cx).placeholder(target_placeholder(sites_ok))
         });
         let _target_sub = cx.subscribe_in(&target, window, |this, _, ev: &InputEvent, window, cx| {
             if matches!(ev, InputEvent::PressEnter { .. })
@@ -253,7 +278,7 @@ impl StylesPage {
         let Some(ed) = self.editor.as_mut() else { return };
         let name = ed.name.read(cx).value().trim().to_string();
         if name.is_empty() {
-            ed.error = Some("Enter a name for the style.".into());
+            ed.error = Some(EditError::NeedsName);
             cx.notify();
             return;
         }
@@ -264,7 +289,7 @@ impl StylesPage {
             match timeout.trim_end_matches('s').trim().parse::<f64>() {
                 Ok(s) if s > 0.0 && s <= 120.0 => Some((s * 1000.0).round() as u64),
                 _ => {
-                    ed.error = Some("Enter the timeout in seconds, from 0.5 to 120. For example, 4.".into());
+                    ed.error = Some(EditError::BadTimeout);
                     cx.notify();
                     return;
                 }
@@ -297,7 +322,7 @@ impl StylesPage {
             Ok(()) => self.editor = None,
             Err(e) => {
                 if let Some(ed) = self.editor.as_mut() {
-                    ed.error = Some(format!("Sayso could not save the style: {e}"));
+                    ed.error = Some(EditError::SaveFailed(e));
                 }
             }
         }
@@ -317,10 +342,10 @@ impl StylesPage {
             (Some(id), Some(p)) => m.model_label(&p.id, id),
             (Some(id), None) => id.clone(),
             (None, Some(p)) => match p.model() {
-                Some(id) => format!("Provider's model ({})", m.model_label(&p.id, id)),
-                None => "Provider's model".into(),
+                Some(id) => t!("styles.editor.provider_model_with", model = m.model_label(&p.id, id)),
+                None => t!("styles.editor.provider_model"),
             },
-            (None, None) => "Provider's model".into(),
+            (None, None) => t!("styles.editor.provider_model"),
         };
 
         // Ink swatches.
@@ -353,15 +378,15 @@ impl StylesPage {
             .iter()
             .find(|n| ed.ink.eq_ignore_ascii_case(&format!("#{:06X}", n.color().0)))
             .map(|n| n.name().to_string())
-            .unwrap_or_else(|| format!("Custom {}", ed.ink));
+            .unwrap_or_else(|| t!("styles.editor.ink_custom", ink = ed.ink));
         swatches = swatches.child(ui(ink_name, 13., 16., FontWeight::MEDIUM, c.graphite).pl(px(4.)));
 
         // Provider select.
         let current = match &ed.provider {
-            Some(id) => providers.iter().find(|p| &p.0 == id).map(|p| p.1.clone()).unwrap_or_else(|| format!("{id} (not set up)")),
+            Some(id) => providers.iter().find(|p| &p.0 == id).map(|p| p.1.clone()).unwrap_or_else(|| t!("styles.editor.provider_not_set_up", provider = id)),
             None => match &default_name {
-                Some(n) => format!("Default provider ({n})"),
-                None => "Default provider".into(),
+                Some(n) => t!("styles.editor.default_provider_named", provider = n),
+                None => t!("styles.editor.default_provider"),
             },
         };
         let mut select = div().relative().child(
@@ -385,7 +410,7 @@ impl StylesPage {
                 .child(icon(Icon::ChevronDown, 12., c.graphite)),
         );
         if ed.provider_menu {
-            let mut items: Vec<(SharedString, bool)> = vec![("Default provider".into(), ed.provider.is_none())];
+            let mut items: Vec<(SharedString, bool)> = vec![(t!("styles.editor.default_provider").into(), ed.provider.is_none())];
             for (id, name) in &providers {
                 items.push((name.clone().into(), ed.provider.as_deref() == Some(id)));
             }
@@ -421,13 +446,13 @@ impl StylesPage {
             )));
         }
         let provider_field = if providers.is_empty() {
-            ui("No providers yet. Add one in Settings to use AI.", 13., 18., FontWeight::NORMAL, c.graphite).into_any_element()
+            ui(t!("styles.editor.no_providers"), 13., 18., FontWeight::NORMAL, c.graphite).into_any_element()
         } else {
             select.into_any_element()
         };
 
         let model_field = match target {
-            None => ui("Add a provider to choose a model.", 13., 18., FontWeight::NORMAL, c.graphite).into_any_element(),
+            None => ui(t!("styles.editor.add_provider_for_model"), 13., 18., FontWeight::NORMAL, c.graphite).into_any_element(),
             Some(p) => {
                 let pid = p.id.clone();
                 div()
@@ -450,7 +475,7 @@ impl StylesPage {
                         let request = model_picker::Request {
                             key: "style-model".into(),
                             list_key: pid.clone(),
-                            extra: Some(Extra { label: "Provider's model".into(), selected: selected.is_none() }),
+                            extra: Some(Extra { label: t!("styles.editor.provider_model").into(), selected: selected.is_none() }),
                             thinking_for: None,
                             selected,
                             on_pick: Box::new(move |pick, cx| {
@@ -480,28 +505,28 @@ impl StylesPage {
             .child(Textarea::new(&ed.prompt).appearance(false).h(px(150.)).text_size(px(14.)));
         let targets = self.targets_group(ed, cx);
 
-        let title = if ed.is_new { "New style".to_string() } else { format!("Edit {}", ed.base.name) };
+        let title = if ed.is_new { t!("styles.editor.new_title") } else { t!("styles.editor.edit_title", name = ed.base.name) };
         let file_note = if ed.is_new {
-            format!("Saved as a file in {}.", styles_dir)
+            t!("styles.editor.saved_in", dir = styles_dir)
         } else {
             match ed.origin {
-                Some(StyleOrigin::BuiltIn) => "A built-in style. Saving writes your copy to the styles folder.".into(),
-                Some(StyleOrigin::Overridden) => "You changed this built-in style. Reset brings back the original.".into(),
+                Some(StyleOrigin::BuiltIn) => t!("styles.editor.built_in_note"),
+                Some(StyleOrigin::Overridden) => t!("styles.editor.overridden_note"),
                 _ => format!("{}/{}.toml", styles_dir, ed.id),
             }
         };
 
         let mut buttons = div().flex().items_center().gap(px(8.)).child(
-            Button::new("save-style", "Save").primary().on_click(cx.listener(|this, _, _, cx| this.save_editor(cx))),
+            Button::new("save-style", t!("styles.save")).primary().on_click(cx.listener(|this, _, _, cx| this.save_editor(cx))),
         );
-        buttons = buttons.child(Button::new("cancel-style", "Cancel").ghost().on_click(cx.listener(|this, _, _, cx| {
+        buttons = buttons.child(Button::new("cancel-style", t!("styles.cancel")).ghost().on_click(cx.listener(|this, _, _, cx| {
             this.editor = None;
             cx.notify();
         })));
         buttons = buttons.child(div().flex_1());
         if ed.origin == Some(StyleOrigin::Overridden) {
             let id = ed.id.clone();
-            buttons = buttons.child(Button::new("reset-style", "Reset to built-in").icon(Icon::Undo).on_click(cx.listener(
+            buttons = buttons.child(Button::new("reset-style", t!("styles.editor.reset_built_in")).icon(Icon::Undo).on_click(cx.listener(
                 move |this, _, _, cx| {
                     let id = id.clone();
                     this.model.update(cx, |m, cx| m.reset_style(&id, cx));
@@ -513,14 +538,14 @@ impl StylesPage {
         if ed.origin == Some(StyleOrigin::User) {
             let id = ed.id.clone();
             if ed.confirm_delete {
-                buttons = buttons.child(Button::new("delete-style-yes", "Delete style").danger().on_click(cx.listener(move |this, _, _, cx| {
+                buttons = buttons.child(Button::new("delete-style-yes", t!("styles.editor.delete_style")).danger().on_click(cx.listener(move |this, _, _, cx| {
                     let id = id.clone();
                     this.model.update(cx, |m, cx| m.delete_style(&id, cx));
                     this.editor = None;
                     cx.notify();
                 })));
             } else {
-                buttons = buttons.child(Button::new("delete-style", "Delete").danger().icon(Icon::Trash).on_click(cx.listener(|this, _, _, cx| {
+                buttons = buttons.child(Button::new("delete-style", t!("styles.editor.delete")).danger().icon(Icon::Trash).on_click(cx.listener(|this, _, _, cx| {
                     if let Some(ed) = this.editor.as_mut() {
                         ed.confirm_delete = true;
                     }
@@ -551,10 +576,10 @@ impl StylesPage {
                         cx.notify();
                     }))),
             )
-            .child(kit::field("Name", kit::input_well(&ed.name, cx), None, cx))
-            .child(kit::field("Description", kit::input_well(&ed.description, cx), None, cx))
-            .child(kit::field("Ink", swatches, None, cx))
-            .child(kit::field("Prompt", prompt, Some("Sayso adds your dictionary words and asks for JSON. You only write the style."), cx))
+            .child(kit::field(&t!("styles.editor.name"), kit::input_well(&ed.name, cx), None, cx))
+            .child(kit::field(&t!("styles.editor.description"), kit::input_well(&ed.description, cx), None, cx))
+            .child(kit::field(&t!("styles.editor.ink"), swatches, None, cx))
+            .child(kit::field(&t!("styles.editor.prompt"), prompt, Some(&t!("styles.editor.prompt_hint")), cx))
             .child(
                 div()
                     .flex()
@@ -568,9 +593,9 @@ impl StylesPage {
                             .flex_1()
                             .min_w_0()
                             .gap(px(2.))
-                            .child(ui("Use the base prompt", 13., 16., FontWeight::SEMIBOLD, c.ink))
+                            .child(ui(t!("styles.editor.use_base"), 13., 16., FontWeight::SEMIBOLD, c.ink))
                             .child(ui(
-                                "The base prompt cleans up the text: filler words, corrections, numbers. Turn it off for a style that does something else, for example a translation.",
+                                t!("styles.editor.use_base_detail"),
                                 12.,
                                 16.,
                                 FontWeight::NORMAL,
@@ -589,16 +614,16 @@ impl StylesPage {
                         }
                     }))),
             )
-            .child(kit::field("Provider", provider_field, None, cx))
+            .child(kit::field(&t!("styles.editor.provider"), provider_field, None, cx))
             .child(
                 div()
                     .flex()
                     .gap(px(12.))
-                    .child(kit::field("Model", model_field, None, cx).flex_1())
-                    .child(kit::field("Timeout in seconds", kit::input_well(&ed.timeout, cx), None, cx).w(px(150.))),
+                    .child(kit::field(&t!("styles.editor.model"), model_field, None, cx).flex_1())
+                    .child(kit::field(&t!("styles.editor.timeout"), kit::input_well(&ed.timeout, cx), None, cx).w(px(150.))),
             )
             .child(targets)
-            .when_some(ed.error.clone(), |d, e| d.child(Banner::new(BannerKind::Warning, e)))
+            .when_some(ed.error.as_ref(), |d, e| d.child(Banner::new(BannerKind::Warning, e.text())))
             .child(div().pt(px(6.)).child(buttons));
 
         Some(self.side_panel("style-editor", body, cx))
@@ -616,8 +641,8 @@ impl StylesPage {
         Some(match names.as_slice() {
             [] => return None,
             [one] => one.clone(),
-            [one, two] => format!("{one} and {two}"),
-            [one, two, rest @ ..] => format!("{one}, {two}, and {} more", rest.len()),
+            [one, two] => t!("styles.targets.names_two", one = one, two = two),
+            [one, two, rest @ ..] => t!("styles.targets.names_many", one = one, two = two, more = rest.len()),
         })
     }
 
@@ -629,7 +654,7 @@ impl StylesPage {
         let rules = &m.config.ai.style_rules;
         let sites_ok = m.services.platform.context.reads_page_url();
         // "Moves from Message": the app or site leaves that style on Save.
-        let moves_from = |owner: Option<&str>| owner.filter(|id| *id != ed.id).map(|id| format!("Moves from {}", m.style_name(id)));
+        let moves_from = |owner: Option<&str>| owner.filter(|id| *id != ed.id).map(|id| t!("styles.targets.moves_from", style = m.style_name(id)));
         let note = |s: String| ui(s, 12., 16., FontWeight::NORMAL, c.graphite).flex_none();
 
         let count = ed.apps.len() + ed.sites.len();
@@ -645,7 +670,7 @@ impl StylesPage {
                     .when(known.is_some(), |d| d.child(ui(name, 14., 18., FontWeight::MEDIUM, c.ink).flex_none()))
                     .child(div().flex_1().min_w_0().child(text::mono(id.clone(), 11., if known.is_some() { c.graphite } else { c.ink }).truncate()))
                     // Before the list of apps loads, each app would get this note.
-                    .when(known.is_none() && !self.apps.is_empty(), |d| d.child(note("Not on this computer".into())))
+                    .when(known.is_none() && !self.apps.is_empty(), |d| d.child(note(t!("styles.targets.not_here"))))
                     .when_some(moves_from(rules.style_of_app(id)), |d, s| d.child(note(s)))
                     .child(kit::icon_button(("remove-app", i), Icon::Close, 10., cx).on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(ed) = this.editor.as_mut() {
@@ -683,7 +708,7 @@ impl StylesPage {
         let no_app = typed && !ed.target.read(cx).value().contains('/') && !choices.iter().any(|ch| matches!(ch, Choice::App(_)));
         let mut panel = div().id("target-choices").flex().flex_col().gap(px(2.)).p(px(6.)).max_h(px(236.)).overflow_y_scroll().rounded(px(10.)).bg(c.sheet_raised).raised_small(&c);
         if no_app {
-            panel = panel.child(div().px(px(6.)).py(px(4.)).child(note("No app on this computer has this name or ID.".into())));
+            panel = panel.child(div().px(px(6.)).py(px(4.)).child(note(t!("styles.targets.no_app"))));
         }
         for (i, choice) in choices.into_iter().take(MAX_CHOICES).enumerate() {
             let line = div()
@@ -710,21 +735,22 @@ impl StylesPage {
                     .when_some(moves_from(rules.style_of_app(&app.bundle_id)), |d, s| d.child(note(s))),
                 Choice::AppId(id) => line
                     .child(slot(Icon::Plus))
-                    .child(label(if cfg!(target_os = "macos") { "Add bundle ID" } else { "Add app ID" }))
+                    .child(label(&t!(crate::shell::os_text!("styles.targets.add_bundle_id", "styles.targets.add_app_id"))))
                     .child(id_text(id, c.ink)),
                 Choice::Site(site) => line
                     .child(slot(Icon::Globe))
-                    .child(label("Add site"))
+                    .child(label(&t!("styles.targets.add_site")))
                     .child(id_text(site, c.ink))
                     .when_some(moves_from(rules.style_of_site(site)), |d, s| d.child(note(s))),
             };
             panel = panel.child(line.on_click(cx.listener(move |this, _, window, cx| this.add_target(choice.clone(), window, cx))));
         }
 
-        let intro = if sites_ok {
-            format!("Sayso uses {} when you dictate into one of these apps or sites.", if ed.base.name.is_empty() { "this style" } else { &ed.base.name })
-        } else {
-            format!("Sayso uses {} when you dictate into one of these apps.", if ed.base.name.is_empty() { "this style" } else { &ed.base.name })
+        let intro = match (sites_ok, ed.base.name.is_empty()) {
+            (true, true) => t!("styles.targets.intro_sites_unnamed"),
+            (true, false) => t!("styles.targets.intro_sites", style = ed.base.name),
+            (false, true) => t!("styles.targets.intro_apps_unnamed"),
+            (false, false) => t!("styles.targets.intro_apps", style = ed.base.name),
         };
         div()
             .flex()
@@ -738,16 +764,16 @@ impl StylesPage {
                     .flex()
                     .flex_col()
                     .gap(px(3.))
-                    .child(text::title("Use automatically".to_string(), 18., &c).line_height(px(24.)))
+                    .child(text::title(t!("styles.targets.title"), 18., &c).line_height(px(24.)))
                     .child(ui(intro, 13., 18., FontWeight::NORMAL, c.graphite)),
             )
-            .when(!rules.enabled, |d| d.child(Banner::new(BannerKind::Info, "This is off. Turn it on in Settings › Dictation.")))
+            .when(!rules.enabled, |d| d.child(Banner::new(BannerKind::Info, t!("styles.targets.off"))))
             .when(count > 0, |d| d.child(list))
             .child(kit::search_well(&ed.target, 36., Some(open.into_any_element()), cx))
             .when(typed || ed.target_open, |d| d.child(panel))
             .when(sites_ok, |d| {
                 d.child(ui(
-                    "A site also covers its subdomains. Add a path to limit it: facebook.com/messages.",
+                    t!("styles.targets.site_hint"),
                     12.,
                     16.,
                     FontWeight::NORMAL,
@@ -791,7 +817,7 @@ impl StylesPage {
 
     fn open_base_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.model.read(cx).styles.base_prompt().to_string();
-        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Rules that all styles share. Leave empty for no shared rules.").default_value(text));
+        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder(t!("styles.base.placeholder")).default_value(text));
         prompt.update(cx, |s, cx| s.focus(window, cx));
         self.base_editor = Some(BaseEditor { prompt, error: None });
         cx.notify();
@@ -811,7 +837,7 @@ impl StylesPage {
             Ok(()) => self.base_editor = None,
             Err(e) => {
                 if let Some(ed) = self.base_editor.as_mut() {
-                    ed.error = Some(format!("Sayso could not save the base prompt: {e}"));
+                    ed.error = Some(EditError::BaseSaveFailed(e));
                 }
             }
         }
@@ -824,9 +850,9 @@ impl StylesPage {
         let m = self.model.read(cx);
         let changed = m.styles.user_base_prompt.is_some();
         let file_note = if changed {
-            format!("You changed the base prompt. It is the file {}/{}.", m.styles_dir_display(), sayso_core::style::BASE_PROMPT_FILE)
+            t!("styles.base.changed_note", file = format!("{}/{}", m.styles_dir_display(), sayso_core::style::BASE_PROMPT_FILE))
         } else {
-            "The default base prompt. Saving a change writes your copy to the styles folder.".to_string()
+            t!("styles.base.default_note")
         };
         let prompt = div()
             .p(px(4.))
@@ -838,14 +864,14 @@ impl StylesPage {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(Button::new("save-base", "Save").primary().on_click(cx.listener(|this, _, _, cx| this.save_base_editor(cx))))
-            .child(Button::new("cancel-base", "Cancel").ghost().on_click(cx.listener(|this, _, _, cx| {
+            .child(Button::new("save-base", t!("styles.save")).primary().on_click(cx.listener(|this, _, _, cx| this.save_base_editor(cx))))
+            .child(Button::new("cancel-base", t!("styles.cancel")).ghost().on_click(cx.listener(|this, _, _, cx| {
                 this.base_editor = None;
                 cx.notify();
             })))
             .child(div().flex_1());
         if changed {
-            buttons = buttons.child(Button::new("reset-base", "Reset to default").icon(Icon::Undo).on_click(cx.listener(|this, _, _, cx| {
+            buttons = buttons.child(Button::new("reset-base", t!("styles.base.reset")).icon(Icon::Undo).on_click(cx.listener(|this, _, _, cx| {
                 this.model.update(cx, |m, cx| m.reset_base_prompt(cx));
                 this.base_editor = None;
                 cx.notify();
@@ -862,7 +888,7 @@ impl StylesPage {
                     .items_start()
                     .justify_between()
                     .gap(px(12.))
-                    .child(div().flex().flex_col().flex_1().min_w_0().gap(px(6.)).child(text::title("Base prompt", 28., &c)).child(ui(
+                    .child(div().flex().flex_col().flex_1().min_w_0().gap(px(6.)).child(text::title(t!("styles.base.title"), 28., &c)).child(ui(
                         file_note,
                         13.,
                         18.,
@@ -875,12 +901,12 @@ impl StylesPage {
                     }))),
             )
             .child(kit::field(
-                "Rules for all styles",
+                &t!("styles.base.rules"),
                 prompt,
-                Some("Short rules and a few short examples work best with a small model. A style with \"Use the base prompt\" off does not get this text."),
+                Some(&t!("styles.base.rules_hint")),
                 cx,
             ))
-            .when_some(ed.error.clone(), |d, e| d.child(Banner::new(BannerKind::Warning, e)))
+            .when_some(ed.error.as_ref(), |d, e| d.child(Banner::new(BannerKind::Warning, e.text())))
             .child(div().pt(px(6.)).child(buttons));
         Some(self.side_panel("base-editor", body, cx))
     }
@@ -891,7 +917,7 @@ impl StylesPage {
 
     fn edit_button(&self, id: &str, style: &Style, cx: &mut Context<Self>) -> Button {
         let st = style.clone();
-        Button::new(SharedString::from(format!("{id}-{}", style.id)), "Edit").small().ghost().on_click(cx.listener(move |this, _, w, cx| {
+        Button::new(SharedString::from(format!("{id}-{}", style.id)), t!("styles.edit")).small().ghost().on_click(cx.listener(move |this, _, w, cx| {
             cx.stop_propagation();
             this.open_editor(Some(st.clone()), w, cx);
         }))
@@ -909,9 +935,9 @@ impl StylesPage {
             .pt(px(6.))
             .map(|d| {
                 if active {
-                    d.child(Badge::new("Default", BadgeTone::Ink))
+                    d.child(Badge::new(t!("styles.default"), BadgeTone::Ink))
                 } else {
-                    d.child(Button::new("featured-default", "Make default").primary().small().on_click(cx.listener(move |this, _, _, cx| {
+                    d.child(Button::new("featured-default", t!("styles.make_default")).primary().small().on_click(cx.listener(move |this, _, _, cx| {
                         let id = id.clone();
                         this.model.update(cx, |m, cx| m.set_active_style(&id, cx));
                     })))
@@ -931,20 +957,20 @@ impl StylesPage {
                     .gap(px(8.))
                     .h(px(20.))
                     .child(kit::seal_dot(Some(style.ink.as_str()), 14., cx))
-                    .child(kit::caps("Recommended", 11., c.graphite)),
+                    .child(kit::caps(t!("styles.recommended"), 11., c.graphite)),
             )
             .child(text::title(style.name.clone(), 26., &c).line_height(px(32.)))
             .child(ui(style.description.clone(), 14., 20., FontWeight::NORMAL, c.graphite))
             .child(actions);
-        let side = |label: &'static str, body: Div| div().flex().flex_col().flex_1().min_w_0().gap(px(6.)).py(px(14.)).px(px(16.)).child(kit::caps(label, 11., c.graphite)).child(body);
+        let side = |label: String, body: Div| div().flex().flex_col().flex_1().min_w_0().gap(px(6.)).py(px(14.)).px(px(16.)).child(kit::caps(label, 11., c.graphite)).child(body);
         let example = div()
             .flex()
             .flex_1()
             .min_w_0()
             .rounded(px(10.))
             .debossed(&c)
-            .child(side("You say", kit::mono(FEATURED_SAID, 12., c.graphite).line_height(px(18.))))
-            .child(side("Sayso writes", ui(FEATURED_WRITTEN, 14., 20., FontWeight::MEDIUM, c.ink)).border_l_1().border_color(c.deboss_shade));
+            .child(side(t!("styles.featured.you_say"), kit::mono(t!("styles.featured.said"), 12., c.graphite).line_height(px(18.))))
+            .child(side(t!("styles.featured.sayso_writes"), ui(t!("styles.featured.written"), 14., 20., FontWeight::MEDIUM, c.ink)).border_l_1().border_color(c.deboss_shade));
         div()
             .flex()
             .when(narrow, |d| d.flex_col())
@@ -1029,7 +1055,7 @@ impl StylesPage {
                     .w(px(80.))
                     // Edit takes the place of the badge, so the row keeps its columns.
                     .when(hovered, |d| d.child(edit))
-                    .when(active && !hovered, |d| d.child(Badge::new("Default", BadgeTone::Ink))),
+                    .when(active && !hovered, |d| d.child(Badge::new(t!("styles.default"), BadgeTone::Ink))),
             )
             .into_any_element()
     }
@@ -1041,16 +1067,16 @@ impl StylesPage {
         let default = m.config.ai.provider(None).filter(|_| m.config.ai.enabled);
         let (dot, line) = match default {
             Some(p) => {
-                let model = match p.model() {
-                    Some(id) => format!(" · {}", m.model_label(&p.id, id)),
-                    None => String::new(),
+                let line = match p.model() {
+                    Some(id) => t!("styles.provider_line.with_model", provider = p.name, model = m.model_label(&p.id, id)),
+                    None => t!("styles.provider_line.no_model", provider = p.name),
                 };
-                (c.success, format!("Styles run on {}{model} unless a style names another provider.", p.name))
+                (c.success, line)
             }
-            None if m.config.ai.providers.is_empty() => (c.pencil, "No AI provider is set up, so each style inserts the transcript.".to_string()),
-            None => (c.pencil, "AI is off, so each style inserts the transcript.".to_string()),
+            None if m.config.ai.providers.is_empty() => (c.pencil, t!("styles.provider_line.no_provider")),
+            None => (c.pencil, t!("styles.provider_line.ai_off")),
         };
-        let label = if m.config.ai.providers.is_empty() { "Set up a provider" } else { "Manage providers" };
+        let label = if m.config.ai.providers.is_empty() { t!("styles.provider_line.set_up") } else { t!("styles.provider_line.manage") };
         let model = self.model.clone();
         div()
             .flex()
@@ -1086,6 +1112,22 @@ fn trim_float(v: f64) -> String {
 impl Render for StylesPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c: Colors = cx.paper().colors;
+        // The inputs of the editors keep their placeholders, so they change with the language.
+        if self.locale != sayso_i18n::locale() {
+            self.locale = sayso_i18n::locale();
+            let http_s = self.model.read(cx).config.ai.http_timeout_ms as f64 / 1000.0;
+            let sites_ok = self.model.read(cx).services.platform.context.reads_page_url();
+            if let Some(ed) = &self.editor {
+                ed.name.update(cx, |s, cx| s.set_placeholder(t!("styles.editor.name_placeholder"), window, cx));
+                ed.description.update(cx, |s, cx| s.set_placeholder(t!("styles.editor.description_placeholder"), window, cx));
+                ed.prompt.update(cx, |s, cx| s.set_placeholder(t!("styles.editor.prompt_placeholder"), window, cx));
+                ed.timeout.update(cx, |s, cx| s.set_placeholder(t!("styles.editor.timeout_placeholder", seconds = trim_float(http_s)), window, cx));
+                ed.target.update(cx, |s, cx| s.set_placeholder(target_placeholder(sites_ok), window, cx));
+            }
+            if let Some(ed) = &self.base_editor {
+                ed.prompt.update(cx, |s, cx| s.set_placeholder(t!("styles.base.placeholder"), window, cx));
+            }
+        }
         let (styles, active, dir) = {
             let m = self.model.read(cx);
             (m.styles.styles().cloned().collect::<Vec<_>>(), m.active_style().id, m.styles_dir_display())
@@ -1094,9 +1136,9 @@ impl Render for StylesPage {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(Button::new("edit-base", "Base prompt").large().icon(Icon::File).on_click(cx.listener(|this, _, w, cx| this.open_base_editor(w, cx))))
+            .child(Button::new("edit-base", t!("styles.base.button")).large().icon(Icon::File).on_click(cx.listener(|this, _, w, cx| this.open_base_editor(w, cx))))
             .child(
-                Button::new("new-style", "New style")
+                Button::new("new-style", t!("styles.new_style"))
                     .primary()
                     .large()
                     .icon(Icon::Plus)
@@ -1104,9 +1146,9 @@ impl Render for StylesPage {
             )
             .into_any_element();
         let head = kit::page_head(
-            "Styles",
+            &t!("styles.title"),
             Some(kit::intro(
-                format!("A style rewrites what you said before it is inserted. Each style is a file in {dir}, so you can edit it by hand."),
+                t!("styles.intro", dir = dir),
                 560.,
                 cx,
             )),
@@ -1137,7 +1179,7 @@ impl Render for StylesPage {
                         .py(px(pad.min(44.)))
                         .px(px(pad))
                         .child(head)
-                        .children(errors.into_iter().map(|e| Banner::new(BannerKind::Warning, format!("A style file has an error: {e}"))))
+                        .children(errors.into_iter().map(|e| Banner::new(BannerKind::Warning, t!("styles.file_error", error = e))))
                         .children(featured)
                         .child(rows)
                         .child(providers),

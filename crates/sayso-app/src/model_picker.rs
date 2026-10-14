@@ -21,6 +21,7 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use crate::shell::{self as mac, native as ns_window};
+use sayso_i18n::t;
 use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
@@ -288,7 +289,7 @@ struct Thinking {
 
 impl PickerWindow {
     fn new(model: Entity<AppModel>, req: Request, place: Place, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter models"));
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder(t!("model_picker.filter")));
         filter.update(cx, |s, cx| s.focus(window, cx));
         let subs = vec![
             cx.observe(&model, |_, _, cx| cx.notify()),
@@ -369,7 +370,7 @@ impl PickerWindow {
         };
         // While the user holds the line, the name is that of the nearest level.
         let marked = if self.held.is_some() { Some(nearest_stop(value, count)) } else { thinking.chosen };
-        let name = marked.map_or("Default".to_string(), |stop| sayso_core::config::thinking_label(&thinking.levels[stop]));
+        let name = marked.map_or_else(|| t!("model_picker.default"), |stop| sayso_core::config::thinking_label(&thinking.levels[stop]));
         let line = self.line.clone();
         div()
             .flex()
@@ -386,7 +387,7 @@ impl PickerWindow {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(crate::hub::pages::kit::caps("Thinking", 10., c.graphite).font_weight(FontWeight::SEMIBOLD))
+                    .child(crate::hub::pages::kit::caps(t!("model_picker.thinking"), 10., c.graphite).font_weight(FontWeight::SEMIBOLD))
                     .child(crate::hub::pages::kit::fraunces(name, 21., 24., c.ink).italic()),
             )
             .child(
@@ -492,9 +493,9 @@ impl Render for PickerWindow {
         let message = |s: String, color: Hsla| div().px(px(10.)).py(px(8.)).child(text::ui(s, 13., FontWeight::NORMAL, color).line_height(px(18.)));
         let mut count = None;
         match &list {
-            None | Some(ModelList::Loading) => rows = rows.child(message("Loading models…".into(), c.graphite)),
+            None | Some(ModelList::Loading) => rows = rows.child(message(t!("model_picker.loading"), c.graphite)),
             Some(ModelList::Failed(e)) => {
-                rows = rows.child(message(format!("Sayso could not load the models: {e}. Check the provider, then refresh."), c.danger));
+                rows = rows.child(message(t!("model_picker.load_failed", error = e), c.danger));
             }
             Some(ModelList::Ready(models)) => {
                 count = Some(models.len());
@@ -503,9 +504,9 @@ impl Render for PickerWindow {
                     .filter(|m| query.is_empty() || m.name.to_lowercase().contains(&query) || m.id.to_lowercase().contains(&query))
                     .collect();
                 if models.is_empty() {
-                    rows = rows.child(message("This provider lists no models.".into(), c.graphite));
+                    rows = rows.child(message(t!("model_picker.no_models"), c.graphite));
                 } else if shown.is_empty() {
-                    rows = rows.child(message("No model matches the filter.".into(), c.graphite));
+                    rows = rows.child(message(t!("model_picker.no_match"), c.graphite));
                 }
                 for (i, m) in shown.into_iter().enumerate() {
                     // HTTP lists give only ids: the name is then the id, and it shows one time.
@@ -531,11 +532,11 @@ impl Render for PickerWindow {
             .child(icon(Icon::Search, 12., c.pencil))
             .child(crate::hub::pages::kit::bare_input(&self.filter, 13.).flex_1())
             .children(count.map(|n| {
-                let models = if n == 1 { "1 model".to_string() } else { format!("{n} models") };
+                let models = t!("model_picker.count", count = n);
                 crate::hub::pages::kit::caps(models, 10., c.pencil).font_weight(FontWeight::SEMIBOLD).flex_none()
             }))
             .child(
-                Button::new("refresh-models", "Refresh")
+                Button::new("refresh-models", t!("model_picker.refresh"))
                     .small()
                     .ghost()
                     .disabled(matches!(list, Some(ModelList::Loading)))

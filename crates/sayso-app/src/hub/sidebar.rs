@@ -11,6 +11,7 @@ use sayso_ui::ActivePaper;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::text;
+use sayso_i18n::t;
 
 /// The sidebar, or the rail of icons when `rail` is true. `forced` says that
 /// the window is too narrow for the sidebar, so there is no button to expand it.
@@ -60,7 +61,7 @@ fn collapse_button(model: &Entity<AppModel>, rail: bool, cx: &App) -> AnyElement
         .rounded(px(8.))
         .cursor_pointer()
         .hover(|s| s.bg(c.deboss.opacity(0.55)))
-        .tooltip(text_tooltip(if rail { "Expand sidebar" } else { "Collapse sidebar" }))
+        .tooltip(text_tooltip(if rail { t!("hub.sidebar.expand") } else { t!("hub.sidebar.collapse") }))
         .on_click(move |_, _, cx| model.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.sidebar_collapsed = !rail)))
         .child(icon(Icon::Sidebar, 18., c.graphite))
         .into_any_element()
@@ -89,12 +90,12 @@ fn go(model: &Entity<AppModel>, route: Route) -> impl Fn(&ClickEvent, &mut Windo
 fn main_nav(model: &Entity<AppModel>, route: Route, rail: bool, cx: &App) -> impl IntoElement {
     let history = model.read(cx).history_visible();
     let items = [
-        (Route::Home, Icon::Home, "Home"),
-        (Route::History, Icon::History, "History"),
-        (Route::Dictionary, Icon::Dictionary, "Dictionary"),
-        (Route::Styles, Icon::Styles, "Styles"),
-        (Route::Models, Icon::Models, "Models"),
-        (Route::Settings(SettingsPage::General), Icon::Settings, "Settings"),
+        (Route::Home, Icon::Home, t!("hub.nav.home")),
+        (Route::History, Icon::History, t!("hub.nav.history")),
+        (Route::Dictionary, Icon::Dictionary, t!("hub.nav.dictionary")),
+        (Route::Styles, Icon::Styles, t!("hub.nav.styles")),
+        (Route::Models, Icon::Models, t!("hub.nav.models")),
+        (Route::Settings(SettingsPage::General), Icon::Settings, t!("hub.nav.settings")),
     ];
     let mut nav = div().flex().flex_col().gap(px(2.));
     for (i, (r, ic, label)) in items.into_iter().enumerate().filter(|(_, (r, ..))| history || *r != Route::History) {
@@ -141,7 +142,7 @@ fn main_footer(model: &Entity<AppModel>, toggle: Option<AnyElement>, cx: &App) -
         )
         .children(update)
         .child(
-            Segmented::new("theme", ["Auto", "Light", "Dark"], selected)
+            Segmented::new("theme", [t!("hub.sidebar.theme_auto"), t!("hub.sidebar.theme_light"), t!("hub.sidebar.theme_dark")], selected)
                 .with_icons([Icon::Display, Icon::Sun, Icon::Moon])
                 .compact()
                 .on_select(move |i, _, cx| {
@@ -175,12 +176,12 @@ fn rail_footer(model: &Entity<AppModel>, toggle: Option<AnyElement>, cx: &App) -
                 .items_center()
                 .justify_center()
                 .size(px(24.))
-                .tooltip(text_tooltip(format!("{status}. {detail}")))
+                .tooltip(text_tooltip(t!("hub.sidebar.engine_status", status = status, detail = detail)))
                 .child(status_dot(color(&c), 8.)),
         )
         .children(update)
         .child(
-            Segmented::new("theme", ["Auto", "Light", "Dark"], selected)
+            Segmented::new("theme", [t!("hub.sidebar.theme_auto"), t!("hub.sidebar.theme_light"), t!("hub.sidebar.theme_dark")], selected)
                 .with_icons([Icon::Display, Icon::Sun, Icon::Moon])
                 .rail()
                 .on_select(move |i, _, cx| {
@@ -207,28 +208,28 @@ fn back_button(model: &Entity<AppModel>, rail: bool, cx: &App) -> impl IntoEleme
         .on_click(move |_, _, cx| model.update(cx, |m, cx| m.navigate(Route::Home, cx)))
         .child(icon(Icon::ChevronLeft, 16., c.ink));
     if rail {
-        return back.w(px(36.)).px_0().justify_center().tooltip(text_tooltip("Back"));
+        return back.w(px(36.)).px_0().justify_center().tooltip(text_tooltip(t!("hub.sidebar.back")));
     }
     back.child(
             div()
                 .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
                 .text_size(px(22.))
                 .font_weight(FontWeight::SEMIBOLD)
-                .child("Settings"),
+                .child(t!("hub.nav.settings")),
         )
 }
 
-pub fn settings_label(page: SettingsPage) -> (&'static str, Icon) {
+pub fn settings_label(page: SettingsPage) -> (String, Icon) {
     match page {
-        SettingsPage::General => ("General", Icon::General),
-        SettingsPage::Dictation => ("Dictation", Icon::Mic),
-        SettingsPage::Providers => ("Providers", Icon::Sparkle),
-        SettingsPage::Overlay => ("Overlay", Icon::Overlay),
-        SettingsPage::Audio => ("Audio", Icon::Audio),
-        SettingsPage::Appearance => ("Appearance", Icon::Drop),
-        SettingsPage::HistoryPrivacy => ("History and privacy", Icon::Shield),
-        SettingsPage::Permissions => ("Permissions", Icon::Lock),
-        SettingsPage::Advanced => ("Advanced", Icon::Code),
+        SettingsPage::General => (t!("hub.settings_nav.general"), Icon::General),
+        SettingsPage::Dictation => (t!("hub.settings_nav.dictation"), Icon::Mic),
+        SettingsPage::Providers => (t!("hub.settings_nav.providers"), Icon::Sparkle),
+        SettingsPage::Overlay => (t!("hub.settings_nav.overlay"), Icon::Overlay),
+        SettingsPage::Audio => (t!("hub.settings_nav.audio"), Icon::Audio),
+        SettingsPage::Appearance => (t!("hub.settings_nav.appearance"), Icon::Drop),
+        SettingsPage::HistoryPrivacy => (t!("hub.settings_nav.history_privacy"), Icon::Shield),
+        SettingsPage::Permissions => (t!("hub.settings_nav.permissions"), Icon::Lock),
+        SettingsPage::Advanced => (t!("hub.settings_nav.advanced"), Icon::Code),
     }
 }
 
@@ -255,7 +256,7 @@ fn config_footer(model: &Entity<AppModel>, rail: bool, toggle: Option<AnyElement
             .rounded(px(9.))
             .cursor_pointer()
             .hover(|s| s.bg(c.deboss.opacity(0.55)))
-            .tooltip(text_tooltip(format!("Open config file: {path}")))
+            .tooltip(text_tooltip(t!("hub.sidebar.open_config_file_path", path = path)))
             .on_click(move |_, _, cx| model.read(cx).reveal_config_file())
             .child(icon(Icon::File, 18., c.accent));
         return div().flex().flex_col().items_center().gap(px(16.)).child(open).children(toggle).into_any_element();
@@ -270,7 +271,7 @@ fn config_footer(model: &Entity<AppModel>, rail: bool, toggle: Option<AnyElement
                 .id("open-config")
                 .cursor_pointer()
                 .on_click(move |_, _, cx| model.read(cx).reveal_config_file())
-                .child(text::ui("Open config file", 13., FontWeight::SEMIBOLD, c.accent)),
+                .child(text::ui(t!("hub.sidebar.open_config_file"), 13., FontWeight::SEMIBOLD, c.accent)),
         )
         .child(text::mono(path, 11., c.graphite).font_weight(FontWeight::NORMAL));
     div().flex().items_end().child(file.flex_1().min_w_0()).children(toggle).into_any_element()

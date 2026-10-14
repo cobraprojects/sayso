@@ -1,0 +1,43 @@
+_version: 1
+
+hub:
+  nav:
+    home: "Home"
+    history: "History"
+    dictionary: "Dictionary"
+    styles: "Styles"
+    models: "Models"
+    settings: "Settings"
+  settings_nav:
+    general: "General"
+    dictation: "Dictation"
+    providers: "Providers"
+    overlay: "Overlay"
+    audio: "Audio"
+    appearance: "Appearance"
+    history_privacy: "History and privacy"
+    permissions: "Permissions"
+    advanced: "Advanced"
+  sidebar:
+    expand: "Expand sidebar"
+    collapse: "Collapse sidebar"
+    theme_auto: "Auto"
+    theme_light: "Light"
+    theme_dark: "Dark"
+    back: "Back"
+    open_config_file: "Open config file"
+    open_config_file_path: "Open config file: %{path}"
+    engine_status: "%{status}. %{detail}"
+  provider:
+    cloud_zero_retention: "Cloud · zero data retention on"
+    cloud_host: "Cloud · %{host}"
+    local_host: "Local · %{host}"
+    claude_cli: "Cloud · your Claude login"
+    codex_cli: "Cloud · about 5 s per call"
+    apple_intelligence: "Local · runs on this Mac"
+  duration:
+    seconds: "%{seconds} s"
+    minutes_seconds: "%{minutes} min %{seconds} s"
+  place:
+    cloud: "Cloud"
+    local: "Local"

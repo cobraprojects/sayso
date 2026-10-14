@@ -7,6 +7,7 @@ use crate::model::AppModel;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::stats::format_count;
+use sayso_i18n::t;
 use sayso_core::stt::ModelStatus;
 use sayso_platform::Permission;
 use sayso_ui::components::*;
@@ -32,35 +33,32 @@ impl HomePage {
         let m = self.model.read(cx);
         let now = chrono::Local::now();
         let hour = chrono::Timelike::hour(&now);
-        let part = if hour < 12 {
-            "morning"
-        } else if hour < 18 {
-            "afternoon"
-        } else {
-            "evening"
-        };
         // The name from Settings › General, or the Mac account's first name.
         let name = m.config.general.name().map(str::to_string).or_else(kit::first_name);
-        let greeting = match name {
-            Some(name) => format!("Good {part}, {name}."),
-            None => format!("Good {part}."),
+        let greeting = match (name, hour) {
+            (Some(name), 0..=11) => t!("home.greeting.morning_name", name = name),
+            (Some(name), 12..=17) => t!("home.greeting.afternoon_name", name = name),
+            (Some(name), _) => t!("home.greeting.evening_name", name = name),
+            (None, 0..=11) => t!("home.greeting.morning"),
+            (None, 12..=17) => t!("home.greeting.afternoon"),
+            (None, _) => t!("home.greeting.evening"),
         };
         let hint = match &m.config.hotkeys.toggle {
             Some(hk) => div()
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .child(ui("Press", 14., 18., FontWeight::NORMAL, c.graphite))
+                .child(ui(t!("home.hint.press"), 14., 18., FontWeight::NORMAL, c.graphite))
                 .child(Keycaps::hotkey(hk))
-                .child(ui("anywhere to dictate", 14., 18., FontWeight::NORMAL, c.graphite)),
+                .child(ui(t!("home.hint.anywhere"), 14., 18., FontWeight::NORMAL, c.graphite)),
             None => {
                 let model = self.model.clone();
                 div()
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(ui("No hotkey is set.", 14., 18., FontWeight::NORMAL, c.graphite))
-                    .child(kit::link("set-hotkey", "Set a hotkey", 14., cx).on_click(move |_, _, cx| {
+                    .child(ui(t!("home.hint.no_hotkey"), 14., 18., FontWeight::NORMAL, c.graphite))
+                    .child(kit::link("set-hotkey", t!("home.hint.set_hotkey"), 14., cx).on_click(move |_, _, cx| {
                         model.update(cx, |m, cx| m.navigate(Route::Settings(SettingsPage::Dictation), cx))
                     }))
             }
@@ -70,7 +68,7 @@ impl HomePage {
             .flex_col()
             .min_w_0()
             .gap(px(10.))
-            .child(caps(now.format("%A, %B %-d").to_string(), 13., c.graphite))
+            .child(caps(sayso_i18n::dates::weekday_day_month(&now), 13., c.graphite))
             .child(text::display(greeting, if narrow { 36. } else { 44. }, &c));
         // A narrow page has no room for the hint at the side of the greeting.
         if narrow {
@@ -83,10 +81,10 @@ impl HomePage {
         let c = cx.paper().colors;
         let s = &self.model.read(cx).stats;
         let (big, small) = if narrow { (34., 28.) } else { (40., 32.) };
-        let stat = |label: &str, value: Option<String>, first: bool| {
+        let stat = |label: String, value: Option<String>, first: bool| {
             let v = match value {
                 Some(v) => text::display(v, big, &c),
-                None => text::display("None yet", small, &c).opacity(0.45),
+                None => text::display(t!("home.stats.none_yet"), small, &c).opacity(0.45),
             };
             div()
                 .flex()
@@ -94,7 +92,7 @@ impl HomePage {
                 .flex_1()
                 .gap(px(6.))
                 .when(!first, |d| d.pl(px(24.)).border_l_1().border_color(c.rule))
-                .child(ui(label.to_string(), 13., 16., FontWeight::MEDIUM, c.graphite))
+                .child(ui(label, 13., 16., FontWeight::MEDIUM, c.graphite))
                 .child(v)
         };
         let max = s.week_by_day.iter().copied().max().unwrap_or(0).max(1) as f32;
@@ -120,7 +118,7 @@ impl HomePage {
                     .flex()
                     .flex_col()
                     .gap(px(6.))
-                    .child(ui("This week", 13., 16., FontWeight::MEDIUM, c.graphite))
+                    .child(ui(t!("home.stats.this_week"), 13., 16., FontWeight::MEDIUM, c.graphite))
                     .child(text::display(format_count(s.words_this_week), big, &c)),
             )
             .child(bars);
@@ -128,9 +126,9 @@ impl HomePage {
         week.style().flex_shrink = Some(1.);
         week.style().flex_basis = Some(relative(0.).into());
         let strip = div().flex().flex_none().py(px(24.)).border_t_1().border_b_1().border_color(c.rule);
-        let words = stat("Words today", Some(format_count(s.words_today)), true);
-        let saved = stat("Time saved", Some(format!("{} min", s.minutes_saved_today)), false);
-        let pace = s.pace_wpm.map(|p| format!("{p} wpm"));
+        let words = stat(t!("home.stats.words_today"), Some(format_count(s.words_today)), true);
+        let saved = stat(t!("home.stats.time_saved"), Some(t!("home.stats.minutes", minutes = s.minutes_saved_today)), false);
+        let pace = s.pace_wpm.map(|p| t!("home.stats.wpm", wpm = p));
         // A narrow page: two rows of two.
         if narrow {
             week.style().flex_grow = Some(1.);
@@ -139,18 +137,18 @@ impl HomePage {
                 .gap(px(20.))
                 .py(px(20.))
                 .child(div().flex().child(words).child(saved))
-                .child(div().flex().child(stat("Speaking pace", pace, true)).child(week));
+                .child(div().flex().child(stat(t!("home.stats.pace"), pace, true)).child(week));
         }
-        strip.child(words).child(saved).child(stat("Speaking pace", pace, false)).child(week)
+        strip.child(words).child(saved).child(stat(t!("home.stats.pace"), pace, false)).child(week)
     }
 
     /// "Turn on history" and a link to the setting, for the two "History is off" states.
     fn history_off_actions(&self, cx: &App) -> (Button, Stateful<Div>) {
         let (on, open) = (self.model.clone(), self.model.clone());
-        let turn_on = Button::new("turn-on-history", "Turn on history")
+        let turn_on = Button::new("turn-on-history", t!("home.history_off.turn_on"))
             .small()
             .on_click(move |_, _, cx| on.update(cx, |m, cx| m.edit_config(cx, |c| c.history.enabled = true)));
-        let settings = kit::link("open-history-settings", "Open History settings", 14., cx)
+        let settings = kit::link("open-history-settings", t!("home.history_off.open_settings"), 14., cx)
             .on_click(move |_, _, cx| open.update(cx, |m, cx| m.navigate(Route::Settings(SettingsPage::HistoryPrivacy), cx)));
         (turn_on, settings)
     }
@@ -175,9 +173,9 @@ impl HomePage {
                     .flex_1()
                     .min_w_0()
                     .gap(px(6.))
-                    .child(text::title("History is off", 22., &c).line_height(px(28.)))
+                    .child(text::title(t!("home.history_off.title"), 22., &c).line_height(px(28.)))
                     .child(ui(
-                        "Sayso does not save new dictations, so there are no stats. The entries below are from before.",
+                        t!("home.history_off.strip_detail"),
                         14.,
                         20.,
                         FontWeight::NORMAL,
@@ -197,10 +195,10 @@ impl HomePage {
             .flex_1()
             .min_w_0()
             .gap(px(18.))
-            .child(text::title("History is off", 22., &c).line_height(px(28.)))
+            .child(text::title(t!("home.history_off.title"), 22., &c).line_height(px(28.)))
             .child(
                 text::body(
-                    "Sayso does not keep your dictations, so there are no recent entries and no stats. Paste last still works until you quit Sayso.",
+                    t!("home.history_off.block_detail"),
                     &c,
                 )
                 .max_w(px(460.)),
@@ -216,7 +214,7 @@ impl HomePage {
         }
         let open = {
             let model = self.model.clone();
-            kit::link("open-history", "Open History", 14., cx)
+            kit::link("open-history", t!("home.recent.open_history"), 14., cx)
                 .on_click(move |_, _, cx| model.update(cx, |m, cx| m.navigate(Route::History, cx)))
         };
         let mut col = div().flex().flex_col().flex_1().min_w_0().gap(px(6.)).child(
@@ -225,16 +223,16 @@ impl HomePage {
                 .items_end()
                 .justify_between()
                 .pb(px(8.))
-                .child(text::title("Recent", 22., &c).line_height(px(28.)))
+                .child(text::title(t!("home.recent.title"), 22., &c).line_height(px(28.)))
                 .when(!m.recent.is_empty(), |d| d.child(open)),
         );
         if m.recent.is_empty() {
-            let hk = m.config.hotkeys.toggle.as_ref().map(|h| h.keycaps().join(" ")).unwrap_or_else(|| "your hotkey".into());
+            let hk = m.config.hotkeys.toggle.as_ref().map(|h| h.keycaps().join(" ")).unwrap_or_else(|| t!("home.recent.your_hotkey"));
             return col.child(
                 div().rounded(px(14.)).well(&c).child(kit::empty_state(
                     sayso_ui::assets::Icon::Mic,
-                    "No dictations yet",
-                    &format!("Press {hk} in any app and speak. Your dictations show here."),
+                    &t!("home.recent.empty_title"),
+                    &t!("home.recent.empty_body", hotkey = hk),
                     None,
                     cx,
                 )),
@@ -244,7 +242,7 @@ impl HomePage {
             let style = m.styles.get(&e.style_id);
             let dot = style.map(|s| kit::ink_color(&s.ink, &c));
             let name = m.style_name(&e.style_id);
-            let app = e.app.as_ref().map(|a| a.name.clone()).unwrap_or_else(|| "Unknown app".into());
+            let app = e.app.as_ref().map(|a| a.name.clone()).unwrap_or_else(|| t!("home.recent.unknown_app"));
             let app_icon = e.app.as_ref().and_then(|a| m.icons.get(&a.bundle_id));
             let model = self.model.clone();
             let id = e.id;
@@ -281,11 +279,11 @@ impl HomePage {
         let style = m.active_style();
         let route = m.style_route(&style);
         let detail = match &route {
-            StyleRoute::NoAi => format!("Nothing leaves your {}.", crate::shell::computer()),
-            StyleRoute::NeedsProvider => "AI is off, so Sayso inserts the transcript. Add a provider in Settings.".into(),
-            StyleRoute::NeedsModel { provider } => format!("No model is chosen for {provider}, so Sayso inserts the transcript. Choose one in Settings."),
-            StyleRoute::Local { provider, model } => format!("Runs on your {} with {provider} · {model}.", crate::shell::computer()),
-            StyleRoute::Cloud { provider, model } => format!("Sent to {provider} · {model}."),
+            StyleRoute::NoAi => t!("home.style.detail_no_ai", computer = crate::shell::computer()),
+            StyleRoute::NeedsProvider => t!("home.style.detail_needs_provider"),
+            StyleRoute::NeedsModel { provider } => t!("home.style.detail_needs_model", provider = provider),
+            StyleRoute::Local { provider, model } => t!("home.style.detail_local", computer = crate::shell::computer(), provider = provider, model = model),
+            StyleRoute::Cloud { provider, model } => t!("home.style.detail_cloud", provider = provider, model = model),
         };
         let description = if style.description.is_empty() { detail } else { format!("{} {}", style.description, detail) };
         let badge = match &route {
@@ -294,7 +292,7 @@ impl HomePage {
             StyleRoute::NeedsProvider | StyleRoute::NeedsModel { .. } => None,
         };
         let model = self.model.clone();
-        let change = Button::new("change-style", "Change style")
+        let change = Button::new("change-style", t!("home.style.change"))
             .small()
             .on_click(move |_, _, cx| model.update(cx, |m, cx| m.navigate(Route::Styles, cx)));
         let cycle = m.config.hotkeys.cycle_style.as_ref().map(|hk| {
@@ -342,7 +340,7 @@ impl HomePage {
                             .items_center()
                             .justify_between()
                             .h(px(22.))
-                            .child(caps("Default style", 12., c.graphite))
+                            .child(caps(t!("home.style.default"), 12., c.graphite))
                             .when_some(badge, |d, b| d.child(b)),
                     )
                     .child(text::display(style.name.clone(), 28., &c))
@@ -361,63 +359,63 @@ impl HomePage {
         let model_ok = m.model_ready();
         let all_ok = mic_ok && ax_ok && model_ok;
 
-        let fix = |id: &'static str, label: &str, f: Fix| {
+        let fix = |id: &'static str, label: String, f: Fix| {
             let model = self.model.clone();
-            kit::link(id, label.to_string(), 13., cx).on_click(move |_, _, cx| model.update(cx, |m, cx| f(m, cx)))
+            kit::link(id, label, 13., cx).on_click(move |_, _, cx| model.update(cx, |m, cx| f(m, cx)))
         };
-        let row = |ok: bool, label: &str, value: AnyElement| {
+        let row = |ok: bool, label: String, value: AnyElement| {
             div()
                 .flex()
                 .items_center()
                 .gap(px(10.))
                 .child(kit::check_dot(ok, cx))
-                .child(ui(label.to_string(), 14., 18., FontWeight::NORMAL, c.ink).flex_1())
+                .child(ui(label, 14., 18., FontWeight::NORMAL, c.ink).flex_1())
                 .child(value)
         };
         let plain = |s: String| ui(s, 13., 16., FontWeight::NORMAL, c.graphite).truncate().max_w(px(170.)).into_any_element();
 
         let mic = if mic_ok {
-            plain(m.microphone_name().unwrap_or_else(|| "Allowed".into()))
+            plain(m.microphone_name().unwrap_or_else(|| t!("home.checklist.allowed")))
         } else {
-            fix("fix-mic", "Allow", Box::new(|m, _| m.fix_permission(Permission::Microphone))).into_any_element()
+            fix("fix-mic", t!("home.checklist.allow"), Box::new(|m, _| m.fix_permission(Permission::Microphone))).into_any_element()
         };
         let ax = if ax_ok {
-            plain("Allowed".into())
+            plain(t!("home.checklist.allowed"))
         } else {
-            fix("fix-ax", "Allow", Box::new(|m, _| m.fix_permission(Permission::Accessibility))).into_any_element()
+            fix("fix-ax", t!("home.checklist.allow"), Box::new(|m, _| m.fix_permission(Permission::Accessibility))).into_any_element()
         };
         let model_value = match &status {
             ModelStatus::NotDownloaded if active.is_remote() => {
-                fix("fix-model", "Open Models", Box::new(|m, cx| m.navigate(Route::Models, cx))).into_any_element()
+                fix("fix-model", t!("home.checklist.open_models"), Box::new(|m, cx| m.navigate(Route::Models, cx))).into_any_element()
             }
             ModelStatus::Ready | ModelStatus::Downloaded => plain(active.name.clone()),
-            ModelStatus::Optimizing => plain(crate::shell::optimizing().into()),
-            ModelStatus::Downloading { fraction, .. } => plain(format!("Downloading {:.0}%", fraction * 100.)),
+            ModelStatus::Optimizing => plain(crate::shell::optimizing()),
+            ModelStatus::Downloading { fraction, .. } => plain(t!("home.checklist.downloading", percent = format!("{:.0}", fraction * 100.))),
             ModelStatus::NotDownloaded => {
-                fix("fix-model", "Download", Box::new(|m, cx| m.navigate(Route::Models, cx))).into_any_element()
+                fix("fix-model", t!("home.checklist.download"), Box::new(|m, cx| m.navigate(Route::Models, cx))).into_any_element()
             }
-            ModelStatus::Failed { .. } => fix("fix-model", "Open Models", Box::new(|m, cx| m.navigate(Route::Models, cx))).into_any_element(),
+            ModelStatus::Failed { .. } => fix("fix-model", t!("home.checklist.open_models"), Box::new(|m, cx| m.navigate(Route::Models, cx))).into_any_element(),
         };
         let words = m.words.len();
         let rules = m.replacements.len();
         let dict = if words + rules == 0 {
-            fix("fix-dict", "Add words", Box::new(|m, cx| m.navigate(Route::Dictionary, cx))).into_any_element()
+            fix("fix-dict", t!("home.checklist.add_words"), Box::new(|m, cx| m.navigate(Route::Dictionary, cx))).into_any_element()
         } else {
-            plain(format!("{} · {}", kit::plural(words, "word", "words"), kit::plural(rules, "rule", "rules")))
+            plain(t!("home.checklist.dictionary_summary", words = t!("home.checklist.words", count = words), rules = t!("home.checklist.rules", count = rules)))
         };
         let mut list = div()
             .flex()
             .flex_col()
             .gap(px(12.))
             .px(px(4.))
-            .child(caps(if all_ok { "All set" } else { "Needs attention" }, 12., c.graphite))
-            .child(row(mic_ok, "Microphone", mic))
-            .when(crate::shell::HAS_INPUT_PERMISSIONS, |d| d.child(row(ax_ok, &crate::shell::permission_name(Permission::Accessibility), ax)))
-            .child(row(model_ok, "Model", model_value))
-            .child(row(true, "Dictionary", dict));
+            .child(caps(if all_ok { t!("home.checklist.all_set") } else { t!("home.checklist.needs_attention") }, 12., c.graphite))
+            .child(row(mic_ok, t!("home.checklist.microphone"), mic))
+            .when(crate::shell::HAS_INPUT_PERMISSIONS, |d| d.child(row(ax_ok, crate::shell::permission_name(Permission::Accessibility), ax)))
+            .child(row(model_ok, t!("home.checklist.model"), model_value))
+            .child(row(true, t!("home.checklist.dictionary"), dict));
         // A cloud model does not need the engine for its final pass.
         if !active.is_remote() && (m.services.engine.is_none() || m.engine_down.is_some()) {
-            list = list.child(row(false, "Engine", plain("Stopped. Restarting".into())));
+            list = list.child(row(false, t!("home.checklist.engine"), plain(t!("home.checklist.engine_stopped"))));
         }
         list
     }

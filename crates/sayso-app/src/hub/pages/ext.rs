@@ -4,6 +4,7 @@ use crate::model::AppModel;
 use sayso_core::config::{Provider, ProviderKind};
 use sayso_core::models::ModelId;
 use sayso_core::style::{Style, StyleOrigin};
+use sayso_i18n::t;
 use sayso_platform::{Permission, PermissionState};
 
 /// Where a style's text goes, for the provider line on cards.
@@ -23,17 +24,15 @@ impl StyleRoute {
     /// "Cloud · OpenRouter · Llama 3.3 8B", "Nothing leaves your Mac".
     pub fn line(&self) -> String {
         match self {
-            StyleRoute::NoAi => format!("Nothing leaves your {}", crate::shell::computer()),
-            StyleRoute::NeedsProvider => "AI is off. Inserts the transcript.".into(),
-            StyleRoute::NeedsModel { provider } => format!("Choose a model for {provider}"),
-            StyleRoute::Local { provider, model } => join(["Local", provider, model]),
-            StyleRoute::Cloud { provider, model } => join(["Cloud", provider, model]),
+            StyleRoute::NoAi => t!("styles.route.no_ai", computer = crate::shell::computer()),
+            StyleRoute::NeedsProvider => t!("styles.route.needs_provider"),
+            StyleRoute::NeedsModel { provider } => t!("styles.route.needs_model", provider = provider),
+            StyleRoute::Local { provider, model } if model.is_empty() => t!("styles.route.local_no_model", provider = provider),
+            StyleRoute::Local { provider, model } => t!("styles.route.local", provider = provider, model = model),
+            StyleRoute::Cloud { provider, model } if model.is_empty() => t!("styles.route.cloud_no_model", provider = provider),
+            StyleRoute::Cloud { provider, model } => t!("styles.route.cloud", provider = provider, model = model),
         }
     }
-}
-
-fn join<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
-    parts.into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" · ")
 }
 
 /// "meta-llama/llama-3.3-8b-instruct" becomes "llama-3.3-8b-instruct".
@@ -48,15 +47,15 @@ pub fn provider_detail(p: &Provider) -> String {
             let host = base_url.split("://").nth(1).unwrap_or(base_url).trim_end_matches('/');
             let host = host.strip_suffix("/v1").unwrap_or(host);
             if p.is_cloud() {
-                if *zero_data_retention { "Cloud · zero data retention on".into() } else { format!("Cloud · {host}") }
+                if *zero_data_retention { t!("hub.provider.cloud_zero_retention") } else { t!("hub.provider.cloud_host", host = host) }
             } else {
-                format!("Local · {host}")
+                t!("hub.provider.local_host", host = host)
             }
         }
         // The time depends on the model: about 1.8 s with Haiku.
-        ProviderKind::ClaudeCli { .. } => "Cloud · your Claude login".into(),
-        ProviderKind::CodexCli { .. } => "Cloud · about 5 s per call".into(),
-        ProviderKind::AppleIntelligence => "Local · runs on this Mac".into(),
+        ProviderKind::ClaudeCli { .. } => t!("hub.provider.claude_cli"),
+        ProviderKind::CodexCli { .. } => t!("hub.provider.codex_cli"),
+        ProviderKind::AppleIntelligence => t!("hub.provider.apple_intelligence"),
     }
 }
 

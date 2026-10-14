@@ -5,6 +5,7 @@ use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::ink::Rgb;
+use sayso_i18n::t;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::icon;
 use sayso_ui::fonts::{DISPLAY, LocaleFonts as _, MONO, UI};
@@ -42,7 +43,7 @@ pub fn clock(at: chrono::DateTime<chrono::Utc>) -> String {
 /// The time of an entry from today ("9:41"), or the day of an older one ("Sep 30").
 pub fn clock_or_day(at: chrono::DateTime<chrono::Utc>) -> String {
     let local = at.with_timezone(&chrono::Local);
-    if local.date_naive() == chrono::Local::now().date_naive() { clock(at) } else { local.format("%b %-d").to_string() }
+    if local.date_naive() == chrono::Local::now().date_naive() { clock(at) } else { sayso_i18n::dates::day_month_short(&local) }
 }
 
 /// "0:07", "1:32".
@@ -54,20 +55,20 @@ pub fn duration(ms: u64) -> String {
 /// "7 s", "1 min 12 s".
 pub fn duration_words(ms: u64) -> String {
     let s = ((ms + 500) / 1000).max(1);
-    if s < 60 { format!("{s} s") } else { format!("{} min {} s", s / 60, s % 60) }
+    if s < 60 { t!("hub.duration.seconds", seconds = s) } else { t!("hub.duration.minutes_seconds", minutes = s / 60, seconds = s % 60) }
 }
 
 /// "Today", "Yesterday", "Monday, September 28".
 pub fn day_label(day: chrono::NaiveDate) -> String {
     let today = chrono::Local::now().date_naive();
     if day == today {
-        "Today".into()
+        sayso_i18n::dates::today()
     } else if Some(day) == today.pred_opt() {
-        "Yesterday".into()
+        sayso_i18n::dates::yesterday()
     } else if (today - day).num_days() < 300 {
-        day.format("%A, %B %-d").to_string()
+        sayso_i18n::dates::weekday_day_month(&day)
     } else {
-        day.format("%B %-d, %Y").to_string()
+        sayso_i18n::dates::day_month_year(&day)
     }
 }
 
@@ -336,7 +337,7 @@ pub fn icon_button(id: impl Into<ElementId>, ic: Icon, size: f32, cx: &App) -> S
 /// "Cloud" (accent) or "Local" (success) badge in the design's mixed case.
 pub fn place_badge(cloud: bool, cx: &App) -> Div {
     let c = cx.paper().colors;
-    let (bg, fg, label) = if cloud { (c.accent_wash, c.accent, "Cloud") } else { (c.success.opacity(0.14), c.success, "Local") };
+    let (bg, fg, label) = if cloud { (c.accent_wash, c.accent, t!("hub.place.cloud")) } else { (c.success.opacity(0.14), c.success, t!("hub.place.local")) };
     div()
         .flex()
         .flex_none()
