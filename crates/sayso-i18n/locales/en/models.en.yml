@@ -20,7 +20,7 @@ models:
     word_error_rate: "word error rate"
     cloud: "Cloud"
     audio_goes_to: "audio goes to %{vendor}"
-    stores_files: "stores the files"
+    stores_files: "files kept by the system"
     parts_on_disk:
       one: "%{count} part on disk"
       other: "%{count} parts on disk"

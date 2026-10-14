@@ -20,7 +20,7 @@ models:
     word_error_rate: "tasa de error de palabras"
     cloud: "Nube"
     audio_goes_to: "el audio se envía a %{vendor}"
-    stores_files: "guarda los archivos"
+    stores_files: "archivos guardados por el sistema"
     parts_on_disk:
       one: "%{count} parte en el disco"
       other: "%{count} partes en el disco"

@@ -20,7 +20,7 @@ models:
     word_error_rate: "単語誤り率"
     cloud: "クラウド"
     audio_goes_to: "音声の送信先：%{vendor}"
-    stores_files: "がファイルを保存"
+    stores_files: "ファイルはシステムが保存"
     parts_on_disk:
       other: "%{count}個のパーツをディスクに保存済み"
     to_download: "ダウンロードサイズ"
