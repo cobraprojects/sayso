@@ -25,6 +25,7 @@ onboarding:
     test_failed: "La prueba falló: %{error}"
     error_choose: "Elige una opción u omite este paso."
     error_apple: "Apple Intelligence no está disponible en este Mac. Actívalo en Ajustes del Sistema o elige otra opción."
+    error_apple_reason: "%{reason} O elige otra opción."
     error_ollama: "Ollama no tiene modelos. Ejecuta \"ollama pull qwen3:4b\" y vuelve a seleccionar Ollama."
     error_base_url: "Escribe la URL base de la API, por ejemplo https://openrouter.ai/api/v1."
     error_api_key: "Escribe tu clave de API. Sayso la guarda en %{store}."

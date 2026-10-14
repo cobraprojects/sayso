@@ -19,6 +19,7 @@ onboarding:
     minutes_left: "faltan unos %{minutes} min"
     downloading: "Descargando %{name}"
     download_failed: "La descarga de %{name} se detuvo: %{error}. Comprueba tu conexión a internet e inténtalo de nuevo."
+    download_failed_reason: "%{name} no está listo. %{reason} Inténtalo de nuevo."
     try_again: "Intentar de nuevo"
     not_downloaded: "%{name} aún no está descargado"
     download_size: "Descargar %{size}"

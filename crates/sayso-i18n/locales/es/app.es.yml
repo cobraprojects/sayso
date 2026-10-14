@@ -4,9 +4,8 @@ _version: 1
 app:
   hotkeys_not_built: "Los atajos aún no están disponibles en este sistema."
   insertion_not_built: "La inserción aún no está disponible en este sistema."
-  update:
-    busy: "Hay otro Sayso en ejecución desde esta app. Ciérralo e inténtalo de nuevo."
   sign_in:
+    start_failed: "Sayso no pudo iniciar el inicio de sesión: %{error}"
     not_finished: "El inicio de sesión no se completó. Selecciona Iniciar sesión para intentarlo de nuevo."
     code_failed: "Sayso no pudo enviar el código: %{error}"
   # The status line at the foot of the Hub sidebar.

@@ -37,3 +37,20 @@ overlay:
     no_model_chosen: "%{provider} no tiene ningún modelo elegido"
     no_focused_field: "Ningún campo de texto tiene el foco"
     model_load_timeout: "El modelo no se cargó a tiempo."
+    no_speech: "No se oyó nada de voz."
+    not_taken: "La app no aceptó el texto"
+    not_trusted: "Sayso necesita el permiso de Accesibilidad para insertar texto"
+    secure_input: "Hay un campo de contraseña activo"
+    elevated: "%{app} se ejecuta como administrador, así que Windows no deja que Sayso escriba en ella."
+    elevated_unknown: "Esta app se ejecuta como administrador, así que Windows no deja que Sayso escriba en ella."
+    clipboard: "Sayso no puede usar el portapapeles: %{error}"
+  # The style failed, and the text went in without it. "provider" is the
+  # name of the AI provider.
+  style_error:
+    timeout: "%{provider} agotó el tiempo tras %{seconds} s"
+    not_configured: "%{provider} no está configurado"
+    http: "%{provider} devolvió HTTP %{status}"
+    network: "No se pudo contactar con %{provider}"
+    invalid_output: "%{provider} devolvió texto en un formato incorrecto"
+    refused: "%{provider} rechazó la solicitud"
+    failed: "%{provider} falló"
