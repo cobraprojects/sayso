@@ -14,7 +14,7 @@ language.
 | Titles | Sentence case | Sentence case | No end mark | No end mark |
 | Ellipsis | … | … | … | … |
 | Quotes | «» or "" as in the English | "" | “” | 「」 |
-| Space between Latin and CJK text | | | No space ("Sayso 已启动") | Space ("Sayso を起動") |
+| Space between Latin and CJK text | | | Space ("Sayso 已启动") | Space ("Sayso を起動") |
 
 ## Names that stay as they are
 
