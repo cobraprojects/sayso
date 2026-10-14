@@ -25,6 +25,7 @@ onboarding:
     test_failed: "O teste falhou: %{error}"
     error_choose: "Escolha uma opção ou pule este passo."
     error_apple: "O Apple Intelligence não está disponível neste Mac. Ative-o em Ajustes do Sistema ou escolha outra opção."
+    error_apple_reason: "%{reason} Ou escolha outra opção."
     error_ollama: "O Ollama não tem modelos. Execute \"ollama pull qwen3:4b\" e selecione o Ollama de novo."
     error_base_url: "Digite a URL base da API, por exemplo https://openrouter.ai/api/v1."
     error_api_key: "Digite sua chave de API. O Sayso a guarda em %{store}."
