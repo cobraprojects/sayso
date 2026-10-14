@@ -19,7 +19,7 @@ home:
     words_today: "今日词数"
     time_saved: "节省时间"
     minutes: "%{minutes} 分钟"
-    wpm: "每分钟 %{wpm} 词"
+    wpm: "%{wpm} 词/分"
     pace: "语速"
   history_off:
     title: "历史记录已关闭"

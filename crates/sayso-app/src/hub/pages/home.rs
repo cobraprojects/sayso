@@ -263,7 +263,7 @@ impl HomePage {
                         kit::select_history_entry(id, cx);
                         model.update(cx, |m, cx| m.navigate(Route::History, cx));
                     })
-                    .child(mono(kit::clock_or_day(e.created_at), 12., c.graphite).w(px(44.)).flex_none())
+                    .child(mono(kit::clock_or_day(e.created_at), 12., c.graphite).w(px(56.)).flex_none().whitespace_nowrap())
                     .child(AppBadge::new(app).icon(app_icon).site(m.site_icon(e)))
                     .child(fraunces(e.final_text.replace('\n', " "), 15., 18., c.ink).flex_1().min_w_0().truncate())
                     .child(StyleTag::new(name, dot).width(84.))
