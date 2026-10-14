@@ -74,6 +74,13 @@ fn claude_success_reads_structured_output() {
 
     assert_eq!(read(dir.path(), "env").trim(), "0", "MAX_THINKING_TOKENS=0");
     assert_eq!(read(dir.path(), "stdin"), "<transcript>\nme and him goes home\n</transcript>", "the transcript goes in tags on stdin");
+
+    // A higher thinking level goes to the tool, with no limit that works against it.
+    claude_with(&script, dir.path()).with_thinking(Some("medium")).enhance(&request(20_000)).unwrap();
+    let args: Vec<String> = read(dir.path(), "args").lines().map(String::from).collect();
+    let effort = args.iter().position(|a| a == "--effort").unwrap();
+    assert_eq!(args[effort + 1], "medium");
+    assert_eq!(read(dir.path(), "env").trim(), "", "MAX_THINKING_TOKENS is set at a level above low");
     let cwd = read(dir.path(), "cwd");
     assert!(!Path::new(cwd.trim()).exists(), "the temporary folder is removed after the call");
     assert_ne!(Path::new(cwd.trim()), std::env::current_dir().unwrap());
@@ -198,6 +205,9 @@ fn codex_success_reads_the_output_file() {
     assert_eq!(args[sandbox + 1], "read-only");
     let model = args.iter().position(|a| a == "-m").unwrap();
     assert_eq!(args[model + 1], "gpt-test");
+    let config = args.iter().position(|a| a == "-c").unwrap();
+    assert_eq!(args[config + 1], "model_reasoning_effort=low");
+    assert_eq!(args.last().map(String::as_str), Some("-"), "the prompt comes from stdin");
     assert!(!args.iter().any(|a| a.contains("me and him")), "the transcript stays out of the arguments");
 
     let schema: serde_json::Value = serde_json::from_str(&read(dir.path(), "schema")).unwrap();

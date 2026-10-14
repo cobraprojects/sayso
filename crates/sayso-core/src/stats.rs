@@ -87,6 +87,7 @@ mod tests {
             insert: InsertOutcome::Typed,
             audio_file: None,
             waveform: vec![],
+            diagnostics: None,
         }
     }
 

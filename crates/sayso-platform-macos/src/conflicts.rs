@@ -176,6 +176,8 @@ pub fn read_setting(setting: AppSetting) -> SettingValue {
 }
 
 /// Names for system shortcuts we can recognize by key code and Carbon modifiers.
+/// The app shows each name in the interface language (`shortcut_name` in
+/// `sayso-app/src/hub/settings/recorder.rs`), so a new name goes there too.
 /// The ids in the comments are the `com.apple.symbolichotkeys` ids.
 const SYSTEM_LABELS: &[(u16, u32, &str)] = &[
     (49, CARBON_CMD, "Spotlight search"),                          // id 64

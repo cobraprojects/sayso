@@ -19,11 +19,20 @@ pub enum TrayEvent {
     Quit,
 }
 
+/// The labels of the menu. The app passes them in, in its language.
+#[derive(Debug, Clone)]
+pub struct TrayLabels {
+    pub toggle_dictation: String,
+    pub open_hub: String,
+    pub quit: String,
+}
+
 type Handler = Box<dyn Fn(TrayEvent) + Send + Sync>;
 
 struct SaysoTray {
     /// ARGB32 in network byte order, as the protocol wants.
     icon: Option<ksni::Icon>,
+    labels: TrayLabels,
     on_event: Handler,
 }
 
@@ -58,20 +67,20 @@ impl ksni::Tray for SaysoTray {
         use ksni::menu::StandardItem;
         vec![
             StandardItem {
-                label: "Start or Stop Dictation".into(),
+                label: self.labels.toggle_dictation.clone(),
                 activate: Box::new(|t: &mut Self| (t.on_event)(TrayEvent::ToggleDictation)),
                 ..Default::default()
             }
             .into(),
             StandardItem {
-                label: "Open Sayso".into(),
+                label: self.labels.open_hub.clone(),
                 activate: Box::new(|t: &mut Self| (t.on_event)(TrayEvent::OpenHub)),
                 ..Default::default()
             }
             .into(),
             ksni::MenuItem::Separator,
             StandardItem {
-                label: "Quit Sayso".into(),
+                label: self.labels.quit.clone(),
                 activate: Box::new(|t: &mut Self| (t.on_event)(TrayEvent::Quit)),
                 ..Default::default()
             }
@@ -89,8 +98,12 @@ impl Tray {
     /// Show the icon. `rgba` is the image, row by row, `width` by `height`.
     /// `on_event` runs on the tray's own thread. None when no tray host runs
     /// (for example GNOME without the AppIndicator extension).
-    pub fn install(rgba: Option<(Vec<u8>, u32, u32)>, on_event: impl Fn(TrayEvent) + Send + Sync + 'static) -> Option<Tray> {
-        let tray = SaysoTray { icon: rgba.map(icon), on_event: Box::new(on_event) };
+    pub fn install(
+        rgba: Option<(Vec<u8>, u32, u32)>,
+        labels: TrayLabels,
+        on_event: impl Fn(TrayEvent) + Send + Sync + 'static,
+    ) -> Option<Tray> {
+        let tray = SaysoTray { icon: rgba.map(icon), labels, on_event: Box::new(on_event) };
         // A sandbox cannot own the bus name of a tray item, and the item works without it.
         match tray.disable_dbus_name(sayso_core::flatpak::app_id().is_some()).spawn() {
             Ok(handle) => Some(Tray { handle }),
@@ -106,6 +119,11 @@ impl Tray {
     /// Show another image. The panel reads it again.
     pub fn set_image(&self, rgba: Option<(Vec<u8>, u32, u32)>) {
         self.handle.update(|tray| tray.icon = rgba.map(icon));
+    }
+
+    /// Show other menu labels, for example after a change of language. The panel reads the menu again.
+    pub fn set_labels(&self, labels: TrayLabels) {
+        self.handle.update(|tray| tray.labels = labels);
     }
 }
 

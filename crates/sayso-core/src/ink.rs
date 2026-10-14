@@ -137,6 +137,19 @@ impl NamedInk {
         }
     }
 
+    /// The name to show, in the interface language. [`NamedInk::name`] is the
+    /// English name.
+    pub fn label(self) -> String {
+        match self {
+            NamedInk::Sumi => sayso_i18n::t!("core.ink.sumi"),
+            NamedInk::Indigo => sayso_i18n::t!("core.ink.indigo"),
+            NamedInk::IronGall => sayso_i18n::t!("core.ink.iron_gall"),
+            NamedInk::Sepia => sayso_i18n::t!("core.ink.sepia"),
+            NamedInk::Verdigris => sayso_i18n::t!("core.ink.verdigris"),
+            NamedInk::Oxblood => sayso_i18n::t!("core.ink.oxblood"),
+        }
+    }
+
     pub fn color(self) -> Rgb {
         Rgb(match self {
             NamedInk::Sumi => 0x1D1B18,

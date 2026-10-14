@@ -204,7 +204,8 @@ impl Engine {
         progress.due(Instant::now());
         self.report(id, model, &progress, 0.0);
         if let Err(e) = self.fetch(id, model, &spec, &mut progress) {
-            self.model_state(id, model, "failed", json!({ "message": format!("{e:#}") }));
+            let reason = if e.is::<Incomplete>() { "incomplete_download" } else { "download_failed" };
+            self.model_state(id, model, "failed", json!({ "message": format!("{e:#}"), "reason": reason }));
             return Err(e);
         }
         self.report(id, model, &progress, 1.0);
@@ -248,10 +249,10 @@ impl Engine {
                 }
             })?;
         }
-        check_files(spec, &self.dirs(model, spec)?)?;
+        check_files(spec, &self.dirs(model, spec)?).map_err(|e| anyhow::Error::new(Incomplete(format!("{e:#}"))))?;
         self.store.mark_downloaded(model, spec)?;
         if !self.store.is_downloaded(model, spec) {
-            bail!("download finished but the files are incomplete");
+            return Err(Incomplete("download finished but the files are incomplete".into()).into());
         }
         Ok(())
     }
@@ -317,7 +318,7 @@ impl Engine {
         let loaded = match result {
             Ok(loaded) => loaded,
             Err(e) => {
-                self.model_state(id, model, "failed", json!({ "message": format!("{e:#}") }));
+                self.model_state(id, model, "failed", json!({ "message": format!("{e:#}"), "reason": "load_failed" }));
                 return Err(e);
             }
         };
@@ -440,6 +441,20 @@ impl Engine {
             .ok_or_else(|| anyhow!("model {model} has no live preview"))
     }
 }
+
+/// A download that ended with files that are not complete. The `reason` of the
+/// `failed` state is `incomplete_download` for it, and `download_failed` for any
+/// other error.
+#[derive(Debug)]
+struct Incomplete(String);
+
+impl std::fmt::Display for Incomplete {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Incomplete {}
 
 /// Check that each archive holds the files its recipe needs.
 fn check_files(spec: &ModelSpec, dirs: &ModelDirs) -> Result<()> {

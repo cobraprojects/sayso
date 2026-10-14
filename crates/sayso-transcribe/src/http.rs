@@ -5,7 +5,7 @@
 //! retries included.
 
 use sayso_core::config::is_local_url;
-use sayso_core::speech::{SpeechError, SpeechProvider, SpeechProviderKind, SpeechRequest};
+use sayso_core::speech::{MissingSetup, SpeechError, SpeechProvider, SpeechProviderKind, SpeechRequest};
 use serde_json::Value;
 use std::time::{Duration, Instant};
 
@@ -58,10 +58,10 @@ impl<'a> Target<'a> {
     /// Check the setup before any request. Fails with `NotConfigured` when the
     /// address is missing, or when a cloud provider has no key.
     pub(crate) fn new(provider: &'a SpeechProvider, api_key: Option<&'a str>, model: &'a str) -> Result<Self, SpeechError> {
-        let base = provider.base_url().ok_or_else(|| SpeechError::NotConfigured("no address is set".into()))?;
+        let base = provider.base_url().ok_or(SpeechError::NotConfigured(MissingSetup::Address))?;
         let key = api_key.map(str::trim).filter(|k| !k.is_empty());
         if key.is_none() && provider.is_cloud() {
-            return Err(SpeechError::NotConfigured("no API key is saved".into()));
+            return Err(SpeechError::NotConfigured(MissingSetup::ApiKey));
         }
         Ok(Self { id: &provider.id, kind: provider.kind, model, agent: agent(&base), base, key })
     }

@@ -131,6 +131,15 @@ pub enum InsertError {
     NotTrusted,
     #[error("A password field is active")]
     SecureInput,
+    /// The app in front runs as administrator, so Windows does not let Sayso
+    /// send keys to it. The name of the app, when Sayso can read it.
+    #[error("{} runs as administrator, so Windows does not let Sayso type into it.", .app.as_deref().unwrap_or("This app"))]
+    Elevated { app: Option<String> },
+    /// Sayso cannot put the text on the clipboard. The text of the system.
+    #[error("Sayso cannot use the clipboard: {0}")]
+    Clipboard(String),
+    /// A step of the system failed. The text is a detail for the log and
+    /// for a bug report.
     #[error("{0}")]
     Failed(String),
 }
@@ -138,6 +147,11 @@ pub enum InsertError {
 pub trait TextInserter: Send + Sync {
     fn insert(&self, text: &str, method: InsertMethod) -> Result<InsertResult, InsertError>;
     fn copy_to_clipboard(&self, text: &str);
+    /// The parts of the system that do the insertion, for the diagnostics of
+    /// a dictation. None on a system that has one way only.
+    fn backend(&self) -> Option<String> {
+        None
+    }
 }
 
 pub trait ContextProvider: Send + Sync {

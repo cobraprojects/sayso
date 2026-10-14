@@ -1,6 +1,7 @@
 //! The updater: one thread that checks for a new version, downloads and
 //! stages it, and reports each [`Status`].
 
+use crate::Failure;
 use crate::check::{self, CheckError};
 use crate::download::{self, DownloadError};
 use crate::install::{self, Installer, Manual};
@@ -37,7 +38,7 @@ pub enum Status {
     /// read: a newer key or a newer schema. The user must update by hand.
     Unreadable,
     /// A check or an update did not succeed.
-    Failed { message: String },
+    Failed { failure: Failure },
 }
 
 pub struct Options {
@@ -229,7 +230,7 @@ impl Updater {
     pub fn swap(&self) -> Result<(), SwapError> {
         match (&self.shared.installer, &self.shared.lock) {
             (Ok(installer), Some(lock)) => swap::swap(&self.shared.context, installer.as_ref(), lock),
-            _ => Err(SwapError::Failed("This install cannot update itself.".into())),
+            _ => Err(SwapError::Failed(Failure::CannotUpdateItself)),
         }
     }
 
@@ -303,8 +304,8 @@ impl Worker {
             },
             Ok(None) => {}
             // A check that the user did not start fails without a message.
-            Err(message) if by_user => self.emit(Status::Failed { message }),
-            Err(message) => log::warn!("update: the check failed: {message}"),
+            Err(failure) if by_user => self.emit(Status::Failed { failure }),
+            Err(failure) => log::warn!("update: the check failed: {failure}"),
         }
     }
 
@@ -317,13 +318,13 @@ impl Worker {
     }
 
     /// Returns the newer release, or None after it sent the status itself.
-    fn fetch(&mut self) -> Result<Option<Release>, String> {
+    fn fetch(&mut self) -> Result<Option<Release>, Failure> {
         let context = &self.shared.context;
         let bytes = check::fetch(&self.url, self.https_only).map_err(|e| match e {
-            CheckError::Network(_) => format!("Sayso could not reach the update server. Check your connection, then try again. ({e})"),
-            _ => format!("Sayso could not get the update information: {e}. Try again later."),
+            CheckError::Network(_) => Failure::Unreachable(e.to_string()),
+            _ => Failure::CheckFailed(e.to_string()),
         })?;
-        let verified = manifest::verify_for(&bytes, &context.keys, &context.url_prefix).map_err(|e| format!("Sayso did not accept the update information: {e}."))?;
+        let verified = manifest::verify_for(&bytes, &context.keys, &context.url_prefix).map_err(|e| Failure::NotAccepted(e.to_string()))?;
         let manifest = match verified {
             Verified::Manifest(manifest) => manifest,
             Verified::UnknownKey | Verified::UnknownSchema => {
@@ -334,10 +335,7 @@ impl Worker {
         let mut state = UpdateState::load(&context.state_path);
         let offer = manifest::offer(&manifest, &context.running, state.highest_seen.as_ref(), &self.platform);
         if offer == Offer::Replayed {
-            return Err(format!(
-                "The update server offered version {}, which is older than a version that Sayso saw before. Try again later.",
-                manifest.version
-            ));
+            return Err(Failure::Replayed(manifest.version));
         }
         state.saw(&manifest.version, SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()));
         if let Err(e) = state.save(&context.state_path) {
@@ -367,16 +365,16 @@ impl Worker {
         match self.download_and_stage(&envelope, &release, installer.as_ref()) {
             Ok(()) => self.emit(Status::Ready { version: release.version }),
             Err(None) => self.emit(self.available(&release)),
-            Err(Some(message)) if by_user => self.emit(Status::Failed { message }),
-            Err(Some(message)) => {
-                log::warn!("update: the automatic update failed: {message}");
+            Err(Some(failure)) if by_user => self.emit(Status::Failed { failure }),
+            Err(Some(failure)) => {
+                log::warn!("update: the automatic update failed: {failure}");
                 self.emit(self.available(&release));
             }
         }
     }
 
     /// `Err(None)` is a download that the user cancelled.
-    fn download_and_stage(&self, envelope: &str, release: &Release, installer: &dyn Installer) -> Result<(), Option<String>> {
+    fn download_and_stage(&self, envelope: &str, release: &Release, installer: &dyn Installer) -> Result<(), Option<Failure>> {
         let version = &release.version;
         let total = release.asset.size;
         self.shared.cancel.store(false, Ordering::SeqCst);
@@ -390,9 +388,9 @@ impl Worker {
         };
         let file = download::download(&release.asset, &self.downloads_dir, self.https_only, &self.shared.cancel, &mut progress).map_err(|e| match e {
             DownloadError::Cancelled => None,
-            DownloadError::Mismatch => Some("The file that Sayso downloaded is not the file of the release. Try again later.".to_string()),
-            DownloadError::Disk(_) => Some(format!("{e}. Make sure that the disk has free space, then try again.")),
-            _ => Some(format!("Sayso could not download the update: {e}. Check your connection, then try again.")),
+            DownloadError::Mismatch => Some(Failure::Mismatch),
+            DownloadError::Disk(detail) => Some(Failure::Disk(detail)),
+            _ => Some(Failure::Download(e.to_string())),
         })?;
         self.emit(Status::Preparing { version: version.clone() });
         let context = &self.shared.context;
@@ -400,7 +398,7 @@ impl Worker {
         // never sees new staged files with an old record.
         let Some(_exclusive) = self.shared.lock.as_ref().and_then(|lock| lock.try_exclusive()) else {
             let _ = std::fs::remove_file(&file);
-            return Err(Some("Another Sayso runs from this app. Quit it, then try again.".into()));
+            return Err(Some(Failure::Busy));
         };
         let record_path = installer.record_path();
         // The user asked for this update, so the version that runs now is
@@ -408,7 +406,7 @@ impl Worker {
         Record::delete(&record_path);
         let staged = installer.stage(&file, version);
         let _ = std::fs::remove_file(&file);
-        staged.map_err(|e| Some(format!("Sayso could not prepare the update: {e}.")))?;
+        staged.map_err(|e| Some(Failure::Prepare(e)))?;
         let record = Record {
             envelope: envelope.to_string(),
             from_version: context.running.clone(),
@@ -417,10 +415,11 @@ impl Worker {
             phase: Phase::Staged,
             attempts: 0,
             error: None,
+            failure: None,
         };
         record.save(&record_path).map_err(|e| {
             installer.remove_staging();
-            Some(format!("Sayso could not write the update record: {e}."))
+            Some(Failure::WriteRecord(e.to_string()))
         })
     }
 }
@@ -549,7 +548,7 @@ mod tests {
         assert!(matches!(statuses.recv_timeout(WAIT).unwrap(), Status::Available { version, .. } if version == Version::new(0, 4, 0)));
         updater.check_now();
         assert_eq!(statuses.recv_timeout(WAIT).unwrap(), Status::Checking);
-        assert!(matches!(statuses.recv_timeout(WAIT).unwrap(), Status::Failed { message } if message.contains("0.3.0")));
+        assert!(matches!(statuses.recv_timeout(WAIT).unwrap(), Status::Failed { failure } if failure.to_string().contains("0.3.0")));
         assert_eq!(state(&dir).highest_seen, Some(Version::new(0, 4, 0)));
     }
 
@@ -647,11 +646,11 @@ mod tests {
         assert!(matches!(statuses.recv_timeout(WAIT).unwrap(), Status::Available { .. }));
         updater.install();
         let seen = until_settled(&statuses);
-        assert!(matches!(seen.last(), Some(Status::Failed { message }) if message.contains("not a release of Sayso")), "{seen:?}");
+        assert!(matches!(seen.last(), Some(Status::Failed { failure }) if failure.to_string().contains("not a release of Sayso")), "{seen:?}");
         assert_eq!(installer.staged(), None);
         assert!(Record::load(&installer.record_path()).is_none());
         drop(dir);
-        assert_eq!(updater.swap(), Err(SwapError::Failed("No update is ready to install.".into())));
+        assert_eq!(updater.swap(), Err(SwapError::Failed(Failure::NothingStaged)));
     }
 
     #[test]
@@ -676,6 +675,7 @@ mod tests {
             phase,
             attempts: 1,
             error: Some("the exchange failed".into()),
+            failure: None,
         }
         .save(&installer.record_path())
         .unwrap();

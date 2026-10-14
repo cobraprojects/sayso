@@ -9,11 +9,32 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::dictionary::Replacement;
+use sayso_i18n::t;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
-use sayso_ui::fonts::{DISPLAY, UI};
+use sayso_ui::fonts::{DISPLAY, Face, LocaleFonts as _, UI};
 use sayso_ui::paper::{self, PaperStyled};
 use sayso_ui::{ActivePaper, Colors};
+
+/// A message under the add row. It keeps the words, not the sentence, so it
+/// changes with the language.
+enum DictError {
+    WordExists(String),
+    NeedsPhrase,
+    RuleExists(String),
+    EditNeedsPhrase,
+}
+
+impl DictError {
+    fn text(&self) -> String {
+        match self {
+            DictError::WordExists(word) => t!("dictionary.error.word_exists", word = word),
+            DictError::NeedsPhrase => t!("dictionary.error.needs_phrase"),
+            DictError::RuleExists(from) => t!("dictionary.error.rule_exists", from = from),
+            DictError::EditNeedsPhrase => t!("dictionary.error.edit_needs_phrase"),
+        }
+    }
+}
 
 pub struct DictionaryPage {
     model: Entity<AppModel>,
@@ -27,7 +48,9 @@ pub struct DictionaryPage {
     /// The rule being edited, with its own inputs.
     editing: Option<(i64, Entity<InputState>, Entity<InputState>)>,
     phrase: Entity<InputState>,
-    error: Option<String>,
+    error: Option<DictError>,
+    /// The locale of the text in the placeholders.
+    locale: String,
     /// The page has no room for two columns (set at each render).
     narrow: bool,
     _subs: Vec<Subscription>,
@@ -36,11 +59,11 @@ pub struct DictionaryPage {
 impl DictionaryPage {
     pub fn new(model: Entity<AppModel>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let observe = cx.observe(&model, |_, _, cx| cx.notify());
-        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter"));
-        let new_word = cx.new(|cx| InputState::new(window, cx).placeholder("New word"));
-        let from = cx.new(|cx| InputState::new(window, cx).placeholder("When I say"));
-        let to = cx.new(|cx| InputState::new(window, cx).placeholder("Write"));
-        let phrase = cx.new(|cx| InputState::new(window, cx).placeholder("Type a phrase to see what your rules do"));
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder(t!("dictionary.placeholder.filter")));
+        let new_word = cx.new(|cx| InputState::new(window, cx).placeholder(t!("dictionary.placeholder.new_word")));
+        let from = cx.new(|cx| InputState::new(window, cx).placeholder(t!("dictionary.placeholder.from")));
+        let to = cx.new(|cx| InputState::new(window, cx).placeholder(t!("dictionary.placeholder.to")));
+        let phrase = cx.new(|cx| InputState::new(window, cx).placeholder(t!("dictionary.placeholder.phrase")));
         let subs = vec![
             observe,
             cx.subscribe_in(&filter, window, |_, _, _: &InputEvent, _, cx| cx.notify()),
@@ -82,6 +105,7 @@ impl DictionaryPage {
             editing: None,
             phrase,
             error: None,
+            locale: sayso_i18n::locale(),
             narrow: false,
             _subs: subs,
         }
@@ -107,7 +131,7 @@ impl DictionaryPage {
             return;
         }
         if self.model.read(cx).words.iter().any(|w| w.text.eq_ignore_ascii_case(&text)) {
-            self.error = Some(format!("“{text}” is already in your words."));
+            self.error = Some(DictError::WordExists(text));
             cx.notify();
             return;
         }
@@ -125,12 +149,12 @@ impl DictionaryPage {
         let from = self.from.read(cx).value().trim().to_string();
         let to = self.to.read(cx).value().to_string();
         if from.is_empty() {
-            self.error = Some("Enter what you say in “When I say”.".into());
+            self.error = Some(DictError::NeedsPhrase);
             cx.notify();
             return;
         }
         if self.model.read(cx).replacements.iter().any(|r| r.from.eq_ignore_ascii_case(&from)) {
-            self.error = Some(format!("A rule for “{from}” already exists. Edit that rule instead."));
+            self.error = Some(DictError::RuleExists(from));
             cx.notify();
             return;
         }
@@ -170,7 +194,7 @@ impl DictionaryPage {
         let from = f.read(cx).value().trim().to_string();
         let to = t.read(cx).value().to_string();
         if from.is_empty() {
-            self.error = Some("A rule needs a “When I say” phrase.".into());
+            self.error = Some(DictError::EditNeedsPhrase);
             self.editing = Some((id, f, t));
             cx.notify();
             return;
@@ -247,7 +271,7 @@ impl DictionaryPage {
                     .pr(px(6.))
                     .rounded(px(6.))
                     .debossed(&c)
-                    .font_family(DISPLAY)
+                    .font_family(DISPLAY).locale_fonts(Face::Serif)
                     .text_size(px(15.))
                     // Capture, so Escape closes the field before the input sees it.
                     .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -271,20 +295,20 @@ impl DictionaryPage {
                     .px(px(12.))
                     .on_click(cx.listener(|this, _, w, cx| this.start_word(w, cx)))
                     .child(icon(Icon::Plus, 12., c.graphite))
-                    .child(ui("Add word", 14., 18., FontWeight::NORMAL, c.graphite)),
+                    .child(ui(t!("dictionary.add_word"), 14., 18., FontWeight::NORMAL, c.graphite)),
             );
         }
-        let note = format!("{total} · boosted in recognition");
+        let note = t!("dictionary.words_note", total = total);
         let mut col = div()
             .flex()
             .flex_col()
             .flex_none()
             .map(|d| if self.narrow { d.w_full() } else { d.w(px(380.)) })
             .gap(px(16.))
-            .child(kit::section_head("Words", Some(ui(note, 13., 16., FontWeight::NORMAL, c.graphite).into_any_element()), cx));
+            .child(kit::section_head(&t!("dictionary.words"), Some(ui(note, 13., 16., FontWeight::NORMAL, c.graphite).into_any_element()), cx));
         if total == 0 {
             col = col.child(ui(
-                "Add names and terms that Sayso spells wrong. Sayso listens for them and spells them as you write them here.",
+                t!("dictionary.words_empty"),
                 14.,
                 20.,
                 FontWeight::NORMAL,
@@ -298,7 +322,7 @@ impl DictionaryPage {
         let c = cx.paper().colors;
         let phrase = self.phrase.read(cx).value().to_string();
         let result = if phrase.trim().is_empty() {
-            fraunces("The result shows here.", 15., 21., c.pencil)
+            fraunces(t!("dictionary.try.result_empty"), 15., 21., c.pencil)
         } else {
             let out = self.model.read(cx).try_phrase(&phrase).replace("\\n", "↵").replace('\n', "↵");
             fraunces(out, 15., 21., c.ink)
@@ -321,12 +345,12 @@ impl DictionaryPage {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(caps("Try a phrase", 12., c.graphite))
-                    .child(ui(kit::plural(rules, "rule", "rules") + " apply", 13., 16., FontWeight::MEDIUM, c.graphite)),
+                    .child(caps(t!("dictionary.try.title"), 12., c.graphite))
+                    .child(ui(t!("dictionary.try.rules_apply", count = rules), 13., 16., FontWeight::MEDIUM, c.graphite)),
             )
             .child(
                 div()
-                    .font_family(DISPLAY)
+                    .font_family(DISPLAY).locale_fonts(Face::Serif)
                     .text_size(px(15.))
                     .italic()
                     .text_color(c.graphite)
@@ -347,16 +371,16 @@ impl DictionaryPage {
             .cloned()
             .collect();
         let total = self.model.read(cx).replacements.len();
-        let head_cell = |s: &str| caps(s.to_string(), 12., c.graphite);
+        let head_cell = |s: String| caps(s, 12., c.graphite);
         let mut col = div()
             .flex()
             .flex_col()
             .flex_1()
             .min_w_0()
             .child(kit::section_head(
-                "Replacements",
+                &t!("dictionary.replacements"),
                 Some(
-                    ui(format!("{} · applied before the style", kit::plural(total, "rule", "rules")), 13., 16., FontWeight::NORMAL, c.graphite)
+                    ui(t!("dictionary.replacements_note", count = total), 13., 16., FontWeight::NORMAL, c.graphite)
                         .into_any_element(),
                 ),
                 cx,
@@ -368,14 +392,14 @@ impl DictionaryPage {
                     .items_center()
                     .gap(px(12.))
                     .h(px(36.))
-                    .child(head_cell("When I say").w(px(150.)).flex_none())
+                    .child(head_cell(t!("dictionary.column.from")).w(px(150.)).flex_none())
                     .child(div().w(px(18.)).flex_none())
-                    .child(head_cell("Write").flex_1())
-                    .child(head_cell("Used").w(px(56.)).flex_none().text_right()),
+                    .child(head_cell(t!("dictionary.column.to")).flex_1())
+                    .child(head_cell(t!("dictionary.column.used")).w(px(56.)).flex_none().text_right()),
             );
         if total == 0 {
             col = col.child(
-                ui("Add a rule below. For example, when you say “git hub”, Sayso writes “GitHub”.", 14., 20., FontWeight::NORMAL, c.graphite)
+                ui(t!("dictionary.rules_empty"), 14., 20., FontWeight::NORMAL, c.graphite)
                     .py(px(10.)),
             );
         }
@@ -486,11 +510,11 @@ impl DictionaryPage {
                         .flex_none()
                         .w(px(56.))
                         .justify_end()
-                        .child(Button::new("add-rule", "Add").small().on_click(cx.listener(|this, _, w, cx| this.add_rule(w, cx)))),
+                        .child(Button::new("add-rule", t!("dictionary.add")).small().on_click(cx.listener(|this, _, w, cx| this.add_rule(w, cx)))),
                 ),
         );
         if let Some(e) = &self.error {
-            col = col.child(ui(e.clone(), 13., 18., FontWeight::NORMAL, c.danger).pt(px(8.)));
+            col = col.child(ui(e.text(), 13., 18., FontWeight::NORMAL, c.danger).pt(px(8.)));
         }
         col
     }
@@ -507,7 +531,7 @@ fn small_input(state: &Entity<InputState>, italic: bool, cx: &App) -> Div {
         .rounded(px(7.))
         .bg(c.deboss)
         .shadow(paper::debossed(&c))
-        .font_family(if italic { DISPLAY } else { UI })
+        .font_family(if italic { DISPLAY } else { UI }).locale_fonts(if italic { Face::Serif } else { Face::Sans })
         .text_size(px(14.))
         .when(italic, |d| d.italic())
         .child(kit::bare_input(state, 14.))
@@ -516,11 +540,20 @@ fn small_input(state: &Entity<InputState>, italic: bool, cx: &App) -> Div {
 impl Render for DictionaryPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c: Colors = cx.paper().colors;
+        // The inputs keep their placeholders, so they change with the language.
+        if self.locale != sayso_i18n::locale() {
+            self.locale = sayso_i18n::locale();
+            self.filter.update(cx, |s, cx| s.set_placeholder(t!("dictionary.placeholder.filter"), window, cx));
+            self.new_word.update(cx, |s, cx| s.set_placeholder(t!("dictionary.placeholder.new_word"), window, cx));
+            self.from.update(cx, |s, cx| s.set_placeholder(t!("dictionary.placeholder.from"), window, cx));
+            self.to.update(cx, |s, cx| s.set_placeholder(t!("dictionary.placeholder.to"), window, cx));
+            self.phrase.update(cx, |s, cx| s.set_placeholder(t!("dictionary.placeholder.phrase"), window, cx));
+        }
         let pad = crate::layout::page_pad(window, &self.model.read(cx).config);
         self.narrow = crate::layout::page_narrow(window, &self.model.read(cx).config);
         let narrow = self.narrow;
         let needle = self.filter.read(cx).value().trim().to_lowercase();
-        let add = Button::new("add", "Add")
+        let add = Button::new("add", t!("dictionary.add"))
             .primary()
             .large()
             .icon(Icon::Plus)
@@ -532,8 +565,8 @@ impl Render for DictionaryPage {
             .child(add)
             .into_any_element();
         let head = kit::page_head(
-            "Dictionary",
-            Some(kit::intro("Words help Sayso hear names and terms. Replacements change the text after it is transcribed.", 520., cx)),
+            &t!("dictionary.title"),
+            Some(kit::intro(t!("dictionary.intro"), 520., cx)),
             Some(actions),
             cx,
         );

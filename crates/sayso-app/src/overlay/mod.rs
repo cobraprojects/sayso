@@ -7,7 +7,7 @@
 
 mod placement;
 
-use crate::model::AppModel;
+use crate::model::{AppModel, NoticeIcon};
 use gpui_kit::*;
 use placement::{Anchor, Follow, Placement};
 use sayso_core::dictation::{Notice, Stage, State};
@@ -16,7 +16,7 @@ use sayso_core::config::OverlaySize;
 use sayso_ui::ActivePaper;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
-use sayso_ui::fonts::{SERIF, UI};
+use sayso_ui::fonts::{Face, LocaleFonts as _, SERIF, UI};
 use sayso_ui::paper::{self, PaperStyled};
 use sayso_ui::text;
 use std::cell::Cell;
@@ -365,9 +365,9 @@ impl Render for OverlayView {
         let reduce = cx.paper().reduce_motion;
         let t = if reduce { 0.0 } else { self.start.elapsed().as_secs_f32() };
 
-        let blocked = m.blocked_notice.as_ref().map(|(s, _)| s.clone());
+        let blocked = m.blocked_notice.clone();
         let incognito = m.incognito;
-        let recording_style = m.recording_style().map(|s| s.name);
+        let recording_style = m.recording_style().map(|s| s.display_name());
         let preview = m.preview.clone();
         let show_preview = m.config.overlay.show_preview;
         let toggle_caps = m.config.hotkeys.toggle.map(|h| h.keycaps()).unwrap_or_default();
@@ -386,24 +386,15 @@ impl Render for OverlayView {
             canvas(move |b, _, _| card.set(b), |_, _, _, _| {}).absolute().top_0().left_0().size_full()
         };
 
-        let body: AnyElement = if let Some(text) = blocked.filter(|_| matches!(state, State::Idle)) {
-            let incognito_detail = match text.as_str() {
-                crate::model::INCOGNITO_ON => Some("Sayso does not save dictations to history."),
-                crate::model::INCOGNITO_OFF => Some("Sayso saves dictations to history again."),
-                _ => None,
+        let body: AnyElement = if let Some(notice) = blocked.filter(|_| matches!(state, State::Idle)) {
+            let ic = match notice.icon {
+                NoticeIcon::Info => Icon::Info,
+                NoticeIcon::Microphone => Icon::Mic,
+                NoticeIcon::Lock => Icon::Lock,
+                NoticeIcon::Style => Icon::Styles,
+                NoticeIcon::Incognito => Icon::Wordmark,
             };
-            let ic = if incognito_detail.is_some() {
-                Icon::Wordmark
-            } else if text.starts_with("Style:") {
-                Icon::Styles
-            } else if text.contains("microphone") {
-                Icon::Mic
-            } else if text.contains("password") {
-                Icon::Lock
-            } else {
-                Icon::Info
-            };
-            notice_pill(ic, &text, incognito_detail, size, &c).child(capture()).into_any_element()
+            notice_pill(ic, &notice.title, notice.detail.as_deref(), size, &c).child(capture()).into_any_element()
         } else {
             match &state {
                 State::Idle => idle_pill(self.hovered, &toggle_caps, size, &c).child(capture()).into_any_element(),
@@ -454,7 +445,7 @@ impl Render for OverlayView {
                                     .px(z(9.))
                                     .rounded_full()
                                     .debossed(&c)
-                                    .child(text::ui("Incognito", 12. * tk, FontWeight::MEDIUM, c.graphite)),
+                                    .child(text::ui(sayso_i18n::t!("overlay.incognito"), 12. * tk, FontWeight::MEDIUM, c.graphite)),
                             )
                         })
                         .child(capture());
@@ -470,10 +461,10 @@ impl Render for OverlayView {
                 State::Processing { stage, .. } => {
                     let label = match (stage, &model_status) {
                         // The final pass waits for a model that is not in memory yet.
-                        (_, ModelStatus::Optimizing | ModelStatus::Downloaded) => "Loading the model",
-                        (Stage::Enhancing, _) => "Applying style",
-                        (Stage::Inserting, _) => "Inserting",
-                        _ => "Transcribing",
+                        (_, ModelStatus::Optimizing | ModelStatus::Downloaded) => sayso_i18n::t!("overlay.stage.loading_model"),
+                        (Stage::Enhancing, _) => sayso_i18n::t!("overlay.stage.applying_style"),
+                        (Stage::Inserting, _) => sayso_i18n::t!("overlay.stage.inserting"),
+                        _ => sayso_i18n::t!("overlay.stage.transcribing"),
                     };
                     let p = if reduce { 0.6 } else { ((self.phase_start.elapsed().as_secs_f32() * 0.55).fract() * 0.9 + 0.08).min(0.98) };
                     div()
@@ -486,7 +477,7 @@ impl Render for OverlayView {
                         .rounded_full()
                         .floating(&c)
                         .child(div().w(z(150.)).h(z(36.)).child(ink_line(p, c.ink, c.pencil).size_full()))
-                        .child(div().font_family(SERIF).italic().text_size(px(16. * tk)).text_color(c.graphite).child(label))
+                        .child(div().font_family(SERIF).locale_fonts(Face::Serif).italic().text_size(px(16. * tk)).text_color(c.graphite).child(label))
                         .child(capture())
                         .into_any_element()
                 }
@@ -502,12 +493,12 @@ impl Render for OverlayView {
                         .rounded_full()
                         .floating(&c)
                         .child(Seal::new(28. * k))
-                        .child(text::ui("Inserted", 14. * tk, FontWeight::SEMIBOLD, c.ink))
+                        .child(text::ui(sayso_i18n::t!("overlay.inserted"), 14. * tk, FontWeight::SEMIBOLD, c.ink))
                         .when_some(style_name.clone(), |d, s| d.child(StyleTag::new(s, Some(c.ink))))
                         .child(capture())
                         .into_any_element(),
                     Notice::InsertedRaw { reason } => {
-                        notice_pill(Icon::Check, "Inserted without enhancement", Some(reason), size, &c).child(capture()).into_any_element()
+                        notice_pill(Icon::Check, &sayso_i18n::t!("overlay.inserted_raw"), Some(reason), size, &c).child(capture()).into_any_element()
                     }
                     Notice::Cancelled => {
                         let total = 5000.0;
@@ -523,7 +514,7 @@ impl Render for OverlayView {
                             .py(z(8.))
                             .rounded_full()
                             .floating(&c)
-                            .child(text::ui("Cancelled", 14. * tk, FontWeight::MEDIUM, c.graphite))
+                            .child(text::ui(sayso_i18n::t!("overlay.cancelled"), 14. * tk, FontWeight::MEDIUM, c.graphite))
                             .child(
                                 div()
                                     .id("undo")
@@ -538,7 +529,7 @@ impl Render for OverlayView {
                                     .cursor_pointer()
                                     .on_click(move |_, _, cx| model.update(cx, |m, cx| m.undo_cancel(cx)))
                                     .child(countdown_ring(left, c.on_ink).size(z(18.)))
-                                    .child(text::ui("Undo", 14. * tk, FontWeight::SEMIBOLD, c.on_ink)),
+                                    .child(text::ui(sayso_i18n::t!("overlay.undo"), 14. * tk, FontWeight::SEMIBOLD, c.on_ink)),
                             )
                             .child(capture())
                             .into_any_element()
@@ -565,11 +556,11 @@ impl Render for OverlayView {
                                     .justify_end()
                                     .gap(z(6.))
                                     .child(
-                                        Button::new("dismiss", "Dismiss")
+                                        Button::new("dismiss", sayso_i18n::t!("overlay.dismiss"))
                                             .small()
                                             .on_click(move |_, _, cx| m1.update(cx, |m, cx| m.dismiss_notice(cx))),
                                     )
-                                    .child(Button::new("copy", "Copy text").small().primary().on_click(move |_, _, cx| {
+                                    .child(Button::new("copy", sayso_i18n::t!("overlay.copy_text")).small().primary().on_click(move |_, _, cx| {
                                         m2.update(cx, |m, cx| {
                                             m.copy_text(&copy);
                                             m.dismiss_notice(cx);
@@ -580,6 +571,9 @@ impl Render for OverlayView {
                             .into_any_element()
                     }
                     Notice::Error { message } => notice_pill(Icon::Info, message, None, size, &c).child(capture()).into_any_element(),
+                    Notice::NoSpeech => {
+                        notice_pill(Icon::Info, &sayso_i18n::t!("overlay.error.no_speech"), None, size, &c).child(capture()).into_any_element()
+                    }
                     Notice::Discarded => div().into_any_element(),
                 },
             }
@@ -595,6 +589,7 @@ impl Render for OverlayView {
                 Anchor::Top => d.justify_start().pt(px(MARGIN)),
             })
             .font_family(UI)
+            .locale_fonts(Face::Sans)
             .child(
                 div()
                     .id("overlay-card")
@@ -624,7 +619,7 @@ fn idle_pill(hovered: bool, caps: &[String], size: OverlaySize, c: &sayso_ui::Co
             .bg(c.sheet_raised)
             .shadow(paper::raised(c))
             .child(Keycaps::new(caps.iter().cloned()).size(if k < 0.8 { KeySize::Small } else { KeySize::Medium }))
-            .child(text::ui("to dictate", 14. * tk, FontWeight::MEDIUM, c.graphite));
+            .child(text::ui(sayso_i18n::t!("overlay.to_dictate"), 14. * tk, FontWeight::MEDIUM, c.graphite));
     }
     div()
         .relative()
@@ -707,7 +702,7 @@ fn preview_slip(committed: &str, tentative: &str, size: OverlaySize, c: &sayso_u
         .rounded(px(12. * k))
         .bg(c.sheet)
         .shadow(paper::raised(c))
-        .font_family(SERIF)
+        .font_family(SERIF).locale_fonts(Face::Serif)
         .text_size(px(17. * tk))
         .line_height(px(24. * tk))
         .text_color(c.ink)

@@ -3,7 +3,7 @@
 mod common;
 
 use common::{MockServer, Reply};
-use sayso_core::speech::{SpeechError, SpeechProvider, SpeechProviderKind, SpeechRequest};
+use sayso_core::speech::{MissingSetup, SpeechError, SpeechProvider, SpeechProviderKind, SpeechRequest};
 use sayso_transcribe::{check, list_models, transcribe};
 use serde_json::json;
 use std::time::{Duration, Instant};
@@ -258,8 +258,8 @@ fn a_cloud_provider_without_a_key_fails_before_any_request() {
         };
         for key in [None, Some(""), Some("  \n")] {
             let error = transcribe(&p, key, &request("m", None, &[])).unwrap_err();
-            assert_eq!(error, SpeechError::NotConfigured("no API key is saved".into()), "{kind:?} {key:?}");
-            assert_eq!(check(&p, key, Duration::from_secs(1)), Err(SpeechError::NotConfigured("no API key is saved".into())));
+            assert_eq!(error, SpeechError::NotConfigured(MissingSetup::ApiKey), "{kind:?} {key:?}");
+            assert_eq!(check(&p, key, Duration::from_secs(1)), Err(SpeechError::NotConfigured(MissingSetup::ApiKey)));
         }
     }
     // The error comes back at once: no DNS lookup, no connect.
@@ -286,7 +286,7 @@ fn a_custom_endpoint_without_an_address_is_not_configured() {
         api_key_account: None,
         models: vec![],
     };
-    let expected = SpeechError::NotConfigured("no address is set".into());
+    let expected = SpeechError::NotConfigured(MissingSetup::Address);
     assert_eq!(transcribe(&p, Some("k"), &request("m", None, &[])), Err(expected.clone()));
     assert_eq!(check(&p, Some("k"), Duration::from_secs(1)), Err(expected.clone()));
     assert_eq!(list_models(&p, Some("k"), Duration::from_secs(1)), Err(expected));

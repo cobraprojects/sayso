@@ -27,6 +27,8 @@ fn claude(path: &Path) -> Provider {
     provider(ProviderKind::ClaudeCli {
         path: Some(path.display().to_string()),
         model: "haiku".into(),
+        config_dir: None,
+        thinking: Default::default(),
     })
 }
 
@@ -34,6 +36,8 @@ fn codex(path: &Path) -> Provider {
     provider(ProviderKind::CodexCli {
         path: Some(path.display().to_string()),
         model: None,
+        config_dir: None,
+        thinking: Default::default(),
     })
 }
 
@@ -238,6 +242,7 @@ fn http_provider(server: &MockServer, account: Option<&str>) -> Provider {
         model: "unused".into(),
         api_key_account: account.map(String::from),
         zero_data_retention: false,
+        thinking: None,
     })
 }
 

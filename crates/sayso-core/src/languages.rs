@@ -3,10 +3,13 @@
 //! Codes are ISO 639-1 where one exists ("en", "de"), else ISO 639-3 ("yue").
 //! [`AUTO`] asks the model to detect the language.
 
+use sayso_i18n::t;
+
 /// The `dictation.language` value that lets the model detect the language.
 pub const AUTO: &str = "auto";
 
-/// Code and English name of every language a catalog model lists.
+/// Code and English name of every language a catalog model lists. The
+/// interface shows [`display`], the name in the interface language.
 const NAMES: &[(&str, &str)] = &[
     ("af", "Afrikaans"),
     ("am", "Amharic"),
@@ -123,12 +126,121 @@ pub fn name(code: &str) -> Option<&'static str> {
     NAMES.iter().find(|(c, _)| *c == code).map(|(_, n)| *n)
 }
 
-/// The name to show for a `dictation.language` value.
+/// The name to show for a `dictation.language` value, in the interface
+/// language. The code itself when Sayso does not know it.
 pub fn display(code: &str) -> String {
-    if code == AUTO {
-        return "Detect automatically".into();
+    match code {
+        AUTO => t!("languages.auto"),
+        "af" => t!("languages.af"),
+        "am" => t!("languages.am"),
+        "ar" => t!("languages.ar"),
+        "as" => t!("languages.as"),
+        "az" => t!("languages.az"),
+        "ba" => t!("languages.ba"),
+        "be" => t!("languages.be"),
+        "bg" => t!("languages.bg"),
+        "bn" => t!("languages.bn"),
+        "bo" => t!("languages.bo"),
+        "br" => t!("languages.br"),
+        "bs" => t!("languages.bs"),
+        "ca" => t!("languages.ca"),
+        "cs" => t!("languages.cs"),
+        "cy" => t!("languages.cy"),
+        "da" => t!("languages.da"),
+        "de" => t!("languages.de"),
+        "el" => t!("languages.el"),
+        "en" => t!("languages.en"),
+        "es" => t!("languages.es"),
+        "et" => t!("languages.et"),
+        "eu" => t!("languages.eu"),
+        "fa" => t!("languages.fa"),
+        "fi" => t!("languages.fi"),
+        "fo" => t!("languages.fo"),
+        "fr" => t!("languages.fr"),
+        "gl" => t!("languages.gl"),
+        "gu" => t!("languages.gu"),
+        "ha" => t!("languages.ha"),
+        "haw" => t!("languages.haw"),
+        "he" => t!("languages.he"),
+        "hi" => t!("languages.hi"),
+        "hr" => t!("languages.hr"),
+        "ht" => t!("languages.ht"),
+        "hu" => t!("languages.hu"),
+        "hy" => t!("languages.hy"),
+        "id" => t!("languages.id"),
+        "ig" => t!("languages.ig"),
+        "is" => t!("languages.is"),
+        "it" => t!("languages.it"),
+        "ja" => t!("languages.ja"),
+        "jw" => t!("languages.jw"),
+        "ka" => t!("languages.ka"),
+        "kk" => t!("languages.kk"),
+        "km" => t!("languages.km"),
+        "kn" => t!("languages.kn"),
+        "ko" => t!("languages.ko"),
+        "ks" => t!("languages.ks"),
+        "ku" => t!("languages.ku"),
+        "ky" => t!("languages.ky"),
+        "la" => t!("languages.la"),
+        "lb" => t!("languages.lb"),
+        "ln" => t!("languages.ln"),
+        "lo" => t!("languages.lo"),
+        "lt" => t!("languages.lt"),
+        "lv" => t!("languages.lv"),
+        "mai" => t!("languages.mai"),
+        "mg" => t!("languages.mg"),
+        "mi" => t!("languages.mi"),
+        "mk" => t!("languages.mk"),
+        "ml" => t!("languages.ml"),
+        "mn" => t!("languages.mn"),
+        "mr" => t!("languages.mr"),
+        "ms" => t!("languages.ms"),
+        "mt" => t!("languages.mt"),
+        "my" => t!("languages.my"),
+        "ne" => t!("languages.ne"),
+        "nl" => t!("languages.nl"),
+        "nn" => t!("languages.nn"),
+        "no" => t!("languages.no"),
+        "oc" => t!("languages.oc"),
+        "or" => t!("languages.or"),
+        "pa" => t!("languages.pa"),
+        "pl" => t!("languages.pl"),
+        "ps" => t!("languages.ps"),
+        "pt" => t!("languages.pt"),
+        "ro" => t!("languages.ro"),
+        "ru" => t!("languages.ru"),
+        "rw" => t!("languages.rw"),
+        "sa" => t!("languages.sa"),
+        "sd" => t!("languages.sd"),
+        "si" => t!("languages.si"),
+        "sk" => t!("languages.sk"),
+        "sl" => t!("languages.sl"),
+        "sn" => t!("languages.sn"),
+        "so" => t!("languages.so"),
+        "sq" => t!("languages.sq"),
+        "sr" => t!("languages.sr"),
+        "su" => t!("languages.su"),
+        "sv" => t!("languages.sv"),
+        "sw" => t!("languages.sw"),
+        "ta" => t!("languages.ta"),
+        "te" => t!("languages.te"),
+        "tg" => t!("languages.tg"),
+        "th" => t!("languages.th"),
+        "tk" => t!("languages.tk"),
+        "tl" => t!("languages.tl"),
+        "tr" => t!("languages.tr"),
+        "tt" => t!("languages.tt"),
+        "uk" => t!("languages.uk"),
+        "ur" => t!("languages.ur"),
+        "uz" => t!("languages.uz"),
+        "vi" => t!("languages.vi"),
+        "yi" => t!("languages.yi"),
+        "yo" => t!("languages.yo"),
+        "yue" => t!("languages.yue"),
+        "zh" => t!("languages.zh"),
+        "zu" => t!("languages.zu"),
+        _ => code.to_string(),
     }
-    name(code).map(str::to_string).unwrap_or_else(|| code.to_string())
 }
 
 /// True for [`AUTO`] and for a code Sayso knows.
@@ -228,5 +340,12 @@ mod tests {
         assert!(!is_valid("klingon"));
         assert_eq!(display(AUTO), "Detect automatically");
         assert_eq!(display("yue"), "Cantonese");
+    }
+
+    #[test]
+    fn every_code_has_a_name_in_the_catalog() {
+        for (code, name) in NAMES {
+            assert_eq!(display(code), *name, "the catalog name of {code}");
+        }
     }
 }

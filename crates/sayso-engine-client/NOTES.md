@@ -27,12 +27,34 @@ Every request with an `id` gets exactly one **reply**: `hello`, `ok`, `final`, o
 | `stream_audio` | `session, pcm` (base64 of 16 kHz mono little-endian i16), no `id` | none (errors have no `id`) |
 | `stream_end` | `session` | last `partial` if the text changed, `ok {text}` |
 | `transcribe` | `model, path` (16 kHz mono WAV), `language, vocabulary` | `final {text, elapsed_ms}` |
-| `language_model` | | `ok {available, model?, message?}`: the name of the language model, or why it cannot run |
+| `language_model` | | `ok {available, model?, message?, reason?}`: the name of the language model, or why it cannot run |
 | `generate` | `instructions, prompt, timeout_ms, temperature?` | `ok {text, model}` |
 | `shutdown` | | `ok`, then exit |
 
-States: `not_downloaded`, `downloading`, `optimizing`, `downloaded`, `ready`, `failed {message}`.
-Other events: `log {level, message}`. Errors: `error {message, code?}` with the request `id`. `generate` sets `code` to `unavailable`, `refused`, or `timeout`.
+States: `not_downloaded`, `downloading`, `optimizing`, `downloaded`, `ready`, `failed {message, reason?}`.
+Other events: `log {level, message}`. Errors: `error {message, code?, reason?}` with the request `id`. `generate` sets `code` to `unavailable`, `refused`, or `timeout`.
+
+### Reason codes
+
+`reason` is an optional string. The engine sends it in `model_state` with `state: "failed"`, in the `language_model` reply when `available` is `false`, and in `error` replies of `generate`. It is a small, stable `snake_case` code. `message` stays the English detail. The app translates the code (`crates/sayso-app/src/engine_text.rs`, catalog `engine.en.yml`, keys `engine.<reason>`) and shows `message` only as a detail, or when there is no usable `reason`.
+
+An engine that sends no `reason` (an older engine) still works: the app shows a general sentence with `message`. A `reason` that the client does not know gives the same result. The client reads the code into `sayso_core::stt::EngineReason` (`ModelStatus::Failed { message, reason }`, and `Unavailable { reason, message }` from `LanguageModel::availability`). A new code therefore needs a variant in `EngineReason`, a key in `engine.en.yml`, and a line in this table.
+
+| `reason` | Sent in | Meaning | Sent by |
+|---|---|---|---|
+| `incomplete_download` | `model_state failed` | A download ended, but the model files are not complete. | all three engines |
+| `download_failed` | `model_state failed` | A download stopped with an error (network, disk, HTTP status). | all three engines |
+| `load_failed` | `model_state failed` | The model is on disk, but loading it failed. | all three engines |
+| `device_not_eligible` | `language_model`, `generate` error | This Mac does not support Apple Intelligence. | Swift |
+| `intelligence_off` | `language_model`, `generate` error | Apple Intelligence is off in System Settings. | Swift |
+| `model_not_ready` | `language_model`, `generate` error | macOS still downloads the Apple Intelligence model. | Swift |
+| `needs_macos_26` | `language_model`, `generate` error | Apple Intelligence needs macOS 26 or later. | Swift |
+| `unavailable` | `language_model`, `generate` error | The language model is not available, with no better reason. | Swift |
+| `timeout` | `generate` error | The model gave no reply in time. | Swift |
+| `refused` | `generate` error | The model refused the text (guardrails). | Swift |
+| `failed` | `generate` error | The model failed in another way. | Swift |
+
+The `error` reply of a `download` or `load` carries no `reason`. The client keeps the reason of the `model_state failed` event that came just before it, when the message is the same. A model that an engine cannot run (`list_models` in the portable engine) is `failed` without a `reason`. The Linux and Windows engines have no language model, so they send none of the language model codes.
 
 `language_model` and `generate` are additions to protocol v1 for AI enhancement on this computer. Only the Swift engine has them: it runs the language model of macOS (Apple Intelligence, `LanguageModel.swift`, macOS 26 and later) with guided generation, so the reply is bound to one `text` field. macOS owns the model, so there is no download, load, or unload. `generate` stops the model after `timeout_ms`, and the client waits 500 ms longer before it gives up. The other engines answer `error` (unknown request type), which the client reports as "not set up". `EngineClient` implements `sayso_core::enhance::LanguageModel` with these two requests.
 

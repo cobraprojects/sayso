@@ -12,7 +12,7 @@
 use crate::protocol::{self, Message, pcm_base64, request_line};
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded, unbounded};
 use parking_lot::Mutex;
-use sayso_core::enhance::{EnhanceError, Generated, LanguageModel};
+use sayso_core::enhance::{EnhanceError, Generated, LanguageModel, Unavailable};
 use sayso_core::models::{self, ModelId, ModelInfo};
 use sayso_core::stt::{EngineEvent, ModelStatus, SessionOptions, Transcript, encode_wav, to_pcm16};
 use sayso_platform::{PlatformError, Result, SttBackend};
@@ -285,17 +285,30 @@ impl Failure {
 
 impl LanguageModel for EngineClient {
     fn model_name(&self) -> std::result::Result<String, EnhanceError> {
+        self.availability()
+            .map_err(|unavailable| EnhanceError::NotConfigured(unavailable.message))
+    }
+
+    fn availability(&self) -> std::result::Result<String, Unavailable> {
         let timeout = self.inner.options.request_timeout;
         let reply = self
             .inner
             .request("language_model", json!({}), timeout)
             // An engine without the request answers `error`: it has no language model.
-            .map_err(|failure| EnhanceError::NotConfigured(failure.message))?;
+            .map_err(|failure| Unavailable {
+                reason: None,
+                message: failure.message,
+            })?;
         if reply.body["available"] == true {
             Ok(reply.str("model").unwrap_or("language model").to_string())
         } else {
-            let reason = reply.str("message").unwrap_or("the language model cannot run");
-            Err(EnhanceError::NotConfigured(reason.to_string()))
+            Err(Unavailable {
+                reason: protocol::reason(&reply),
+                message: reply
+                    .str("message")
+                    .unwrap_or("the language model cannot run")
+                    .to_string(),
+            })
         }
     }
 
@@ -649,7 +662,13 @@ impl Inner {
                 if is_error {
                     log::warn!("engine {what} failed: {text}");
                     if let Some(model) = model {
-                        self.set_status(model, ModelStatus::Failed { message: text });
+                        // The engine sent `model_state failed` with the reason just before
+                        // this reply. Keep that reason when the text is the same.
+                        let reason = protocol::reason(&message).or_else(|| match self.statuses.lock().get(&model) {
+                            Some(ModelStatus::Failed { message: known, reason }) if *known == text => *reason,
+                            _ => None,
+                        });
+                        self.set_status(model, ModelStatus::Failed { message: text, reason });
                     }
                 }
             }

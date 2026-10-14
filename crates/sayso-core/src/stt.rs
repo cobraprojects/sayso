@@ -13,7 +13,69 @@ pub enum ModelStatus {
     /// Downloaded, not loaded in memory.
     Downloaded,
     Ready,
-    Failed { message: String },
+    /// `message` is the English detail from the engine. `reason` is the stable
+    /// code that the app translates. It is `None` for an older engine, or for a
+    /// code that this version does not know.
+    Failed {
+        message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<EngineReason>,
+    },
+}
+
+/// Why a speech engine or its language model failed or is not available. The
+/// engines send the code as the `reason` field (see `sayso-engine-client/NOTES.md`),
+/// and the app shows a translated sentence for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EngineReason {
+    /// A download ended, but the model files are not complete.
+    IncompleteDownload,
+    /// A download stopped with an error.
+    DownloadFailed,
+    /// The model is on disk, but loading it failed.
+    LoadFailed,
+    /// This Mac does not support Apple Intelligence.
+    DeviceNotEligible,
+    /// Apple Intelligence is off in System Settings.
+    IntelligenceOff,
+    /// macOS still downloads the Apple Intelligence model.
+    ModelNotReady,
+    /// Apple Intelligence needs macOS 26 or later.
+    #[serde(rename = "needs_macos_26")]
+    NeedsMacos26,
+    /// The language model is not available, and the engine has no better reason.
+    Unavailable,
+    /// The language model gave no reply in time.
+    Timeout,
+    /// The language model refused the text.
+    Refused,
+    /// The language model failed in another way.
+    Failed,
+}
+
+impl EngineReason {
+    /// The reason for a code, or `None` for a code that this version does not know.
+    pub fn from_code(code: &str) -> Option<Self> {
+        serde_json::from_value(serde_json::Value::String(code.to_string())).ok()
+    }
+
+    /// The code as the engines send it, for example `incomplete_download`.
+    pub fn code(self) -> &'static str {
+        match self {
+            EngineReason::IncompleteDownload => "incomplete_download",
+            EngineReason::DownloadFailed => "download_failed",
+            EngineReason::LoadFailed => "load_failed",
+            EngineReason::DeviceNotEligible => "device_not_eligible",
+            EngineReason::IntelligenceOff => "intelligence_off",
+            EngineReason::ModelNotReady => "model_not_ready",
+            EngineReason::NeedsMacos26 => "needs_macos_26",
+            EngineReason::Unavailable => "unavailable",
+            EngineReason::Timeout => "timeout",
+            EngineReason::Refused => "refused",
+            EngineReason::Failed => "failed",
+        }
+    }
 }
 
 impl ModelStatus {
@@ -109,5 +171,25 @@ mod tests {
         assert_eq!(u32::from_le_bytes(wav[24..28].try_into().unwrap()), 16_000);
         assert_eq!(u32::from_le_bytes(wav[40..44].try_into().unwrap()), 6);
         assert_eq!(wav.len(), 44 + 6);
+    }
+
+    #[test]
+    fn reason_codes_round_trip_and_unknown_codes_are_none() {
+        use EngineReason::*;
+        for reason in [
+            IncompleteDownload, DownloadFailed, LoadFailed, DeviceNotEligible, IntelligenceOff,
+            ModelNotReady, NeedsMacos26, Unavailable, Timeout, Refused, Failed,
+        ] {
+            assert_eq!(EngineReason::from_code(reason.code()), Some(reason));
+        }
+        assert_eq!(EngineReason::from_code("a_future_reason"), None);
+    }
+
+    #[test]
+    fn failed_status_without_a_reason_has_no_reason_field() {
+        let status = ModelStatus::Failed { message: "x".into(), reason: None };
+        assert_eq!(serde_json::to_string(&status).unwrap(), r#"{"state":"failed","message":"x"}"#);
+        let old: ModelStatus = serde_json::from_str(r#"{"state":"failed","message":"x"}"#).unwrap();
+        assert_eq!(old, status);
     }
 }

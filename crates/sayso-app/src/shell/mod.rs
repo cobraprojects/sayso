@@ -50,20 +50,29 @@ macro_rules! os_text {
 }
 pub(crate) use os_text;
 
-/// What the UI calls this computer: "your Mac", "this PC".
-pub const COMPUTER: &str = os_text!("Mac", "PC", "computer");
+/// What the UI calls this computer: "Mac", "PC".
+pub fn computer() -> String {
+    sayso_i18n::t!(os_text!("os.computer_mac", "os.computer_windows", "os.computer_other"))
+}
 
+/// The name of the system. A name, so it is not translated.
 pub const OS_NAME: &str = os_text!("macOS", "Windows", "Linux");
 
 /// Where Sayso keeps API keys, with its article: "the Keychain".
-pub const SECRET_STORE: &str = os_text!("the Keychain", "Windows Credential Manager", "the system keyring");
+pub fn secret_store() -> String {
+    sayso_i18n::t!(os_text!("os.secret_store_mac", "os.secret_store_windows", "os.secret_store_other"))
+}
 
 /// The settings page of the sound input.
-pub const SOUND_SETTINGS: &str = os_text!("System Settings › Sound", "Settings › System › Sound", "the sound settings");
+pub fn sound_settings() -> String {
+    sayso_i18n::t!(os_text!("os.sound_settings_mac", "os.sound_settings_windows", "os.sound_settings_other"))
+}
 
 /// The model status while it loads for the first time. On macOS Core ML
 /// compiles it for the Neural Engine.
-pub const OPTIMIZING: &str = os_text!("Optimizing for your Mac", "Loading the model", "Preparing the model");
+pub fn optimizing() -> String {
+    sayso_i18n::t!(os_text!("os.optimizing_mac", "os.optimizing_windows", "os.optimizing_other"))
+}
 
 /// macOS asks the user for Accessibility (to paste) and Input Monitoring
 /// (for push to talk), and Linux has its own grants for both. Windows has no
@@ -71,17 +80,19 @@ pub const OPTIMIZING: &str = os_text!("Optimizing for your Mac", "Loading the mo
 pub const HAS_INPUT_PERMISSIONS: bool = !cfg!(windows);
 
 /// The names of the permissions in the UI. macOS uses its own names.
-pub fn permission_name(permission: sayso_platform::Permission) -> &'static str {
+pub fn permission_name(permission: sayso_platform::Permission) -> String {
     use sayso_platform::Permission::*;
     match permission {
-        Microphone => "Microphone",
-        Accessibility => os_text!("Accessibility", "Paste access"),
-        InputMonitoring => os_text!("Input Monitoring", "Keyboard access"),
+        Microphone => sayso_i18n::t!("os.permission.microphone"),
+        Accessibility => sayso_i18n::t!(os_text!("os.permission.accessibility_mac", "os.permission.accessibility_other")),
+        InputMonitoring => sayso_i18n::t!(os_text!("os.permission.input_monitoring_mac", "os.permission.input_monitoring_other")),
     }
 }
 
 /// The button that leads to the place where the user allows a permission.
-pub const OPEN_PERMISSION_SETTINGS: &str = os_text!("Open System Settings", "Open Settings", "Open the setup guide");
+pub fn open_permission_settings() -> String {
+    sayso_i18n::t!(os_text!("os.open_permission_settings_mac", "os.open_permission_settings_windows", "os.open_permission_settings_other"))
+}
 
 #[cfg(target_os = "macos")]
 mod macos;

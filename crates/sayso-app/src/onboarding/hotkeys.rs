@@ -4,6 +4,7 @@ use super::{OnboardingView, card, heading, rec};
 use crate::hub::settings::recorder::{self, Slot};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_core::hotkey::{Hotkey, SoloModifier};
 use sayso_platform::{Permission, PermissionState};
 use sayso_ui::components::*;
@@ -43,18 +44,18 @@ impl OnboardingView {
         let well = match (rec_toggle, toggle) {
             (true, _) => well.child(listening(window_only, &c)),
             (false, Some(hk)) => well.child(Keycaps::hotkey(&hk).size(KeySize::Large).with_plus()),
-            (false, None) => well.child(text::ui("No key set", 14., FontWeight::NORMAL, c.graphite)),
+            (false, None) => well.child(text::ui(t!("onboarding.hotkeys.no_key"), 14., FontWeight::NORMAL, c.graphite)),
         };
         let toggle_status: AnyElement = if rec_toggle {
-            text::ui("Press the new keys. Press Esc to stop.", 13., FontWeight::NORMAL, c.graphite).into_any_element()
+            text::ui(t!("onboarding.hotkeys.press_new_keys"), 13., FontWeight::NORMAL, c.graphite).into_any_element()
         } else if toggle.is_some() && conflicts.iter().all(|x| Some(x.hotkey) != toggle) {
-            super::check_line("No other app uses these keys.", &c).into_any_element()
+            super::check_line(t!("onboarding.hotkeys.no_conflict"), &c).into_any_element()
         } else if toggle.is_some() {
-            text::ui("Another app uses these keys. See below.", 13., FontWeight::NORMAL, c.danger).into_any_element()
+            text::ui(t!("onboarding.hotkeys.conflict"), 13., FontWeight::NORMAL, c.danger).into_any_element()
         } else {
-            text::ui("Set a key to start and stop dictation.", 13., FontWeight::NORMAL, c.graphite).into_any_element()
+            text::ui(t!("onboarding.hotkeys.set_a_key"), 13., FontWeight::NORMAL, c.graphite).into_any_element()
         };
-        let change_label = if rec_toggle { "Cancel" } else { "Change" };
+        let change_label = if rec_toggle { t!("onboarding.hotkeys.cancel") } else { t!("onboarding.hotkeys.change") };
         let toggle_card = card(&c)
             .gap(px(14.))
             .child(
@@ -62,7 +63,7 @@ impl OnboardingView {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(text::title("Start and stop", 20., &c).line_height(px(24.)))
+                    .child(text::title(t!("onboarding.hotkeys.start_stop"), 20., &c).line_height(px(24.)))
                     .child(
                         div()
                             .id("change-toggle")
@@ -100,17 +101,17 @@ impl OnboardingView {
                 )
                 .into_any_element(),
             (false, None) => dashed_box(&c)
-                .child(text::ui("Hold a key to record. Release to insert.", 14., FontWeight::NORMAL, c.graphite))
+                .child(text::ui(t!("onboarding.hotkeys.hold_hint"), 14., FontWeight::NORMAL, c.graphite))
                 .child(
                     div()
                         .flex()
                         .gap(px(8.))
-                        .child(Button::new("ptt-right-option", "Use Right Option").small().on_click(cx.listener(|this, _, _, cx| {
+                        .child(Button::new("ptt-right-option", t!("onboarding.hotkeys.use_right_option")).small().on_click(cx.listener(|this, _, _, cx| {
                             this.recorder.note = None;
                             this.model.update(cx, |m, cx| Slot::PushToTalk.apply(m, Some(Hotkey::Solo(SoloModifier::RightOption)), cx));
                         })))
                         .child(
-                            Button::new("ptt-record", "Record a key")
+                            Button::new("ptt-record", t!("onboarding.hotkeys.record_key"))
                                 .small()
                                 .on_click(cx.listener(|this, _, window, cx| this.record(Slot::PushToTalk, window, cx))),
                         ),
@@ -125,14 +126,14 @@ impl OnboardingView {
                     div()
                         .id("ptt-change")
                         .cursor_pointer()
-                        .child(text::ui("Change", 13., FontWeight::MEDIUM, c.accent))
+                        .child(text::ui(t!("onboarding.hotkeys.change"), 13., FontWeight::MEDIUM, c.accent))
                         .on_click(cx.listener(|this, _, window, cx| this.record(Slot::PushToTalk, window, cx))),
                 )
                 .child(
                     div()
                         .id("ptt-clear")
                         .cursor_pointer()
-                        .child(text::ui("Clear", 13., FontWeight::MEDIUM, c.graphite))
+                        .child(text::ui(t!("onboarding.hotkeys.clear"), 13., FontWeight::MEDIUM, c.graphite))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.model.update(cx, |m, cx| Slot::PushToTalk.apply(m, None, cx));
                         })),
@@ -142,31 +143,31 @@ impl OnboardingView {
                 div()
                     .id("ptt-cancel")
                     .cursor_pointer()
-                    .child(text::ui("Cancel", 13., FontWeight::MEDIUM, c.accent))
+                    .child(text::ui(t!("onboarding.hotkeys.cancel"), 13., FontWeight::MEDIUM, c.accent))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.recorder.cancel();
                         cx.notify();
                     })),
             )
         } else {
-            div().child(text::ui("Optional", 13., FontWeight::NORMAL, c.graphite))
+            div().child(text::ui(t!("onboarding.hotkeys.optional"), 13., FontWeight::NORMAL, c.graphite))
         };
         let im_line: AnyElement = match (ptt.is_some(), im) {
             // Windows needs no permission to hear keys in other apps.
             _ if !crate::shell::HAS_INPUT_PERMISSIONS => {
-                text::ui("Works in every app while you hold it.", 13., FontWeight::NORMAL, c.graphite).into_any_element()
+                text::ui(t!("onboarding.hotkeys.works_everywhere"), 13., FontWeight::NORMAL, c.graphite).into_any_element()
             }
-            (true, PermissionState::Granted) => super::check_line(crate::shell::os_text!("Input Monitoring is on.", "Keyboard access is on."), &c).into_any_element(),
+            (true, PermissionState::Granted) => super::check_line(t!(crate::shell::os_text!("onboarding.hotkeys.im_on_mac", "onboarding.hotkeys.im_on_other")), &c).into_any_element(),
             (true, _) => div()
                 .flex()
                 .items_center()
                 .gap(px(10.))
-                .child(text::ui(crate::shell::os_text!("Turn on Sayso in Input Monitoring to use this key.", "This key needs keyboard access. See the setup guide."), 13., FontWeight::NORMAL, c.danger).flex_1().min_w_0())
-                .child(Button::new("open-im", crate::shell::OPEN_PERMISSION_SETTINGS).small().on_click(cx.listener(|this, _, _, cx| {
+                .child(text::ui(t!(crate::shell::os_text!("onboarding.hotkeys.im_off_mac", "onboarding.hotkeys.im_off_other")), 13., FontWeight::NORMAL, c.danger).flex_1().min_w_0())
+                .child(Button::new("open-im", crate::shell::open_permission_settings()).small().on_click(cx.listener(|this, _, _, cx| {
                     this.model.update(cx, |m, _| m.open_permission_settings(Permission::InputMonitoring));
                 })))
                 .into_any_element(),
-            (false, _) => text::ui(crate::shell::os_text!("Needs Input Monitoring. Sayso asks when you set it.", "Needs keyboard access on some desktops."), 13., FontWeight::NORMAL, c.graphite).into_any_element(),
+            (false, _) => text::ui(t!(crate::shell::os_text!("onboarding.hotkeys.im_needed_mac", "onboarding.hotkeys.im_needed_other")), 13., FontWeight::NORMAL, c.graphite).into_any_element(),
         };
         let ptt_card = card(&c)
             .gap(px(14.))
@@ -175,7 +176,7 @@ impl OnboardingView {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(text::title("Push to talk", 20., &c).line_height(px(24.)))
+                    .child(text::title(t!("onboarding.hotkeys.push_to_talk"), 20., &c).line_height(px(24.)))
                     .child(ptt_actions),
             )
             .child(body)
@@ -188,7 +189,7 @@ impl OnboardingView {
             .pt(px(28.))
             .px(px(self.side()))
             .pb(px(24.))
-            .child(heading("Choose your keys", "Press the keys to test them. Sayso checks that no other app uses the same keys.", &c))
+            .child(heading(&t!("onboarding.hotkeys.title"), &t!("onboarding.hotkeys.lead"), &c))
             .child(self.columns().child(toggle_card).child(ptt_card));
         for x in &conflicts {
             col = col.child(crate::hub::settings::kit::notice(BannerKind::Warning, recorder::conflict_text(x, true), cx));
@@ -199,7 +200,7 @@ impl OnboardingView {
         col.when(window_only && self.recorder.slot.is_some(), |d| {
             d.child(crate::hub::settings::kit::notice(
                 BannerKind::Info,
-                "Without Input Monitoring, Sayso hears keys only while this window is in front. Single keys such as Right Option need Input Monitoring.", cx))
+                t!("onboarding.hotkeys.window_only"), cx))
         })
         .into_any_element()
     }
@@ -226,7 +227,7 @@ fn listening(window_only: bool, c: &Colors) -> Div {
         .gap(px(10.))
         .child(div().size(px(8.)).rounded_full().bg(c.accent))
         .child(text::ui(
-            if window_only { "Press the keys in this window…" } else { "Press the keys…" },
+            if window_only { t!("onboarding.hotkeys.listening_window") } else { t!("onboarding.hotkeys.listening") },
             14.,
             FontWeight::MEDIUM,
             c.graphite,

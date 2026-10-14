@@ -1,0 +1,27 @@
+_version: 1
+
+settings:
+  overlay:
+    title: "Indicador"
+    subtitle: "La cápsula y lo que muestra mientras dictas."
+    pill: "Cápsula"
+    size: "Tamaño"
+    size_small: "Pequeño"
+    size_medium: "Mediano"
+    size_large: "Grande"
+    size_detail: "El tamaño de la cápsula y de todo lo que muestra mientras dictas."
+    idle_pill: "Mostrar la cápsula en reposo"
+    idle_pill_detail: "Una cápsula pequeña en la parte inferior de la pantalla. Haz clic en ella para iniciar un dictado."
+    hide_fullscreen: "Ocultar sobre apps a pantalla completa"
+    hide_fullscreen_detail: "La cápsula no estorba en vídeos ni presentaciones."
+    follow: "Seguir la pantalla en uso"
+    follow_detail_placed: "La cápsula se mueve a la pantalla de tu ratón o de la ventana que usas, la que haya cambiado en último lugar."
+    follow_detail: "La cápsula se mueve a la pantalla que usas cada vez que empieza un dictado."
+    position: "Posición de la cápsula"
+    position_detail: "Devuelve la cápsula al centro de la parte inferior. Para hacerlo ahora, haz clic derecho en la cápsula y elige Restablecer posición."
+    reset_position: "Restablecer posición"
+    reset_done: "Sayso olvidó la posición guardada. La cápsula se mueve al centro de la parte inferior la próxima vez que se inicie Sayso."
+    reset_failed: "Sayso no pudo restablecer la posición: %{error}. Comprueba que se pueda escribir en la carpeta de datos."
+    while_dictating: "Mientras dictas"
+    live_preview: "Mostrar la vista previa en vivo"
+    live_preview_detail: "Muestra tus palabras sobre la cápsula mientras hablas. Solo el texto final entra en la app."

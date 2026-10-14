@@ -44,6 +44,9 @@ jobs:
       # The other rules read only the manifests (cargo metadata --no-deps).
       - name: Check the dependency rules
         run: RUSTUP_TOOLCHAIN=stable scripts/check-deps.sh
+      # The translated system files must match the system catalogs.
+      - name: Check the translated system files
+        run: python3 scripts/i18n-system-files.py --check
 
   test:
     name: Tests and clippy (manual)

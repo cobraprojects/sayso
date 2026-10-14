@@ -8,6 +8,7 @@ use crate::hub::Route;
 use crate::live::LiveAudio;
 use crate::services::Services;
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_core::config::{Config, ConfigIssue, Provider, ProviderKind};
 use sayso_core::enhance::ModelChoice;
 use sayso_core::dictation::{Event, Machine, State, Timing};
@@ -35,7 +36,45 @@ pub struct Detected {
     pub ollama: Option<Vec<String>>,
     /// The name of the model when Apple Intelligence can run on this Mac.
     pub apple_intelligence: Option<String>,
+    /// Why Apple Intelligence cannot run, when the engine runs but the model does not.
+    pub apple_unavailable: Option<sayso_core::enhance::Unavailable>,
     pub done: bool,
+}
+
+/// The login of a CLI provider, as last read from the tool.
+#[derive(Clone, Default)]
+pub struct ProviderLogin {
+    /// None until the first check ends.
+    pub status: Option<sayso_enhance::AuthStatus>,
+    pub checking: bool,
+    /// The sign-in that runs now.
+    pub sign_in: Option<Arc<sayso_enhance::SignIn>>,
+    /// The sign-in page that the tool printed.
+    pub url: Option<String>,
+    /// Why the last sign-in did not work.
+    pub error: Option<LoginError>,
+}
+
+/// Why a sign-in did not work. It keeps the kind and the text of the tool,
+/// so the banner changes with the interface language.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LoginError {
+    /// The tool could not start the sign-in. The error of the tool.
+    Start(String),
+    /// The sign-in ended, but the tool is not signed in.
+    NotFinished,
+    /// The tool did not take the code. The error of the tool.
+    Code(String),
+}
+
+impl LoginError {
+    pub fn text(&self) -> String {
+        match self {
+            LoginError::Start(error) => t!("app.sign_in.start_failed", error = error),
+            LoginError::NotFinished => t!("app.sign_in.not_finished"),
+            LoginError::Code(error) => t!("app.sign_in.code_failed", error = error),
+        }
+    }
 }
 
 /// A provider's models, as last fetched from the provider.
@@ -43,7 +82,8 @@ pub struct Detected {
 pub enum ModelList {
     Loading,
     Ready(Vec<ModelChoice>),
-    Failed(String),
+    /// The English error, and the reason code of the engine when it sent one.
+    Failed(String, Option<sayso_core::stt::EngineReason>),
 }
 
 pub struct AppModel {
@@ -83,8 +123,9 @@ pub struct AppModel {
 
     /// The engine process reported a crash and has not come back yet.
     pub engine_down: Option<String>,
-    /// A short message for the overlay when a hotkey is blocked (Secure Input).
-    pub blocked_notice: Option<(String, Instant)>,
+    /// A short message in the idle overlay, for example when a hotkey cannot
+    /// start a dictation.
+    pub blocked_notice: Option<OverlayNotice>,
     /// Incognito: Sayso saves no history entry while it is on. It is never
     /// written to disk, so it is off after each start.
     pub incognito: bool,
@@ -102,6 +143,8 @@ pub struct AppModel {
     site_icons: crate::site_icons::SiteIcons,
     /// Model lists by provider id (or a draft key during onboarding).
     pub model_lists: HashMap<String, ModelList>,
+    /// The login of each CLI provider, by provider id.
+    pub logins: HashMap<String, ProviderLogin>,
     /// True when this Mac has Pindrop data to import.
     pub pindrop_found: bool,
     pub pindrop_import: crate::pindrop_import::PindropImport,
@@ -115,9 +158,38 @@ pub struct AppModel {
 
 impl EventEmitter<AppEvent> for AppModel {}
 
-/// The overlay notices of the incognito hotkey.
-pub const INCOGNITO_ON: &str = "Incognito is on";
-pub const INCOGNITO_OFF: &str = "Incognito is off";
+/// A short message in the idle overlay. It goes away after a few seconds.
+#[derive(Debug, Clone)]
+pub struct OverlayNotice {
+    pub icon: NoticeIcon,
+    pub title: String,
+    /// A second line under the title.
+    pub detail: Option<String>,
+    pub shown: Instant,
+}
+
+impl OverlayNotice {
+    pub fn new(icon: NoticeIcon, title: impl Into<String>) -> Self {
+        Self { icon, title: title.into(), detail: None, shown: Instant::now() }
+    }
+
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+}
+
+/// The icon of an overlay notice. The producer of the notice sets it, so it
+/// does not depend on the words of the text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoticeIcon {
+    Info,
+    Microphone,
+    /// A password field blocks the hotkeys.
+    Lock,
+    Style,
+    Incognito,
+}
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -125,6 +197,8 @@ pub enum AppEvent {
     OpenHub(Route),
     /// The theme changed; windows re-read the palette.
     ThemeChanged,
+    /// The interface language changed; windows draw their text again.
+    LanguageChanged,
 }
 
 impl AppModel {
@@ -185,6 +259,7 @@ impl AppModel {
             icons,
             site_icons,
             model_lists: HashMap::new(),
+            logins: HashMap::new(),
             pindrop_found: sayso_store::pindrop::found(&crate::pindrop_import::pindrop_dir()),
             pindrop_import: Default::default(),
             update: sayso_update::Status::Idle { last_check: None },
@@ -250,7 +325,7 @@ impl AppModel {
         self.update_notice = state.notice;
         self.update = match &found {
             AtStart::Ready(version) => Status::Ready { version: version.clone() },
-            AtStart::Failed(message) => Status::Failed { message: message.clone() },
+            AtStart::Failed(failure) => Status::Failed { failure: failure.clone() },
             AtStart::Nothing | AtStart::Updated(_) | AtStart::Relaunching | AtStart::Stale => Status::Idle { last_check: state.last_check },
         };
         let (tx, statuses) = async_channel::unbounded();
@@ -334,9 +409,9 @@ impl AppModel {
             // The installed app is the new version now. Quit, and it starts.
             Ok(()) => cx.quit(),
             Err(sayso_update::SwapError::Busy) => {
-                self.update = sayso_update::Status::Failed { message: "Another Sayso runs from this app. Quit it, then try again.".into() };
+                self.update = sayso_update::Status::Failed { failure: sayso_update::Failure::Busy };
             }
-            Err(sayso_update::SwapError::Failed(message)) => self.update = sayso_update::Status::Failed { message },
+            Err(sayso_update::SwapError::Failed(failure)) => self.update = sayso_update::Status::Failed { failure },
         }
         cx.notify();
     }
@@ -380,6 +455,10 @@ impl AppModel {
         if before.appearance != self.config.appearance {
             crate::app::apply_theme(&self.config, &self.services, cx);
             cx.emit(AppEvent::ThemeChanged);
+        }
+        if before.general.language != self.config.general.language {
+            crate::app::apply_language(&self.config);
+            cx.emit(AppEvent::LanguageChanged);
         }
         if before.hotkeys != self.config.hotkeys {
             self.register_hotkeys();
@@ -557,7 +636,7 @@ impl AppModel {
             let result = cx.background_spawn(async move { engine.download(&id2) }).await;
             let _ = this.update(cx, |m, cx| {
                 if let Err(e) = result {
-                    m.model_status.insert(id.clone(), ModelStatus::Failed { message: e.to_string() });
+                    m.model_status.insert(id.clone(), ModelStatus::Failed { message: e.to_string(), reason: None });
                 }
                 if id == m.config.dictation.model || Some(&id) == m.preview_model().as_ref() {
                     m.load_active_models(cx);
@@ -576,7 +655,7 @@ impl AppModel {
             let _ = this.update(cx, |m, cx| {
                 match result {
                     Ok(()) => m.model_status.insert(id, ModelStatus::NotDownloaded),
-                    Err(e) => m.model_status.insert(id, ModelStatus::Failed { message: e.to_string() }),
+                    Err(e) => m.model_status.insert(id, ModelStatus::Failed { message: e.to_string(), reason: None }),
                 };
                 // The deleted model may have given the live preview.
                 m.load_active_models(cx);
@@ -613,11 +692,18 @@ impl AppModel {
             let engine = engine.clone();
             cx.spawn(async move |this, cx| {
                 let id2 = id.clone();
-                let result = cx.background_spawn(async move { engine.load(&id2) }).await;
+                // After a failed load, the engine status holds the reason code from `model_state`.
+                let (result, after) = cx.background_spawn(async move { (engine.load(&id2), engine.status(&id2)) }).await;
                 let _ = this.update(cx, |m, cx| {
                     let status = match result {
                         Ok(()) => ModelStatus::Ready,
-                        Err(e) => ModelStatus::Failed { message: e.to_string() },
+                        Err(e) => ModelStatus::Failed {
+                            message: e.to_string(),
+                            reason: match after {
+                                ModelStatus::Failed { reason, .. } => reason,
+                                _ => None,
+                            },
+                        },
                     };
                     if id == m.config.dictation.model {
                         // A final pass that waited for this load must find the model.
@@ -804,8 +890,8 @@ impl AppModel {
         let i = ids.iter().position(|id| *id == self.config.ai.active_style).unwrap_or(0);
         let next = ids[(i + 1) % ids.len()].clone();
         self.set_active_style(&next, cx);
-        let name = self.active_style().name;
-        self.blocked_notice = Some((format!("Style: {name}"), Instant::now()));
+        let name = self.active_style().display_name();
+        self.blocked_notice = Some(OverlayNotice::new(NoticeIcon::Style, t!("overlay.notice.style", name = name)));
     }
 
     pub fn save_style(&mut self, style: &Style, cx: &mut Context<Self>) -> Result<(), String> {
@@ -891,6 +977,9 @@ impl AppModel {
     pub fn remove_provider(&mut self, id: &str, cx: &mut Context<Self>) {
         let id = id.to_string();
         self.model_lists.remove(&id);
+        if let Some(sign_in) = self.logins.remove(&id).and_then(|l| l.sign_in) {
+            sign_in.cancel();
+        }
         if let Some(Provider { kind: ProviderKind::OpenAiCompatible { api_key_account: Some(acc), .. }, .. }) =
             self.config.ai.providers.iter().find(|p| p.id == id)
         {
@@ -905,6 +994,190 @@ impl AppModel {
                 c.ai.enabled = false;
             }
         });
+    }
+
+    /// The folder of the login that Sayso keeps for a CLI provider, apart
+    /// from the login of the user's terminal.
+    pub fn sayso_login_dir(&self, id: &str) -> PathBuf {
+        self.paths.data_dir.join("logins").join(id)
+    }
+
+    /// Set the folder that holds the login of a CLI provider. None is the
+    /// folder that the tool uses by default.
+    pub fn set_provider_config_dir(&mut self, id: &str, dir: Option<String>, cx: &mut Context<Self>) {
+        let dir = dir.filter(|d| !d.trim().is_empty());
+        if self.config.ai.providers.iter().find(|p| p.id == id).is_none_or(|p| p.config_dir() == dir.as_deref()) {
+            return;
+        }
+        self.cancel_sign_in(id, cx);
+        // The models and the login belong to the account in the old folder.
+        self.model_lists.remove(id);
+        self.logins.remove(id);
+        let key = id.to_string();
+        self.edit_config(cx, move |c| {
+            if let Some(p) = c.ai.providers.iter_mut().find(|p| p.id == key)
+                && let ProviderKind::ClaudeCli { config_dir, .. } | ProviderKind::CodexCli { config_dir, .. } = &mut p.kind
+            {
+                *config_dir = dir;
+            }
+        });
+        self.check_provider_login(id, cx);
+    }
+
+    pub fn set_provider_thinking(&mut self, id: &str, level: String, cx: &mut Context<Self>) {
+        let key = id.to_string();
+        self.edit_config(cx, move |c| {
+            if let Some(p) = c.ai.providers.iter_mut().find(|p| p.id == key) {
+                p.set_thinking(Some(level));
+            }
+        });
+    }
+
+    /// The thinking levels to offer for the model of a provider, from the
+    /// least thinking to the most. They come from the model list of the
+    /// provider. Until the list is here, a CLI provider offers the levels
+    /// that all its models with levels take. Empty for a model without levels.
+    pub fn thinking_choices(&self, provider: &Provider) -> Vec<String> {
+        let listed = match self.model_lists.get(&provider.id) {
+            Some(ModelList::Ready(list)) => list.iter().find(|m| Some(m.id.as_str()) == provider.model()).map(|m| m.thinking.clone()),
+            _ => None,
+        };
+        let cli = matches!(provider.kind, ProviderKind::ClaudeCli { .. } | ProviderKind::CodexCli { .. });
+        let mut levels = listed.unwrap_or_else(|| {
+            if cli { [sayso_core::config::DEFAULT_CLI_THINKING, "medium", "high"].map(String::from).to_vec() } else { Vec::new() }
+        });
+        // A level from the config file that the list does not have still shows.
+        if let Some(chosen) = provider.thinking().filter(|chosen| !levels.iter().any(|level| level == chosen)) {
+            levels.push(chosen.to_string());
+        }
+        levels
+    }
+
+    /// Ask the tool of a CLI provider if it is signed in. Does nothing for
+    /// other providers, and while a check or a sign-in runs.
+    pub fn check_provider_login(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(provider) = self.config.ai.providers.iter().find(|p| p.id == id).cloned() else { return };
+        if !matches!(provider.kind, ProviderKind::ClaudeCli { .. } | ProviderKind::CodexCli { .. }) {
+            return;
+        }
+        let login = self.logins.entry(id.to_string()).or_default();
+        if login.checking || login.sign_in.is_some() {
+            return;
+        }
+        login.checking = true;
+        cx.notify();
+        let key = id.to_string();
+        let checked = provider.config_dir().map(str::to_string);
+        cx.spawn(async move |this, cx| {
+            let status = cx.background_spawn(async move { sayso_enhance::auth_status(&provider, Duration::from_secs(10)) }).await;
+            let _ = this.update(cx, |m, cx| {
+                // The folder changed while the tool ran: the answer is about the old folder.
+                let stale = m.config.ai.providers.iter().find(|p| p.id == key).is_none_or(|p| p.config_dir() != checked.as_deref());
+                let Some(login) = m.logins.get_mut(&key) else { return };
+                login.checking = false;
+                if stale {
+                    m.check_provider_login(&key, cx);
+                    return;
+                }
+                // The names of the models come with the list.
+                let signed_in = matches!(status, Some(sayso_enhance::AuthStatus::SignedIn { .. }));
+                login.status = status;
+                if signed_in {
+                    m.load_provider_models(&key, false, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Start the sign-in of the tool of a CLI provider. The tool opens the
+    /// sign-in page in the browser.
+    pub fn sign_in_provider(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(provider) = self.config.ai.providers.iter().find(|p| p.id == id).cloned() else { return };
+        let login = self.logins.entry(id.to_string()).or_default();
+        if login.sign_in.is_some() {
+            return;
+        }
+        login.url = None;
+        login.error = None;
+        cx.notify();
+        let sign_in = match sayso_enhance::SignIn::start(&provider) {
+            Ok(sign_in) => Arc::new(sign_in),
+            Err(e) => {
+                login.error = Some(LoginError::Start(e.to_string()));
+                return;
+            }
+        };
+        login.sign_in = Some(sign_in.clone());
+        let key = id.to_string();
+        cx.spawn(async move |this, cx| {
+            loop {
+                let waiting = sign_in.clone();
+                let event = cx.background_spawn(async move { waiting.next_event() }).await;
+                let more = matches!(event, Some(sayso_enhance::SignInEvent::Url(_)));
+                let _ = this.update(cx, |m, cx| m.sign_in_event(&key, &sign_in, event, cx));
+                if !more {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn sign_in_event(&mut self, id: &str, sign_in: &Arc<sayso_enhance::SignIn>, event: Option<sayso_enhance::SignInEvent>, cx: &mut Context<Self>) {
+        use sayso_enhance::{AuthStatus, SignInEvent};
+        let Some(login) = self.logins.get_mut(id) else { return };
+        // False after Cancel, and when a newer sign-in runs.
+        let current = login.sign_in.as_ref().is_some_and(|s| Arc::ptr_eq(s, sign_in));
+        match event {
+            Some(SignInEvent::Url(url)) => {
+                if current {
+                    login.url = Some(url);
+                }
+            }
+            Some(SignInEvent::Finished(status)) => {
+                let signed_in = matches!(status, AuthStatus::SignedIn { .. });
+                if current {
+                    login.sign_in = None;
+                    login.url = None;
+                    if !signed_in {
+                        login.error = Some(LoginError::NotFinished);
+                    }
+                }
+                if login.sign_in.is_none() {
+                    login.status = Some(status);
+                }
+                if signed_in {
+                    self.load_provider_models(id, true, cx);
+                }
+            }
+            None => {
+                if current {
+                    login.sign_in = None;
+                    login.url = None;
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Stop the sign-in of a provider, if one runs.
+    pub fn cancel_sign_in(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(login) = self.logins.get_mut(id) else { return };
+        if let Some(sign_in) = login.sign_in.take() {
+            sign_in.cancel();
+            login.url = None;
+            cx.notify();
+        }
+    }
+
+    /// Give the code from the sign-in page to the tool.
+    pub fn send_sign_in_code(&mut self, id: &str, code: &str, cx: &mut Context<Self>) {
+        let Some(login) = self.logins.get_mut(id) else { return };
+        let Some(sign_in) = login.sign_in.clone() else { return };
+        login.error = sign_in.send_code(code.trim()).err().map(|e| LoginError::Code(e.to_string()));
+        cx.notify();
     }
 
     /// Fetch the model list of a saved provider. Without `force`, a list that
@@ -942,13 +1215,20 @@ impl AppModel {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    sayso_enhance::list_provider_models(&provider, secrets.as_ref(), engine.as_deref(), Duration::from_secs(10))
+                    sayso_enhance::list_provider_models(&provider, secrets.as_ref(), engine.as_deref(), Duration::from_secs(10)).map_err(|e| {
+                        // Apple Intelligence: the engine says why it cannot run, as a code the app translates.
+                        let reason = match (&provider.kind, engine.as_deref()) {
+                            (ProviderKind::AppleIntelligence, Some(engine)) => engine.availability().err().and_then(|u| u.reason),
+                            _ => None,
+                        };
+                        (e, reason)
+                    })
                 })
                 .await;
             let _ = this.update(cx, |m, cx| {
                 let list = match result {
                     Ok(models) => ModelList::Ready(models),
-                    Err(e) => ModelList::Failed(e.to_string()),
+                    Err((e, reason)) => ModelList::Failed(e.to_string(), reason),
                 };
                 m.model_lists.insert(key, list);
                 cx.notify();
@@ -959,10 +1239,18 @@ impl AppModel {
 
     /// Choose the model a provider uses when a style does not name one.
     pub fn set_provider_model(&mut self, id: &str, model: String, cx: &mut Context<Self>) {
+        // The new model can have other thinking levels than the old one.
+        let levels = match self.model_lists.get(id) {
+            Some(ModelList::Ready(list)) => list.iter().find(|m| m.id == model).map(|m| m.thinking.clone()),
+            _ => None,
+        };
         let id = id.to_string();
         self.edit_config(cx, move |c| {
             if let Some(p) = c.ai.providers.iter_mut().find(|p| p.id == id) {
                 p.set_model(model);
+                if let Some(levels) = levels {
+                    p.fit_thinking(&levels);
+                }
             }
         });
     }
@@ -1005,8 +1293,10 @@ impl AppModel {
         cx.spawn(async move |this, cx| {
             let found = cx
                 .background_spawn(async move {
+                    let apple = engine.map(|e| e.availability());
                     Detected {
-                        apple_intelligence: engine.and_then(|e| e.model_name().ok()),
+                        apple_intelligence: apple.as_ref().and_then(|a| a.as_ref().ok().cloned()),
+                        apple_unavailable: apple.and_then(|a| a.err()),
                         claude_cli: sayso_enhance::detect_claude_cli(),
                         codex_cli: sayso_enhance::detect_codex_cli(),
                         ollama: sayso_enhance::detect_ollama(Duration::from_millis(600)),
@@ -1162,8 +1452,12 @@ impl AppModel {
             return;
         }
         self.set_incognito(!self.incognito, cx);
-        let text = if self.incognito { INCOGNITO_ON } else { INCOGNITO_OFF };
-        self.blocked_notice = Some((text.to_string(), Instant::now()));
+        let notice = if self.incognito {
+            OverlayNotice::new(NoticeIcon::Incognito, t!("overlay.notice.incognito_on")).with_detail(t!("overlay.notice.incognito_on_detail"))
+        } else {
+            OverlayNotice::new(NoticeIcon::Incognito, t!("overlay.notice.incognito_off")).with_detail(t!("overlay.notice.incognito_off_detail"))
+        };
+        self.blocked_notice = Some(notice);
     }
 
     /// History has a place in the Hub while it is on, or while entries from before remain.
@@ -1216,24 +1510,24 @@ impl AppModel {
         if model.is_remote() {
             // The engine process plays no part in a cloud final pass.
             return match self.status_of(&model.id) {
-                ModelStatus::Ready => ("Ready".into(), format!("{} · Cloud", model.name), |c| c.success),
-                _ => ("No model".into(), "Open Models to choose one".into(), |c| c.danger),
+                ModelStatus::Ready => (t!("app.engine.ready"), t!("app.engine.detail_cloud", model = model.name), |c| c.success),
+                _ => (t!("app.engine.no_model"), t!("app.engine.choose_model"), |c| c.danger),
             };
         }
         if self.services.engine.is_none() || self.engine_down.is_some() {
-            return ("Engine stopped".into(), "Restarting…".into(), |c| c.danger);
+            return (t!("app.engine.stopped"), t!("app.engine.restarting"), |c| c.danger);
         }
         match self.status_of(&model.id) {
-            ModelStatus::Ready => ("Ready".into(), model.name, |c| c.success),
-            ModelStatus::Optimizing => ("Optimizing".into(), model.name, |c| c.accent),
+            ModelStatus::Ready => (t!("app.engine.ready"), model.name, |c| c.success),
+            ModelStatus::Optimizing => (t!("app.engine.optimizing"), model.name, |c| c.accent),
             ModelStatus::Downloading { fraction, .. } => {
-                ("Downloading".into(), format!("{} · {:.0}%", model.name, fraction * 100.0), |c| c.accent)
+                (t!("app.engine.downloading"), t!("app.engine.detail_downloading", model = model.name, percent = format!("{:.0}", fraction * 100.0)), |c| c.accent)
             }
             // The idle time unloaded the model. The next dictation loads it.
-            ModelStatus::Downloaded if self.model_idle => ("Ready".into(), format!("{} · not in memory", model.name), |c| c.success),
-            ModelStatus::Downloaded => ("Loading".into(), model.name, |c| c.accent),
-            ModelStatus::NotDownloaded => ("No model".into(), "Open Models to download".into(), |c| c.danger),
-            ModelStatus::Failed { .. } => ("Model error".into(), model.name, |c| c.danger),
+            ModelStatus::Downloaded if self.model_idle => (t!("app.engine.ready"), t!("app.engine.detail_not_in_memory", model = model.name), |c| c.success),
+            ModelStatus::Downloaded => (t!("app.engine.loading"), model.name, |c| c.accent),
+            ModelStatus::NotDownloaded => (t!("app.engine.no_model"), t!("app.engine.download_model"), |c| c.danger),
+            ModelStatus::Failed { .. } => (t!("app.engine.model_error"), model.name, |c| c.danger),
         }
     }
 

@@ -5,9 +5,10 @@ use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::ink::Rgb;
+use sayso_i18n::t;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::icon;
-use sayso_ui::fonts::{DISPLAY, MONO, UI};
+use sayso_ui::fonts::{DISPLAY, LocaleFonts as _, MONO, UI};
 use sayso_ui::paper::{self, PaperStyled};
 use sayso_ui::{ActivePaper, Colors, text};
 
@@ -42,7 +43,7 @@ pub fn clock(at: chrono::DateTime<chrono::Utc>) -> String {
 /// The time of an entry from today ("9:41"), or the day of an older one ("Sep 30").
 pub fn clock_or_day(at: chrono::DateTime<chrono::Utc>) -> String {
     let local = at.with_timezone(&chrono::Local);
-    if local.date_naive() == chrono::Local::now().date_naive() { clock(at) } else { local.format("%b %-d").to_string() }
+    if local.date_naive() == chrono::Local::now().date_naive() { clock(at) } else { sayso_i18n::dates::day_month_short(&local) }
 }
 
 /// "0:07", "1:32".
@@ -54,26 +55,21 @@ pub fn duration(ms: u64) -> String {
 /// "7 s", "1 min 12 s".
 pub fn duration_words(ms: u64) -> String {
     let s = ((ms + 500) / 1000).max(1);
-    if s < 60 { format!("{s} s") } else { format!("{} min {} s", s / 60, s % 60) }
+    if s < 60 { t!("hub.duration.seconds", seconds = s) } else { t!("hub.duration.minutes_seconds", minutes = s / 60, seconds = s % 60) }
 }
 
 /// "Today", "Yesterday", "Monday, September 28".
 pub fn day_label(day: chrono::NaiveDate) -> String {
     let today = chrono::Local::now().date_naive();
     if day == today {
-        "Today".into()
+        sayso_i18n::dates::today()
     } else if Some(day) == today.pred_opt() {
-        "Yesterday".into()
+        sayso_i18n::dates::yesterday()
     } else if (today - day).num_days() < 300 {
-        day.format("%A, %B %-d").to_string()
+        sayso_i18n::dates::weekday_day_month(&day)
     } else {
-        day.format("%B %-d, %Y").to_string()
+        sayso_i18n::dates::day_month_year(&day)
     }
-}
-
-/// "1 replacement", "3 replacements".
-pub fn plural(n: usize, one: &str, many: &str) -> String {
-    if n == 1 { format!("1 {one}") } else { format!("{n} {many}") }
 }
 
 /// A style or app color from `#RRGGBB`, made readable on dark paper.
@@ -129,7 +125,7 @@ pub fn caps(s: impl Into<SharedString>, size: f32, color: Hsla) -> Div {
 
 /// Fraunces at a reading size, regular weight.
 pub fn fraunces(s: impl Into<SharedString>, size: f32, line: f32, color: Hsla) -> Div {
-    div().font_family(DISPLAY).text_size(px(size)).line_height(px(line)).text_color(color).child(s.into())
+    div().font_family(DISPLAY).locale_fonts(sayso_ui::fonts::Face::Serif).text_size(px(size)).line_height(px(line)).text_color(color).child(s.into())
 }
 
 pub fn mono(s: impl Into<SharedString>, size: f32, color: Hsla) -> Div {
@@ -336,7 +332,7 @@ pub fn icon_button(id: impl Into<ElementId>, ic: Icon, size: f32, cx: &App) -> S
 /// "Cloud" (accent) or "Local" (success) badge in the design's mixed case.
 pub fn place_badge(cloud: bool, cx: &App) -> Div {
     let c = cx.paper().colors;
-    let (bg, fg, label) = if cloud { (c.accent_wash, c.accent, "Cloud") } else { (c.success.opacity(0.14), c.success, "Local") };
+    let (bg, fg, label) = if cloud { (c.accent_wash, c.accent, t!("hub.place.cloud")) } else { (c.success.opacity(0.14), c.success, t!("hub.place.local")) };
     div()
         .flex()
         .flex_none()
@@ -355,6 +351,56 @@ pub fn menu<F>(id: &'static str, items: Vec<(SharedString, bool)>, on_pick: F, o
 where
     F: Fn(usize, &mut Window, &mut App) + 'static,
 {
+    let items = items.into_iter().map(|(label, selected)| MenuItem::new(label).selected(selected)).collect();
+    menu_items(id, items, on_pick, on_close, cx)
+}
+
+/// One line of a [`menu_items`] menu.
+pub struct MenuItem {
+    pub label: SharedString,
+    /// Text on the right, in graphite.
+    pub detail: Option<SharedString>,
+    pub selected: bool,
+    /// The locale of the label, when it is in another language than the
+    /// interface: the label then gets the fonts of that language.
+    pub locale: Option<&'static str>,
+    /// A rule under the line, to set it apart from the lines below.
+    pub rule_after: bool,
+}
+
+impl MenuItem {
+    pub fn new(label: impl Into<SharedString>) -> Self {
+        Self { label: label.into(), detail: None, selected: false, locale: None, rule_after: false }
+    }
+
+    pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    pub fn locale(mut self, locale: &'static str) -> Self {
+        self.locale = Some(locale);
+        self
+    }
+
+    pub fn rule_after(mut self) -> Self {
+        self.rule_after = true;
+        self
+    }
+}
+
+/// A floating menu with details on the right and rules. Place it inside a
+/// `relative()` parent.
+pub fn menu_items<F>(id: &'static str, items: Vec<MenuItem>, on_pick: F, on_close: impl Fn(&mut Window, &mut App) + 'static, cx: &App) -> impl IntoElement
+where
+    F: Fn(usize, &mut Window, &mut App) + 'static,
+{
+    use sayso_ui::fonts::Face;
     let c = cx.paper().colors;
     let on_pick = std::rc::Rc::new(on_pick);
     let mut list = div()
@@ -368,10 +414,13 @@ where
         .rounded(px(10.))
         .bg(c.sheet_raised)
         .shadow(paper::floating(&c))
+        .locale_fonts(Face::Sans)
         .occlude()
         .on_mouse_down_out(move |_, w, cx| on_close(w, cx));
-    for (i, (label, selected)) in items.into_iter().enumerate() {
+    for (i, item) in items.into_iter().enumerate() {
         let f = on_pick.clone();
+        let weight = if item.selected { FontWeight::SEMIBOLD } else { FontWeight::NORMAL };
+        let label = ui(item.label, 13., 16., weight, c.ink).flex_1().min_w_0();
         list = list.child(
             div()
                 .id(i)
@@ -384,9 +433,16 @@ where
                 .cursor_pointer()
                 .hover(|s| s.bg(c.deboss))
                 .on_click(move |_, w, cx| f(i, w, cx))
-                .child(div().w(px(14.)).when(selected, |d| d.child(icon(Icon::Check, 12., c.ink))))
-                .child(ui(label, 13., 16., if selected { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }, c.ink)),
+                .child(div().w(px(14.)).flex_none().when(item.selected, |d| d.child(icon(Icon::Check, 12., c.ink))))
+                .child(match item.locale {
+                    Some(locale) => label.fonts_for(locale, Face::Sans),
+                    None => label,
+                })
+                .when_some(item.detail, |d, detail| d.child(ui(detail, 13., 16., FontWeight::NORMAL, c.graphite).flex_none().ml(px(8.)))),
         );
+        if item.rule_after {
+            list = list.child(div().h(px(1.)).mx(px(10.)).my(px(4.)).bg(c.rule));
+        }
     }
     deferred(anchored().snap_to_window_with_margin(px(8.)).child(div().mt(px(4.)).child(list))).with_priority(2)
 }

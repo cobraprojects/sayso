@@ -19,6 +19,10 @@ fn show(label: &str, kind: ProviderKind) -> Vec<String> {
         ids.len(),
         ids.iter().take(5).collect::<Vec<_>>()
     );
+    for choice in &choices {
+        eprintln!("  {}: thinking {:?}", choice.id, choice.thinking);
+    }
+    assert!(choices.iter().any(|c| c.thinking.iter().any(|level| level == "low")), "no model reports a low thinking level");
     ids
 }
 
@@ -30,6 +34,8 @@ fn claude_lists_models() {
         ProviderKind::ClaudeCli {
             path: None,
             model: "haiku".into(),
+            config_dir: None,
+            thinking: Default::default(),
         },
     );
     assert!(!ids.is_empty());
@@ -49,6 +55,8 @@ fn codex_lists_models() {
         ProviderKind::CodexCli {
             path: None,
             model: None,
+            config_dir: None,
+            thinking: Default::default(),
         },
     );
     assert!(!ids.is_empty());

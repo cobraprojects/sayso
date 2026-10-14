@@ -21,6 +21,37 @@ pub struct EnhanceResponse {
     pub elapsed_ms: u64,
     /// How the schema was enforced, for example "json_schema" or "tool_call".
     pub mode: String,
+    /// What the provider said about its own run. None when it says nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<ProviderReport>,
+}
+
+/// The numbers a provider gives about one run. `elapsed_ms` of the response
+/// minus `run_ms` is the time the tool needed to start and to stop.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProviderReport {
+    /// The length of the run, as the tool measured it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_ms: Option<u64>,
+    /// The API time, as the tool counts it. It can be more than `run_ms`,
+    /// because the tool adds the times of calls that ran together.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_ms: Option<u64>,
+    /// The number of model turns. The Claude tool gives 2 for a usual run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turns: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+    /// The part of the output tokens that the model used to think.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -41,21 +72,6 @@ pub enum EnhanceError {
     Cli(String),
 }
 
-impl EnhanceError {
-    /// Short text for the overlay, for example "timed out after 4 s".
-    pub fn short(&self) -> String {
-        match self {
-            EnhanceError::Timeout(ms) => format!("timed out after {} s", (*ms as f64 / 1000.0).round() as u64),
-            EnhanceError::NotConfigured(_) => "is not set up".into(),
-            EnhanceError::Http { status, .. } => format!("returned HTTP {status}"),
-            EnhanceError::Network(_) => "could not be reached".into(),
-            EnhanceError::InvalidOutput(_) => "returned text in the wrong format".into(),
-            EnhanceError::Refused(_) => "refused the request".into(),
-            EnhanceError::Cli(_) => "failed".into(),
-        }
-    }
-}
-
 /// One model a provider offers, for the model picker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelChoice {
@@ -65,6 +81,10 @@ pub struct ModelChoice {
     pub name: String,
     /// A short note from the provider, for example "Fastest for quick answers".
     pub description: Option<String>,
+    /// The thinking levels of the model, from the least thinking to the most.
+    /// Empty when the model has none, and when the provider does not say.
+    #[serde(default)]
+    pub thinking: Vec<String>,
 }
 
 /// An AI provider. Calls block. Run them on a background thread.
@@ -82,11 +102,32 @@ pub struct Generated {
     pub model: String,
 }
 
+/// Why the language model of the engine cannot run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unavailable {
+    /// The stable code, when the engine sent a known one.
+    pub reason: Option<crate::stt::EngineReason>,
+    /// The English detail from the engine.
+    pub message: String,
+}
+
 /// A language model that the engine runs on this computer, for example Apple
 /// Intelligence on macOS. Calls block. Run them on a background thread.
 pub trait LanguageModel: Send + Sync {
     /// The name of the model when it can run. `NotConfigured` says why it cannot.
     fn model_name(&self) -> Result<String, EnhanceError>;
+    /// Like `model_name`, but a model that cannot run gives the reason code of the
+    /// engine too, so the app can translate it. An engine that sends no code gives
+    /// `None`.
+    fn availability(&self) -> Result<String, Unavailable> {
+        self.model_name().map_err(|e| Unavailable {
+            reason: None,
+            message: match e {
+                EnhanceError::NotConfigured(message) => message,
+                other => other.to_string(),
+            },
+        })
+    }
     /// Run the model. The engine binds the reply to the `text` field of the schema.
     fn generate(
         &self,
@@ -195,10 +236,5 @@ mod tests {
         assert!(parse_output(r#"{"text": 3}"#).is_err());
         assert!(parse_output(r#"{"text": "  "}"#).is_err());
         assert!(parse_output(r#"["text"]"#).is_err());
-    }
-
-    #[test]
-    fn short_messages_read_well() {
-        assert_eq!(EnhanceError::Timeout(4000).short(), "timed out after 4 s");
     }
 }

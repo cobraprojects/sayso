@@ -12,6 +12,7 @@ use crate::model::AppModel;
 use gpui_kit::*;
 use sayso_core::config::Config;
 use sayso_core::hotkey::Hotkey;
+use sayso_i18n::t;
 use sayso_platform::{ConflictSource, HotkeyConflict};
 use std::time::{Duration, Instant};
 
@@ -46,17 +47,48 @@ impl Slot {
     }
 
     /// Another Sayso action that already uses `hotkey`.
-    pub fn clash(self, c: &Config, hotkey: &Hotkey) -> Option<&'static str> {
-        [
-            (Slot::Toggle, "Start and stop dictation"),
-            (Slot::PushToTalk, "Push to talk"),
-            (Slot::PasteLast, "Paste last text"),
-            (Slot::CycleStyle, "Next style"),
-            (Slot::Incognito, "Incognito"),
-        ]
-        .into_iter()
-        .find(|(s, _)| *s != self && s.get(c).as_ref() == Some(hotkey))
-        .map(|(_, name)| name)
+    pub fn clash(self, c: &Config, hotkey: &Hotkey) -> Option<Slot> {
+        [Slot::Toggle, Slot::PushToTalk, Slot::PasteLast, Slot::CycleStyle, Slot::Incognito]
+            .into_iter()
+            .find(|s| *s != self && s.get(c).as_ref() == Some(hotkey))
+    }
+
+    /// The name of the action, for sentences.
+    fn label(self) -> String {
+        match self {
+            Slot::Toggle => t!("settings.recorder.action_toggle"),
+            Slot::PushToTalk => t!("settings.recorder.action_push_to_talk"),
+            Slot::PasteLast => t!("settings.recorder.action_paste_last"),
+            Slot::CycleStyle => t!("settings.recorder.action_cycle_style"),
+            Slot::Incognito => t!("settings.recorder.action_incognito"),
+        }
+    }
+}
+
+/// Why a recorded key was not saved. The recorder keeps this, not the text,
+/// so the note changes with the interface language.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Note {
+    /// A modifier key on its own, for an action other than push to talk.
+    SoloOnlyForPushToTalk(Hotkey),
+    /// Another Sayso action uses the key.
+    UsedBy(Hotkey, Slot),
+}
+
+impl Note {
+    pub fn text(&self) -> String {
+        match self {
+            Note::SoloOnlyForPushToTalk(hk) => {
+                t!("settings.recorder.solo_only_push_to_talk", keys = words(hk), example = words(&Hotkey::toggle_default()))
+            }
+            Note::UsedBy(hk, other) => t!("settings.recorder.used_by", keys = words(hk), action = other.label()),
+        }
+    }
+}
+
+impl From<Note> for SharedString {
+    fn from(note: Note) -> Self {
+        note.text().into()
     }
 }
 
@@ -66,7 +98,7 @@ pub struct Recorder {
     /// The system listener is not available, so only keys in this window count.
     pub window_only: bool,
     /// A message after the last attempt, for example "Already used by ...".
-    pub note: Option<String>,
+    pub note: Option<Note>,
     generation: u64,
     pub focus: FocusHandle,
     conflicts: Vec<(Option<Hotkey>, Instant, Vec<HotkeyConflict>)>,
@@ -159,10 +191,24 @@ pub fn start<V: 'static>(
     cx.notify();
 }
 
-/// Save a recorded key unless another Sayso action uses it. Returns a note for the UI.
-fn finish(m: &mut AppModel, slot: Slot, hk: Hotkey, cx: &mut Context<AppModel>) -> Option<String> {
+/// Why `slot` cannot use `hk`, as a note for the UI. Only push-to-talk can
+/// use a modifier key on its own: the other actions register system hotkeys,
+/// and those need a chord.
+fn unusable(slot: Slot, hk: &Hotkey) -> Option<Note> {
+    match hk {
+        Hotkey::Solo(_) if slot != Slot::PushToTalk => Some(Note::SoloOnlyForPushToTalk(*hk)),
+        _ => None,
+    }
+}
+
+/// Save a recorded key unless the action cannot use it or another Sayso
+/// action uses it. Returns a note for the UI.
+fn finish(m: &mut AppModel, slot: Slot, hk: Hotkey, cx: &mut Context<AppModel>) -> Option<Note> {
+    if let Some(note) = unusable(slot, &hk) {
+        return Some(note);
+    }
     if let Some(other) = slot.clash(&m.config, &hk) {
-        return Some(format!("{} is already used by {other}. Choose another key.", words(&hk)));
+        return Some(Note::UsedBy(hk, other));
     }
     slot.apply(m, Some(hk), cx);
     None
@@ -253,20 +299,117 @@ pub fn words(hk: &Hotkey) -> String {
 pub fn conflict_text(c: &HotkeyConflict, open_app: bool) -> String {
     let keys = words(&c.hotkey);
     match &c.source {
-        ConflictSource::App { name, confirmed: true, .. } => {
-            format!("{name} also uses {keys}. Both apps will react. Choose another key, or change the shortcut in {name}.")
-        }
-        ConflictSource::App { name, confirmed: false, .. } => {
-            let open = if open_app { " is open and" } else { "" };
-            format!(
-                "{name}{open} uses {keys} by default. If you did not change it in {name}, both apps will react. Choose another key, or change the shortcut in {name}."
-            )
-        }
-        ConflictSource::System { name, .. } if cfg!(windows) => format!("Windows uses {keys} for {name}. Choose another key."),
-        ConflictSource::System { name, .. } => format!(
-            "{system} uses {keys} for {name}. Choose another key, or turn the shortcut off in {settings}.",
-            system = crate::shell::os_text!("macOS", "Your desktop"),
-            settings = crate::shell::os_text!("System Settings › Keyboard › Keyboard Shortcuts", "the keyboard settings of your desktop"),
+        ConflictSource::App { name, confirmed: true, .. } => t!("settings.recorder.conflict_app", name = name, keys = keys),
+        ConflictSource::App { name, confirmed: false, .. } if open_app => t!("settings.recorder.conflict_app_open_default", name = name, keys = keys),
+        ConflictSource::App { name, confirmed: false, .. } => t!("settings.recorder.conflict_app_default", name = name, keys = keys),
+        ConflictSource::System { name, .. } => t!(
+            crate::shell::os_text!("settings.recorder.conflict_system_mac", "settings.recorder.conflict_system_windows", "settings.recorder.conflict_system_other"),
+            keys = keys,
+            name = shortcut_name(name)
         ),
+    }
+}
+
+/// The name of a system shortcut in the interface language. The platform
+/// crates give the English name (it is also in the log); a name that is not
+/// here, such as a product name, stays as it is.
+fn shortcut_name(name: &str) -> String {
+    match name {
+        "Spotlight search" => t!("settings.recorder.shortcut.spotlight_search"),
+        "Finder search window" => t!("settings.recorder.shortcut.finder_search_window"),
+        "Select previous input source" => t!("settings.recorder.shortcut.select_previous_input_source"),
+        "Select next input source" => t!("settings.recorder.shortcut.select_next_input_source"),
+        "Emoji & Symbols" => t!("settings.recorder.shortcut.emoji_symbols"),
+        "Application windows" => t!("settings.recorder.shortcut.application_windows"),
+        "Move left a space" => t!("settings.recorder.shortcut.move_left_a_space"),
+        "Move right a space" => t!("settings.recorder.shortcut.move_right_a_space"),
+        "Screenshot (whole screen)" => t!("settings.recorder.shortcut.screenshot_whole_screen"),
+        "Screenshot (selection)" => t!("settings.recorder.shortcut.screenshot_selection"),
+        "Screenshot and recording options" => t!("settings.recorder.shortcut.screenshot_and_recording_options"),
+        "Move focus to next window of the app" => t!("settings.recorder.shortcut.move_focus_to_next_window_of_the_app"),
+        "Dock: turn hiding on or off" => t!("settings.recorder.shortcut.dock_turn_hiding_on_or_off"),
+        "A macOS keyboard shortcut" => t!("settings.recorder.shortcut.a_macos_keyboard_shortcut"),
+        "Window menu" => t!("settings.recorder.shortcut.window_menu"),
+        "Switch apps" => t!("settings.recorder.shortcut.switch_apps"),
+        "Close window" => t!("settings.recorder.shortcut.close_window"),
+        "Cycle through windows" => t!("settings.recorder.shortcut.cycle_through_windows"),
+        "Start menu" => t!("settings.recorder.shortcut.start_menu"),
+        "Task Manager" => t!("settings.recorder.shortcut.task_manager"),
+        "Switch input language" => t!("settings.recorder.shortcut.switch_input_language"),
+        "Previous input language" => t!("settings.recorder.shortcut.previous_input_language"),
+        "Task view" => t!("settings.recorder.shortcut.task_view"),
+        "Close Magnifier" => t!("settings.recorder.shortcut.close_magnifier"),
+        "Sound output" => t!("settings.recorder.shortcut.sound_output"),
+        "Color filters" => t!("settings.recorder.shortcut.color_filters"),
+        "New virtual desktop" => t!("settings.recorder.shortcut.new_virtual_desktop"),
+        "Close virtual desktop" => t!("settings.recorder.shortcut.close_virtual_desktop"),
+        "Narrator settings" => t!("settings.recorder.shortcut.narrator_settings"),
+        "On-Screen Keyboard" => t!("settings.recorder.shortcut.on_screen_keyboard"),
+        "Quick Assist" => t!("settings.recorder.shortcut.quick_assist"),
+        "Narrator" => t!("settings.recorder.shortcut.narrator"),
+        "Restart the graphics driver" => t!("settings.recorder.shortcut.restart_the_graphics_driver"),
+        "Restore minimized windows" => t!("settings.recorder.shortcut.restore_minimized_windows"),
+        "Snipping Tool screen recording" => t!("settings.recorder.shortcut.snipping_tool_screen_recording"),
+        "Snipping Tool" => t!("settings.recorder.shortcut.snipping_tool"),
+        "HDR on or off" => t!("settings.recorder.shortcut.hdr_on_or_off"),
+        "Date and time" => t!("settings.recorder.shortcut.date_and_time"),
+        "Mute the microphone in a call" => t!("settings.recorder.shortcut.mute_the_microphone_in_a_call"),
+        "Game Bar recording" => t!("settings.recorder.shortcut.game_bar_recording"),
+        "Reserved for debuggers" => t!("settings.recorder.shortcut.reserved_for_debuggers"),
+        "Quick Settings" => t!("settings.recorder.shortcut.quick_settings"),
+        "Notification area" => t!("settings.recorder.shortcut.notification_area"),
+        "Show the desktop" => t!("settings.recorder.shortcut.show_the_desktop"),
+        "File Explorer" => t!("settings.recorder.shortcut.file_explorer"),
+        "Feedback Hub" => t!("settings.recorder.shortcut.feedback_hub"),
+        "Game Bar" => t!("settings.recorder.shortcut.game_bar"),
+        "Voice typing" => t!("settings.recorder.shortcut.voice_typing"),
+        "Settings" => t!("settings.recorder.shortcut.settings"),
+        "A Windows shortcut" => t!("settings.recorder.shortcut.a_windows_shortcut"),
+        "Cast" => t!("settings.recorder.shortcut.cast"),
+        "Lock the PC" => t!("settings.recorder.shortcut.lock_the_pc"),
+        "Minimize all windows" => t!("settings.recorder.shortcut.minimize_all_windows"),
+        "Notification center" => t!("settings.recorder.shortcut.notification_center"),
+        "Lock the screen rotation" => t!("settings.recorder.shortcut.lock_the_screen_rotation"),
+        "Project to a screen" => t!("settings.recorder.shortcut.project_to_a_screen"),
+        "Search" => t!("settings.recorder.shortcut.search"),
+        "Run" => t!("settings.recorder.shortcut.run"),
+        "Taskbar apps" => t!("settings.recorder.shortcut.taskbar_apps"),
+        "Accessibility settings" => t!("settings.recorder.shortcut.accessibility_settings"),
+        "Clipboard history" => t!("settings.recorder.shortcut.clipboard_history"),
+        "Widgets" => t!("settings.recorder.shortcut.widgets"),
+        "Quick Link menu" => t!("settings.recorder.shortcut.quick_link_menu"),
+        "Snap layouts" => t!("settings.recorder.shortcut.snap_layouts"),
+        "Open a taskbar app" => t!("settings.recorder.shortcut.open_a_taskbar_app"),
+        "the window menu" => t!("settings.recorder.shortcut.the_window_menu"),
+        "Switch input source" => t!("settings.recorder.shortcut.switch_input_source"),
+        "Switch applications" => t!("settings.recorder.shortcut.switch_applications"),
+        "the Run a command dialog" => t!("settings.recorder.shortcut.the_run_a_command_dialog"),
+        "the notification list" => t!("settings.recorder.shortcut.the_notification_list"),
+        "Show all apps" => t!("settings.recorder.shortcut.show_all_apps"),
+        "Launch terminal" => t!("settings.recorder.shortcut.launch_terminal"),
+        "Lock screen" => t!("settings.recorder.shortcut.lock_screen"),
+        "Walk through windows" => t!("settings.recorder.shortcut.walk_through_windows"),
+        "Lock session" => t!("settings.recorder.shortcut.lock_session"),
+        "Launch Konsole" => t!("settings.recorder.shortcut.launch_konsole"),
+        "Switch windows" => t!("settings.recorder.shortcut.switch_windows"),
+        "the Run dialog" => t!("settings.recorder.shortcut.the_run_dialog"),
+        other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Not `super::*`: the GPUI glob has its own `test` macro.
+    use super::{Note, Slot, unusable};
+    use sayso_core::hotkey::{Hotkey, SoloModifier};
+
+    #[test]
+    fn solo_modifier_is_only_for_push_to_talk() {
+        let solo = Hotkey::Solo(SoloModifier::RightOption);
+        assert_eq!(unusable(Slot::PushToTalk, &solo), None);
+        for slot in [Slot::Toggle, Slot::PasteLast, Slot::CycleStyle, Slot::Incognito] {
+            assert_eq!(unusable(slot, &solo), Some(Note::SoloOnlyForPushToTalk(solo)));
+        }
+        assert_eq!(unusable(Slot::Toggle, &Hotkey::toggle_default()), None);
     }
 }

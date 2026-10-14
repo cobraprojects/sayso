@@ -74,6 +74,12 @@ impl Render for Gallery {
                             .child(div().w(px(150.)).h(px(36.)).child(ink_line((t * 0.3).fract(), c.ink, c.pencil).size_full()))
                             .child(div().w(px(200.)).h(px(40.)).child(audio_bars((0..48).map(|i| ((i as f32 * 0.5).sin().abs() * 255.) as u8).collect(), 0.4, c.ink, c.deboss_shade).size_full())),
                     )
+                    .child(
+                        // The pen line of the thinking level, at each of five levels.
+                        div().flex().flex_wrap().gap(px(24.)).p(px(16.)).rounded(px(12.)).bg(c.sheet).children(
+                            (0..5).map(|i| div().w(px(304.)).h(px(pen_line_height(304.))).child(pen_line(i as f32 / 4., 5, i, i == 3, &c).size_full())),
+                        ),
+                    )
                     .child(div().w(px(220.)).child(NavItem::new("n1", Icon::Home, "Home", true)))
                     .child(div().w(px(220.)).child(NavItem::new("n2", Icon::History, "History", false)))
                     .child(Banner::new(BannerKind::Warning, "ChatGPT also uses Option+Space. Both apps will react."))

@@ -10,7 +10,9 @@ use crate::app::Windows;
 use crate::model::AppModel;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_core::paths::Paths;
+use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
@@ -178,7 +180,7 @@ fn open_release(model: &Entity<AppModel>, release: Option<Release>, cx: &mut App
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
-                title: Some("What is new in Sayso".into()),
+                title: Some(t!("whats_new.window_title").into()),
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(18.), px(18.))),
             }),
@@ -285,13 +287,15 @@ impl WhatsNewView {
 impl Render for WhatsNewView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = cx.paper().colors;
+        // The title follows a change of language.
+        window.set_window_title(&t!("whats_new.window_title"));
         let release = &self.release;
         let notes = crate::update_ui::release_notes(&release.version);
         let heading = div()
             .flex()
             .flex_col()
             .gap(px(10.))
-            .child(text::ui(format!("NEW IN SAYSO {}", release.version), 12., FontWeight::SEMIBOLD, c.accent).line_height(px(16.)))
+            .child(text::ui(t!("whats_new.heading", version = release.version), 12., FontWeight::SEMIBOLD, c.accent).line_height(px(16.)))
             .child(text::title(release.title.clone(), 36., &c).line_height(px(42.)));
         let items = div().flex().flex_col().gap(px(20.)).children(release.item.iter().map(|item| Self::item(item, &c)));
         let footer = div()
@@ -309,9 +313,9 @@ impl Render for WhatsNewView {
                     .id("whats-new-all")
                     .cursor_pointer()
                     .on_click(move |_, _, _| crate::shell::open(&notes))
-                    .child(text::ui("See all changes on GitHub", 13., FontWeight::SEMIBOLD, c.accent)),
+                    .child(text::ui(t!("whats_new.all_changes"), 13., FontWeight::SEMIBOLD, c.accent)),
             )
-            .child(Button::new("whats-new-done", "Done").primary().large().on_click(|_, window, cx| close(window, cx)));
+            .child(Button::new("whats-new-done", t!("whats_new.done")).primary().large().on_click(|_, window, cx| close(window, cx)));
         div()
             .relative()
             .size_full()
@@ -321,6 +325,7 @@ impl Render for WhatsNewView {
             .pt(px(crate::caption::top_margin(10.)))
             .bg(c.ground)
             .font_family(sayso_ui::fonts::UI)
+            .locale_fonts(Face::Sans)
             .text_color(c.ink)
             .child(grain(Grain::Board, px(0.), cx))
             .child(

@@ -3,12 +3,39 @@
 //! Windows. Pause stops the sound and keeps the position.
 
 use std::io::Write;
+use sayso_i18n::t;
 use std::path::PathBuf;
 #[cfg(not(windows))]
 use std::process::{Child, Stdio};
 use std::time::Instant;
 
 const RATE: u32 = sayso_core::stt::SAMPLE_RATE;
+
+/// Why playback did not start. It keeps the reason, not the sentence, so it
+/// changes with the language.
+pub enum PlayError {
+    Prepare(String),
+    #[cfg(not(windows))]
+    NoPlayer,
+    #[cfg(not(windows))]
+    Play(String),
+    #[cfg(windows)]
+    PlayFailed,
+}
+
+impl PlayError {
+    pub fn text(&self) -> String {
+        match self {
+            PlayError::Prepare(e) => t!("history.player.prepare_failed", error = e),
+            #[cfg(not(windows))]
+            PlayError::NoPlayer => t!("history.player.no_player"),
+            #[cfg(not(windows))]
+            PlayError::Play(e) => t!("history.player.play_failed", error = e),
+            #[cfg(windows)]
+            PlayError::PlayFailed => t!("history.player.play_failed_plain"),
+        }
+    }
+}
 
 pub struct Playing {
     pub entry: i64,
@@ -27,25 +54,25 @@ pub struct Playing {
 
 impl Playing {
     /// Start playback of `samples` (16 kHz mono) at `from_ms`.
-    pub fn start(entry: i64, samples: &[f32], from_ms: u64) -> Result<Self, String> {
+    pub fn start(entry: i64, samples: &[f32], from_ms: u64) -> Result<Self, PlayError> {
         let skip = ((from_ms * RATE as u64) / 1000) as usize;
         let slice = samples.get(skip.min(samples.len())..).unwrap_or(&[]);
         let path = temp_path(entry);
-        write_wav(&path, slice).map_err(|e| format!("Could not prepare the audio: {e}"))?;
+        write_wav(&path, slice).map_err(|e| PlayError::Prepare(e.to_string()))?;
         #[cfg(not(windows))]
-        let mut player = crate::shell::audio_player().ok_or("No audio player is installed.")?;
+        let mut player = crate::shell::audio_player().ok_or(PlayError::NoPlayer)?;
         #[cfg(not(windows))]
         let child = player
             .arg(&path)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| format!("Could not play the audio: {e}"))?;
+            .map_err(|e| PlayError::Play(e.to_string()))?;
         #[cfg(windows)]
         let sound = CURRENT_SOUND.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         #[cfg(windows)]
         if !crate::shell::play_wav(&path) {
-            return Err("Could not play the audio.".into());
+            return Err(PlayError::PlayFailed);
         }
         Ok(Playing {
             entry,

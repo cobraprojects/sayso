@@ -1,0 +1,8 @@
+_version: 1
+
+language:
+  en: "英語"
+  es: "スペイン語"
+  pt-BR: "ポルトガル語"
+  zh-CN: "中国語（簡体字）"
+  ja: "日本語"

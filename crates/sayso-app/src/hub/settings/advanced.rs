@@ -4,6 +4,7 @@ use super::kit::{self, group, row};
 use crate::model::AppModel;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_ui::ActivePaper;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
@@ -62,17 +63,21 @@ impl Render for AdvancedSettings {
 
         let keep_index = KEEP_MINUTES.iter().position(|k| *k == m.config.dictation.keep_model_minutes).unwrap_or(0);
         let m2 = self.model.clone();
-        let keep = Segmented::new("keep-model", ["Always", "5 minutes", "15 minutes", "1 hour"], keep_index).on_select(move |i, _, cx| {
+        let keep = Segmented::new("keep-model", [
+            t!("settings.advanced.keep_always"),
+            t!("settings.advanced.keep_minutes", count = 5),
+            t!("settings.advanced.keep_minutes", count = 15),
+            t!("settings.advanced.keep_hour"),
+        ], keep_index).on_select(move |i, _, cx| {
             m2.update(cx, |m, cx| m.edit_config(cx, |c| c.dictation.keep_model_minutes = KEEP_MINUTES[i]));
         });
-        let mut keep_desc =
-            "With a time, Sayso unloads the speech model after that time without a dictation. The first dictation after that takes longer to start writing."
-                .to_string();
         // One model for the final pass and the live preview: the preview waits for the load too.
         // The Linux engine keeps the live preview of such a model in memory.
-        if !cfg!(target_os = "linux") && m.preview_model().as_ref() == Some(&m.config.dictation.model) {
-            keep_desc.push_str(" The live preview of that dictation also starts later.");
-        }
+        let keep_desc = if !cfg!(target_os = "linux") && m.preview_model().as_ref() == Some(&m.config.dictation.model) {
+            t!("settings.advanced.keep_detail_preview")
+        } else {
+            t!("settings.advanced.keep_detail")
+        };
 
         let m3 = self.model.clone();
         let preload = Switch::new("preload-model", m.config.dictation.preload_model)
@@ -90,35 +95,35 @@ impl Render for AdvancedSettings {
             .text_size(px(12.))
             .child(Input::new(&self.engine).appearance(false).w_full());
 
-        let mut engine = group("Engine", cx).child(row(
-            "Engine path",
-            "A custom SaysoEngine binary. Leave empty to use the one in the app. Takes effect when Sayso starts again.",
+        let mut engine = group(&t!("settings.advanced.engine"), cx).child(row(
+            &t!("settings.advanced.engine_path"),
+            &t!("settings.advanced.engine_path_detail"),
             field,
             cx,
         ));
         if engine_missing {
-            engine = engine.child(kit::banner(BannerKind::Warning, "No file exists at this path. Check the path, or clear the field to use the bundled engine.", cx));
+            engine = engine.child(kit::banner(BannerKind::Warning, t!("settings.advanced.engine_missing"), cx));
         } else if self.engine_saved {
-            engine = engine.child(kit::banner(BannerKind::Info, "Saved. Quit Sayso and open it again to use this engine.", cx));
+            engine = engine.child(kit::banner(BannerKind::Info, t!("settings.advanced.engine_saved"), cx));
         }
         engine = engine.child(row(
-            "Load the model when Sayso starts",
-            "The first dictation does not wait for the speech model. When this is off, the first dictation loads the model, and Sayso uses less memory until then.",
+            &t!("settings.advanced.preload"),
+            &t!("settings.advanced.preload_detail"),
             preload,
             cx,
         ));
-        engine = engine.child(kit::row_s("Keep the model in memory".into(), keep_desc, keep, cx));
-        engine = engine.child(row("Log level", "How much Sayso writes to its log. Takes effect when Sayso starts again.", levels, cx));
+        engine = engine.child(kit::row_s(t!("settings.advanced.keep"), keep_desc, keep, cx));
+        engine = engine.child(row(&t!("settings.advanced.log_level"), &t!("settings.advanced.log_level_detail"), levels, cx));
 
         let log_dir = paths.log_dir();
-        let folders = group("Folders", cx)
-            .child(kit::path_row("reveal-config", "Config", &paths.config_dir, cx))
-            .child(kit::path_row("reveal-data", "Data (history, audio, models)", &paths.data_dir, cx))
-            .child(kit::path_row("reveal-cache", "Cache", &paths.cache_dir, cx))
+        let folders = group(&t!("settings.advanced.folders"), cx)
+            .child(kit::path_row("reveal-config", &t!("settings.advanced.folder_config"), &paths.config_dir, cx))
+            .child(kit::path_row("reveal-data", &t!("settings.advanced.folder_data"), &paths.data_dir, cx))
+            .child(kit::path_row("reveal-cache", &t!("settings.advanced.folder_cache"), &paths.cache_dir, cx))
             .child(row(
-                "Logs",
-                "Attach sayso.log when you report a problem.",
-                Button::new("open-logs", "Open logs folder").small().on_click(move |_, _, _| {
+                &t!("settings.advanced.logs"),
+                &t!("settings.advanced.logs_detail"),
+                Button::new("open-logs", t!("settings.advanced.open_logs")).small().on_click(move |_, _, _| {
                     let _ = std::fs::create_dir_all(&log_dir);
                     AppModel::open_path(&log_dir);
                 }),
@@ -127,8 +132,8 @@ impl Render for AdvancedSettings {
 
         kit::page(
             "advanced-page",
-            "Advanced",
-            "Engine, logs, experiments, and where Sayso keeps its files.",
+            &t!("settings.advanced.title"),
+            &t!("settings.advanced.subtitle"),
             kit::body().child(engine).child(folders),
             cx,
         )

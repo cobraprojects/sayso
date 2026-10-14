@@ -1,6 +1,6 @@
 //! The type scale from the design file.
 
-use crate::fonts::{DISPLAY, MONO, SERIF, UI};
+use crate::fonts::{DISPLAY, Face, LocaleFonts as _, MONO, SERIF, UI};
 use crate::theme::Colors;
 use gpui_kit::*;
 
@@ -12,7 +12,7 @@ pub fn display(text: impl Into<SharedString>, size: f32, c: &Colors) -> Div {
     let text: SharedString = text.into();
     let base = |color: Hsla| {
         div()
-            .font_family(DISPLAY)
+            .font_family(DISPLAY).locale_fonts(Face::Serif)
             .text_size(px(size))
             .line_height(px((size * 1.08).round()))
             .font_weight(FontWeight::SEMIBOLD)
@@ -48,7 +48,7 @@ pub fn body(text: impl Into<SharedString>, c: &Colors) -> Div {
 
 /// Reading serif for transcripts.
 pub fn serif(text: impl Into<SharedString>, size: f32, color: Hsla) -> Div {
-    div().font_family(SERIF).text_size(px(size)).line_height(px((size * 1.42).round())).text_color(color).child(text.into())
+    div().font_family(SERIF).locale_fonts(Face::Serif).text_size(px(size)).line_height(px((size * 1.42).round())).text_color(color).child(text.into())
 }
 
 pub fn mono(text: impl Into<SharedString>, size: f32, color: Hsla) -> Div {
@@ -58,7 +58,7 @@ pub fn mono(text: impl Into<SharedString>, size: f32, color: Hsla) -> Div {
 /// A display serif title smaller than [`display`], without the highlight.
 pub fn title(text: impl Into<SharedString>, size: f32, c: &Colors) -> Div {
     div()
-        .font_family(DISPLAY)
+        .font_family(DISPLAY).locale_fonts(Face::Serif)
         .text_size(px(size))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(c.ink)

@@ -18,8 +18,10 @@ use crate::model::AppModel;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_core::stt::ModelStatus;
 use sayso_platform::{CaptureHandle, Permission, PermissionState};
+use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::ActivePaper;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
@@ -46,6 +48,8 @@ pub struct OnboardingView {
     all_models: all_models::AllModels,
     practice: practice::Practice,
     show_why: bool,
+    /// The locale of the placeholders of the inputs, which keep their text.
+    locale: String,
     /// The window has no room for two columns (set at each render).
     narrow: bool,
     _observe: Subscription,
@@ -60,7 +64,7 @@ struct Footer {
     label: String,
     enabled: bool,
     /// A ghost action left of the primary button, for example "Skip for now".
-    skip: Option<&'static str>,
+    skip: Option<String>,
 }
 
 impl OnboardingView {
@@ -83,6 +87,7 @@ impl OnboardingView {
             all_models,
             practice,
             show_why: false,
+            locale: sayso_i18n::locale(),
             narrow: false,
             _observe: observe,
         };
@@ -145,25 +150,25 @@ impl OnboardingView {
     fn footer_for(&self, cx: &App) -> Footer {
         let m = self.model.read(cx);
         match self.step {
-            0 => Footer { label: "Get started".into(), enabled: true, skip: None },
+            0 => Footer { label: t!("onboarding.footer.get_started"), enabled: true, skip: None },
             // A downloaded model is required: dictation cannot work without one.
             1 => match m.status_of(&m.config.dictation.model) {
-                s if s.is_on_disk() => Footer { label: "Continue".into(), enabled: true, skip: None },
+                s if s.is_on_disk() => Footer { label: t!("onboarding.footer.continue"), enabled: true, skip: None },
                 ModelStatus::Downloading { fraction, .. } => {
-                    Footer { label: format!("Downloading {:.0}%", fraction * 100.0), enabled: false, skip: None }
+                    Footer { label: t!("onboarding.footer.downloading", percent = format!("{:.0}", fraction * 100.0)), enabled: false, skip: None }
                 }
-                _ => Footer { label: "Download".into(), enabled: true, skip: None },
+                _ => Footer { label: t!("onboarding.footer.download"), enabled: true, skip: None },
             },
             // Continue saves the selected provider. Skip leaves AI off.
-            2 => Footer { label: "Continue".into(), enabled: self.ai_choice(cx).is_some(), skip: Some("Skip for now") },
+            2 => Footer { label: t!("onboarding.footer.continue"), enabled: self.ai_choice(cx).is_some(), skip: Some(t!("onboarding.footer.skip")) },
             3 => {
                 let both = m.permission(Permission::Microphone) == PermissionState::Granted
                     && m.permission(Permission::Accessibility) == PermissionState::Granted;
-                Footer { label: "Continue".into(), enabled: both, skip: (!both).then_some("Skip for now") }
+                Footer { label: t!("onboarding.footer.continue"), enabled: both, skip: (!both).then(|| t!("onboarding.footer.skip")) }
             }
-            5 => Footer { label: "Finish".into(), enabled: true, skip: None },
-            6 => Footer { label: "Open Sayso".into(), enabled: true, skip: None },
-            _ => Footer { label: "Continue".into(), enabled: true, skip: None },
+            5 => Footer { label: t!("onboarding.footer.finish"), enabled: true, skip: None },
+            6 => Footer { label: t!("onboarding.footer.open_sayso"), enabled: true, skip: None },
+            _ => Footer { label: t!("onboarding.footer.continue"), enabled: true, skip: None },
         }
     }
 
@@ -194,6 +199,17 @@ impl OnboardingView {
             Ok(h) => self.meter = Some(h),
             Err(e) => self.meter_error = Some(e),
         }
+    }
+
+    /// The inputs keep their placeholder, so it changes with the language.
+    fn refresh_placeholders(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.locale == sayso_i18n::locale() {
+            return;
+        }
+        self.locale = sayso_i18n::locale();
+        self.ai.key.update(cx, |s, cx| s.set_placeholder(t!("onboarding.ai.key_placeholder"), window, cx));
+        self.all_models.filter.update(cx, |s, cx| s.set_placeholder(t!("onboarding.all_models.filter_placeholder"), window, cx));
+        self.practice.field.update(cx, |s, cx| s.set_placeholder(t!("onboarding.practice.placeholder"), window, cx));
     }
 
     // -----------------------------------------------------------------------
@@ -231,7 +247,7 @@ impl OnboardingView {
             };
             trail = trail.child(dot);
         }
-        let step = text::ui(format!("Step {} of {STEPS}", self.step + 1), 12., FontWeight::NORMAL, c.graphite).w(px(120.)).flex_none();
+        let step = text::ui(t!("onboarding.step", step = self.step + 1, total = STEPS), 12., FontWeight::NORMAL, c.graphite).w(px(120.)).flex_none();
         let header = div().id("onboarding-title").flex().flex_none().items_center().h(px(52.)).px(px(18.));
         if crate::chrome::is_custom(window) {
             // The custom title bar (Linux): the header moves the window, and
@@ -261,7 +277,7 @@ impl OnboardingView {
         if !last {
             buttons = buttons.child(
                 div().when(self.step == 0, |d| d.opacity(0.)).child(
-                    Button::new("back", "Back")
+                    Button::new("back", t!("onboarding.footer.back"))
                         .ghost()
                         .large()
                         .disabled(self.step == 0)
@@ -303,7 +319,7 @@ impl OnboardingView {
             .child(if last || self.narrow {
                 div()
             } else {
-                text::ui("You can quit at any time. Sayso continues where you stopped.", 13., FontWeight::NORMAL, c.graphite)
+                text::ui(t!("onboarding.footer.hint"), 13., FontWeight::NORMAL, c.graphite)
             })
             .child(buttons)
     }
@@ -393,9 +409,9 @@ fn check_line_w(label: impl Into<SharedString>, weight: FontWeight, c: &Colors) 
 /// "1.3 GB", "626 MB".
 fn size_text(bytes: u64) -> String {
     if bytes >= 1_000_000_000 {
-        format!("{:.1} GB", bytes as f64 / 1e9)
+        t!("onboarding.size_gb", number = format!("{:.1}", bytes as f64 / 1e9))
     } else {
-        format!("{} MB", (bytes as f64 / 1e6).round() as u64)
+        t!("onboarding.size_mb", number = (bytes as f64 / 1e6).round() as u64)
     }
 }
 
@@ -408,6 +424,7 @@ impl Drop for OnboardingView {
 impl Render for OnboardingView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_meter(cx);
+        self.refresh_placeholders(window, cx);
         self.narrow = crate::layout::onboarding_narrow(window);
         let c = cx.paper().colors;
         let content: AnyElement = match self.step {
@@ -430,6 +447,7 @@ impl Render for OnboardingView {
             .pt(px(crate::caption::top_margin(10.)))
             .bg(c.ground)
             .font_family(sayso_ui::fonts::UI)
+            .locale_fonts(Face::Sans)
             .text_color(c.ink)
             .track_focus(&self.recorder.focus)
             .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {

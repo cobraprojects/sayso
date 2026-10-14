@@ -59,7 +59,7 @@ fn wait_for_download(client: &EngineClient, events: &crossbeam_channel::Receiver
                     }
                 }
                 ModelStatus::Downloaded => break,
-                ModelStatus::Failed { message } => panic!("{}: download failed: {message}", info.id),
+                ModelStatus::Failed { message, .. } => panic!("{}: download failed: {message}", info.id),
                 _ => {}
             },
             _ => {}

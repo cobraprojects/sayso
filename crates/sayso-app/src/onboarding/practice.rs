@@ -6,8 +6,10 @@
 use super::{OnboardingView, heading};
 use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_core::history::{EnhanceOutcome, HistoryEntry, InsertOutcome};
 use sayso_core::stt::ModelStatus;
+use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::{ActivePaper, Colors, text};
@@ -19,14 +21,14 @@ pub const SENTENCE: &str = crate::shell::os_text!(
 );
 
 pub(super) struct Practice {
-    field: Entity<TextareaState>,
+    pub(super) field: Entity<TextareaState>,
     /// Entries before this time belong to earlier attempts.
     since: chrono::DateTime<chrono::Utc>,
 }
 
 impl Practice {
     pub(super) fn new(window: &mut Window, cx: &mut App) -> Self {
-        let field = cx.new(|cx| TextareaState::new(window, cx).auto_grow(2, 5).placeholder("Click here, then press your hotkey and read the sentence."));
+        let field = cx.new(|cx| TextareaState::new(window, cx).auto_grow(2, 5).placeholder(t!("onboarding.practice.placeholder")));
         Self { field, since: chrono::Utc::now() }
     }
 
@@ -79,8 +81,8 @@ impl OnboardingView {
         let m = self.model.read(cx);
         let keys = m.config.hotkeys.toggle.map(|h| h.keycaps().join(" "));
         let lead = match &keys {
-            Some(k) => format!("Click the field, press {k}, read the sentence, then press {k} again."),
-            None => "Click the field, hold your push-to-talk key, and read the sentence.".to_string(),
+            Some(k) => t!("onboarding.practice.lead_toggle", keys = k),
+            None => t!("onboarding.practice.lead_push"),
         };
         let latest = m.recent.first().filter(|e| e.created_at >= self.practice.since).cloned();
         let info = m.active_model();
@@ -91,31 +93,31 @@ impl OnboardingView {
         let model_on_disk = m.status_of(&m.config.dictation.model).is_on_disk();
         let mic_ok = m.permission(sayso_platform::Permission::Microphone) == sayso_platform::PermissionState::Granted;
         let state_text = match m.state() {
-            sayso_core::dictation::State::Recording { .. } => Some("Listening… press the key again when you are done."),
-            sayso_core::dictation::State::Processing { .. } => Some("Writing…"),
+            sayso_core::dictation::State::Recording { .. } => Some(t!("onboarding.practice.listening")),
+            sayso_core::dictation::State::Processing { .. } => Some(t!("onboarding.practice.writing")),
             _ => None,
         };
 
         // Readiness dots.
         let (final_label, final_color) = match &status {
-            s if s.is_on_disk() => ("Final pass ready".to_string(), c.success),
-            ModelStatus::Downloading { fraction, .. } => (format!("Final pass downloading · {:.0}%", fraction * 100.0), c.accent),
-            ModelStatus::Failed { .. } => ("Final pass download stopped".to_string(), c.danger),
-            _ => ("Final pass not downloaded".to_string(), c.pencil),
+            s if s.is_on_disk() => (t!("onboarding.practice.final_ready"), c.success),
+            ModelStatus::Downloading { fraction, .. } => (t!("onboarding.practice.final_downloading", percent = format!("{:.0}", fraction * 100.0)), c.accent),
+            ModelStatus::Failed { .. } => (t!("onboarding.practice.final_stopped"), c.danger),
+            _ => (t!("onboarding.practice.final_not_downloaded"), c.pencil),
         };
         let (preview_label, preview_color) = match (&preview, &preview_status) {
-            (None, _) if !m.config.dictation.live_preview => ("Live preview off".to_string(), c.pencil),
-            (None, _) => ("No live preview for this model".to_string(), c.pencil),
-            (Some(_), Some(ModelStatus::Ready)) => ("Live preview ready".to_string(), c.success),
-            (Some(_), Some(ModelStatus::Downloading { fraction, .. })) => (format!("Live preview downloading · {:.0}%", fraction * 100.0), c.accent),
-            (Some(_), _) => ("Live preview loading".to_string(), c.accent),
+            (None, _) if !m.config.dictation.live_preview => (t!("onboarding.practice.preview_off"), c.pencil),
+            (None, _) => (t!("onboarding.practice.preview_none"), c.pencil),
+            (Some(_), Some(ModelStatus::Ready)) => (t!("onboarding.practice.preview_ready"), c.success),
+            (Some(_), Some(ModelStatus::Downloading { fraction, .. })) => (t!("onboarding.practice.preview_downloading", percent = format!("{:.0}", fraction * 100.0)), c.accent),
+            (Some(_), _) => (t!("onboarding.practice.preview_loading"), c.accent),
         };
         let (opt_label, opt_color) = match &status {
-            ModelStatus::Ready => (crate::shell::os_text!("Optimized for this Mac", "Ready", "Ready on this computer").to_string(), c.success),
-            ModelStatus::Optimizing => (crate::shell::os_text!("Optimizing for this Mac…", "Loading the model…", "Preparing the model…").to_string(), c.accent),
-            ModelStatus::Downloaded if m.model_idle => ("Loads when you dictate".to_string(), c.success),
-            ModelStatus::Downloaded => ("Loading the model…".to_string(), c.accent),
-            _ => ("Optimizes after the download".to_string(), c.pencil),
+            ModelStatus::Ready => (t!(crate::shell::os_text!("onboarding.practice.opt_ready_mac", "onboarding.practice.opt_ready_windows", "onboarding.practice.opt_ready_other")), c.success),
+            ModelStatus::Optimizing => (t!(crate::shell::os_text!("onboarding.practice.opt_optimizing_mac", "onboarding.practice.opt_optimizing_windows", "onboarding.practice.opt_optimizing_other")), c.accent),
+            ModelStatus::Downloaded if m.model_idle => (t!("onboarding.practice.opt_idle"), c.success),
+            ModelStatus::Downloaded => (t!("onboarding.practice.opt_loading"), c.accent),
+            _ => (t!("onboarding.practice.opt_after_download"), c.pencil),
         };
 
         let result: AnyElement = match &latest {
@@ -138,12 +140,12 @@ impl OnboardingView {
                             .child(icon(Icon::Check, 11., c.on_ink)),
                     )
                     .child(text::ui(
-                        format!("Inserted {:.1} s after you stopped", delay_ms(e) as f64 / 1000.0),
+                        t!("onboarding.practice.inserted_after", seconds = format!("{:.1}", delay_ms(e) as f64 / 1000.0)),
                         13.,
                         FontWeight::SEMIBOLD,
                         c.ink,
                     ))
-                    .child(text::ui(format!("· {ok} of {total} words correct"), 13., FontWeight::NORMAL, c.graphite))
+                    .child(text::ui(t!("onboarding.practice.words_correct", correct = ok, total = total), 13., FontWeight::NORMAL, c.graphite))
                     .into_any_element()
             }
             Some(e) => {
@@ -153,9 +155,9 @@ impl OnboardingView {
                 };
                 text::ui(
                     if crate::shell::HAS_INPUT_PERMISSIONS {
-                        format!("Sayso heard you, but could not paste: {reason}. Check Accessibility in the previous steps.")
+                        t!("onboarding.practice.paste_failed_ax", reason = reason)
                     } else {
-                        format!("Sayso heard you, but could not paste: {reason}.")
+                        t!("onboarding.practice.paste_failed", reason = reason)
                     },
                     13.,
                     FontWeight::NORMAL,
@@ -163,7 +165,7 @@ impl OnboardingView {
                 )
                 .into_any_element()
             }
-            None => text::ui(state_text.unwrap_or("Your words appear here."), 13., FontWeight::NORMAL, c.graphite).into_any_element(),
+            None => text::ui(state_text.unwrap_or_else(|| t!("onboarding.practice.words_appear")), 13., FontWeight::NORMAL, c.graphite).into_any_element(),
         };
 
         let field = div()
@@ -187,7 +189,7 @@ impl OnboardingView {
             }))
             .child(
                 div()
-                    .font_family(sayso_ui::fonts::DISPLAY)
+                    .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
                     .text_size(px(20.))
                     .line_height(px(28.))
                     .text_color(c.ink)
@@ -202,17 +204,17 @@ impl OnboardingView {
             .pt(px(28.))
             .px(px(self.side()))
             .pb(px(24.))
-            .child(heading("Try it", &lead, &c))
+            .child(heading(&t!("onboarding.practice.title"), &lead, &c))
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .gap(px(6.))
                     .px(px(4.))
-                    .child(text::caps("Read this", &c))
+                    .child(text::caps(t!("onboarding.practice.read_this"), &c))
                     .child(
                         div()
-                            .font_family(sayso_ui::fonts::DISPLAY)
+                            .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
                             .italic()
                             .text_size(px(22.))
                             .line_height(px(30.))
@@ -233,11 +235,11 @@ impl OnboardingView {
             );
         if !ready {
             let why = if !model_on_disk {
-                "Sayso can dictate when the model download ends. You can wait here, or finish setup now and try later."
+                t!("onboarding.practice.not_ready_model")
             } else if !mic_ok {
-                "Sayso needs the microphone to dictate. Go back to Permissions and allow it, or finish now and allow it later in Settings › Permissions."
+                t!("onboarding.practice.not_ready_mic")
             } else {
-                "The speech engine is not running, so Sayso cannot dictate now. Finish setup and open Sayso again."
+                t!("onboarding.practice.not_ready_engine")
             };
             col = col.child(crate::hub::settings::kit::notice(BannerKind::Info, why, cx));
         }

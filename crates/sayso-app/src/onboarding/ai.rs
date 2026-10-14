@@ -6,6 +6,7 @@ use crate::model_picker;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_core::config::{Provider, ProviderKind, is_local_url};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
@@ -18,6 +19,35 @@ pub(super) enum AiChoice {
     Local,
     Cloud,
     Claude,
+}
+
+/// What is wrong with the form. The form keeps the kind, not the text, so the
+/// text follows the interface language.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AiError {
+    Choose,
+    /// With the reason code of the engine, when it sent one.
+    AppleUnavailable(Option<sayso_core::stt::EngineReason>),
+    OllamaNoModels,
+    BaseUrl,
+    ApiKey,
+    ChooseModel,
+    NoClaude,
+}
+
+impl AiError {
+    fn text(self) -> String {
+        match self {
+            AiError::Choose => t!("onboarding.ai.error_choose"),
+            AiError::AppleUnavailable(Some(reason)) => t!("onboarding.ai.error_apple_reason", reason = crate::engine_text::describe(Some(reason), "")),
+            AiError::AppleUnavailable(None) => t!("onboarding.ai.error_apple"),
+            AiError::OllamaNoModels => t!("onboarding.ai.error_ollama"),
+            AiError::BaseUrl => t!("onboarding.ai.error_base_url"),
+            AiError::ApiKey => t!("onboarding.ai.error_api_key", store = crate::shell::secret_store()),
+            AiError::ChooseModel => t!("onboarding.ai.error_model"),
+            AiError::NoClaude => t!("onboarding.ai.error_claude"),
+        }
+    }
 }
 
 /// Base URL presets for the cloud option: (label, id, url).
@@ -42,8 +72,8 @@ pub(super) struct AiForm {
     model: Option<String>,
     /// The (URL, key) the draft list was fetched with, so a change fetches again.
     fetched: Option<(String, String)>,
-    key: Entity<InputState>,
-    error: Option<String>,
+    pub(super) key: Entity<InputState>,
+    error: Option<AiError>,
     test: Option<Result<u64, String>>,
     testing: bool,
 }
@@ -66,7 +96,7 @@ impl AiForm {
             _ => (None, 0, PRESETS[0].2.to_string(), String::new(), None),
         };
         let base_url = crate::widgets::input_state("https://…/v1", &url, window, cx);
-        let key = cx.new(|cx| InputState::new(window, cx).placeholder("Paste your API key").masked(true));
+        let key = cx.new(|cx| InputState::new(window, cx).placeholder(t!("onboarding.ai.key_placeholder")).masked(true));
         Self {
             choice,
             local_model: local,
@@ -91,7 +121,7 @@ impl OnboardingView {
         let label = match (&self.ai.model, &list) {
             (Some(id), Some(ModelList::Ready(models))) => models.iter().find(|x| &x.id == id).map(|x| x.name.clone()).unwrap_or_else(|| id.clone()),
             (Some(id), _) => id.clone(),
-            (None, _) => "Choose a model".into(),
+            (None, _) => t!("onboarding.ai.choose_model"),
         };
         let chosen = self.ai.model.is_some();
         let trigger = div()
@@ -116,6 +146,7 @@ impl OnboardingView {
                     list_key: DRAFT.into(),
                     selected: this.ai.model.clone(),
                     extra: None,
+                    thinking_for: None,
                     on_pick: Box::new(move |pick, cx| {
                         let _ = view.update(cx, |v, cx| {
                             if pick.is_some() {
@@ -139,7 +170,7 @@ impl OnboardingView {
             .flex()
             .items_center()
             .gap(px(12.))
-            .child(text::ui("Model", 13., FontWeight::MEDIUM, c.graphite).w(px(70.)).flex_none())
+            .child(text::ui(t!("onboarding.ai.model"), 13., FontWeight::MEDIUM, c.graphite).w(px(70.)).flex_none())
             .child(trigger)
             .into_any_element()
     }
@@ -160,6 +191,7 @@ impl OnboardingView {
                 model: String::new(),
                 api_key_account: (!key.is_empty()).then(|| DRAFT_ACCOUNT.to_string()),
                 zero_data_retention: false,
+                thinking: None,
             },
         };
         let api_key = (!key.is_empty()).then_some(key);
@@ -174,13 +206,13 @@ impl OnboardingView {
     }
 
     /// The provider for the current form, or a message that says what to fix.
-    fn ai_provider(&self, cx: &App) -> Result<(Provider, Option<String>), String> {
+    fn ai_provider(&self, cx: &App) -> Result<(Provider, Option<String>), AiError> {
         let m = self.model.read(cx);
-        let choice = self.ai_choice(cx).ok_or("Choose an option, or skip this step.")?;
+        let choice = self.ai_choice(cx).ok_or(AiError::Choose)?;
         match choice {
             AiChoice::Apple => {
                 if m.detected.apple_intelligence.is_none() {
-                    return Err("Apple Intelligence is not available on this Mac. Turn it on in System Settings, or choose another option.".into());
+                    return Err(AiError::AppleUnavailable(m.detected.apple_unavailable.as_ref().and_then(|u| u.reason)));
                 }
                 Ok((
                     Provider { id: "apple-intelligence".into(), name: "Apple Intelligence".into(), kind: ProviderKind::AppleIntelligence },
@@ -189,7 +221,7 @@ impl OnboardingView {
             }
             AiChoice::Local => {
                 let models = m.detected.ollama.clone().unwrap_or_default();
-                let model = self.ai.local_model.clone().or_else(|| models.first().cloned()).ok_or("Ollama has no models. Run \"ollama pull qwen3:4b\", then select Ollama again.")?;
+                let model = self.ai.local_model.clone().or_else(|| models.first().cloned()).ok_or(AiError::OllamaNoModels)?;
                 Ok((
                     Provider {
                         id: "ollama".into(),
@@ -199,6 +231,7 @@ impl OnboardingView {
                             model,
                             api_key_account: None,
                             zero_data_retention: false,
+                            thinking: None,
                         },
                     },
                     None,
@@ -208,12 +241,12 @@ impl OnboardingView {
                 let url = self.ai.base_url.read(cx).value().trim().trim_end_matches('/').to_string();
                 let key = self.ai.key.read(cx).value().trim().to_string();
                 if !(url.starts_with("https://") || url.starts_with("http://")) {
-                    return Err("Enter the base URL of the API, for example https://openrouter.ai/api/v1.".into());
+                    return Err(AiError::BaseUrl);
                 }
                 if key.is_empty() && !is_local_url(&url) {
-                    return Err(format!("Enter your API key. Sayso keeps it in {}.", crate::shell::SECRET_STORE));
+                    return Err(AiError::ApiKey);
                 }
-                let model = self.ai.model.clone().ok_or("Choose a model from the provider's list.")?;
+                let model = self.ai.model.clone().ok_or(AiError::ChooseModel)?;
                 let (label, id, preset_url) = PRESETS[self.ai.preset];
                 let (id, name) = if preset_url == url { (id.to_string(), label.to_string()) } else { ("custom".to_string(), "Custom endpoint".to_string()) };
                 Ok((
@@ -225,18 +258,19 @@ impl OnboardingView {
                             model,
                             api_key_account: (!key.is_empty()).then_some(id),
                             zero_data_retention: false,
+                            thinking: None,
                         },
                     },
                     (!key.is_empty()).then_some(key),
                 ))
             }
             AiChoice::Claude => {
-                let path = m.detected.claude_cli.clone().ok_or("Sayso did not find the Claude CLI. Install it, or choose another option.")?;
+                let path = m.detected.claude_cli.clone().ok_or(AiError::NoClaude)?;
                 Ok((
                     Provider {
                         id: "claude-cli".into(),
                         name: "Claude CLI".into(),
-                        kind: ProviderKind::ClaudeCli { path: Some(path.display().to_string()), model: "haiku".into() },
+                        kind: ProviderKind::ClaudeCli { path: Some(path.display().to_string()), model: "haiku".into(), config_dir: None, thinking: Default::default() },
                     },
                     None,
                 ))
@@ -267,7 +301,7 @@ impl OnboardingView {
     }
 
     /// Leave the step without a provider. A provider that "Test connection"
-    /// saved stays in Styles, but AI is off.
+    /// saved stays in Settings, but AI is off.
     pub(super) fn skip_ai(&mut self, cx: &mut Context<Self>) {
         self.ai.error = None;
         if self.model.read(cx).config.ai.enabled {
@@ -321,14 +355,14 @@ impl OnboardingView {
 
         let mut rows = div().flex().flex_col().gap(px(8.));
         if !d.done {
-            rows = rows.child(text::ui(format!("Looking for AI tools on this {}…", crate::shell::COMPUTER), 13., FontWeight::NORMAL, c.graphite).px(px(4.)));
+            rows = rows.child(text::ui(t!("onboarding.ai.looking", computer = crate::shell::computer()), 13., FontWeight::NORMAL, c.graphite).px(px(4.)));
         }
         if let Some(model) = &d.apple_intelligence {
             rows = rows.child(self.ai_row(
                 AiChoice::Apple,
                 choice,
-                "Apple Intelligence",
-                format!("The model of macOS ({model}). No setup. Text stays on this Mac."),
+                "Apple Intelligence".into(),
+                t!("onboarding.ai.apple_desc", model = model),
                 None,
                 None,
                 &c,
@@ -339,8 +373,8 @@ impl OnboardingView {
             rows = rows.child(self.ai_row(
                 AiChoice::Local,
                 choice,
-                "Ollama",
-                format!("Ollama is running on this {}, but it has no models. Run \"ollama pull qwen3:4b\", then select this again.", crate::shell::COMPUTER),
+                "Ollama".into(),
+                t!("onboarding.ai.ollama_empty", computer = crate::shell::computer()),
                 None,
                 None,
                 &c,
@@ -400,8 +434,8 @@ impl OnboardingView {
             rows = rows.child(self.ai_row(
                 AiChoice::Local,
                 choice,
-                "Ollama",
-                format!("Ollama is running on this {0}. Text stays on this {0}.", crate::shell::COMPUTER),
+                "Ollama".into(),
+                t!("onboarding.ai.ollama_running", computer = crate::shell::computer()),
                 Some(picker.into_any_element()),
                 extra,
                 &c,
@@ -412,9 +446,9 @@ impl OnboardingView {
         rows = rows.child(self.ai_row(
             AiChoice::Cloud,
             choice,
-            "Cloud API",
-            format!("OpenRouter, OpenAI, or any OpenAI-compatible URL. Your key is stored in {}.", crate::shell::SECRET_STORE),
-            Some(Badge::new("Cloud", BadgeTone::Accent).into_any_element()),
+            t!("onboarding.ai.cloud_api"),
+            t!("onboarding.ai.cloud_desc", store = crate::shell::secret_store()),
+            Some(Badge::new(t!("onboarding.ai.cloud"), BadgeTone::Accent).into_any_element()),
             cloud_extra,
             &c,
             cx,
@@ -424,9 +458,9 @@ impl OnboardingView {
             rows = rows.child(self.ai_row(
                 AiChoice::Claude,
                 choice,
-                "Claude CLI",
-                format!("Found at {shown}. Uses your Claude login. About 1.8 s slower."),
-                Some(Badge::new("Cloud", BadgeTone::Accent).into_any_element()),
+                "Claude CLI".into(),
+                t!("onboarding.ai.claude_desc", path = shown),
+                Some(Badge::new(t!("onboarding.ai.cloud"), BadgeTone::Accent).into_any_element()),
                 None,
                 &c,
                 cx,
@@ -440,14 +474,10 @@ impl OnboardingView {
             .pt(px(28.))
             .px(px(self.side()))
             .pb(px(24.))
-            .child(heading(
-                "Add AI clean-up",
-                "Optional. A style can remove filler words, fix grammar, or format an email. Without it, Sayso inserts exactly what you said. You can also set this up later in Styles.",
-                &c,
-            ))
+            .child(heading(&t!("onboarding.ai.title"), &t!("onboarding.ai.lead"), &c))
             .child(rows);
-        if let Some(e) = self.ai.error.clone().filter(|_| choice != Some(AiChoice::Cloud)) {
-            col = col.child(crate::hub::settings::kit::notice(BannerKind::Warning, e, cx));
+        if let Some(e) = self.ai.error.filter(|_| choice != Some(AiChoice::Cloud)) {
+            col = col.child(crate::hub::settings::kit::notice(BannerKind::Warning, e.text(), cx));
         }
         col.into_any_element()
     }
@@ -457,7 +487,7 @@ impl OnboardingView {
         &self,
         me: AiChoice,
         choice: Option<AiChoice>,
-        title: &'static str,
+        title: String,
         desc: String,
         trailing: Option<AnyElement>,
         extra: Option<AnyElement>,
@@ -506,7 +536,9 @@ impl OnboardingView {
 
     fn cloud_form(&mut self, c: &Colors, cx: &mut Context<Self>) -> AnyElement {
         let mut presets = div().flex().gap(px(6.));
-        for (i, (label, _, url)) in PRESETS.into_iter().enumerate() {
+        for (i, (label, id, url)) in PRESETS.into_iter().enumerate() {
+            // The last preset is any other endpoint.
+            let label = if id == "custom" { t!("onboarding.ai.preset_other") } else { label.to_string() };
             presets = presets.child(Chip::new(("preset", i), label, self.ai.preset == i).on_click(cx.listener(move |this, _, window, cx| {
                 this.ai.preset = i;
                 this.ai.test = None;
@@ -515,7 +547,7 @@ impl OnboardingView {
                 cx.notify();
             })));
         }
-        let field = |label: &'static str, state: &Entity<InputState>, mono: bool| {
+        let field = |label: String, state: &Entity<InputState>, mono: bool| {
             div()
                 .flex()
                 .items_center()
@@ -537,15 +569,15 @@ impl OnboardingView {
                 )
         };
         let test_line: AnyElement = if self.ai.testing {
-            text::ui("Testing…", 13., FontWeight::NORMAL, c.graphite).into_any_element()
+            text::ui(t!("onboarding.ai.testing"), 13., FontWeight::NORMAL, c.graphite).into_any_element()
         } else {
             match &self.ai.test {
-                Some(Ok(ms)) => super::check_line(format!("Works. The answer came in {:.1} s.", *ms as f64 / 1000.0), c).into_any_element(),
-                Some(Err(e)) => text::ui(format!("The test failed: {e}"), 13., FontWeight::NORMAL, c.danger).into_any_element(),
+                Some(Ok(ms)) => super::check_line(t!("onboarding.ai.test_works", seconds = format!("{:.1}", *ms as f64 / 1000.0)), c).into_any_element(),
+                Some(Err(e)) => text::ui(t!("onboarding.ai.test_failed", error = e), 13., FontWeight::NORMAL, c.danger).into_any_element(),
                 None => div().into_any_element(),
             }
         };
-        let error = self.ai.error.clone().map(|e| crate::hub::settings::kit::notice(BannerKind::Warning, e, cx));
+        let error = self.ai.error.map(|e| crate::hub::settings::kit::notice(BannerKind::Warning, e.text(), cx));
         div()
             .flex()
             .flex_col()
@@ -553,8 +585,8 @@ impl OnboardingView {
             // Clicks in the form must not re-select the row.
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(presets)
-            .child(field("Base URL", &self.ai.base_url, true))
-            .child(field("API key", &self.ai.key, true))
+            .child(field(t!("onboarding.ai.base_url"), &self.ai.base_url, true))
+            .child(field(t!("onboarding.ai.api_key"), &self.ai.key, true))
             .child(self.cloud_model(c, cx))
             .child(
                 div()
@@ -562,7 +594,7 @@ impl OnboardingView {
                     .items_center()
                     .gap(px(12.))
                     .pl(px(82.))
-                    .child(Button::new("test-ai", "Test connection").small().disabled(self.ai.testing).on_click(cx.listener(|this, _, _, cx| this.test_ai(cx))))
+                    .child(Button::new("test-ai", t!("onboarding.ai.test_connection")).small().disabled(self.ai.testing).on_click(cx.listener(|this, _, _, cx| this.test_ai(cx))))
                     .child(test_line),
             )
             .when_some(error, |d, e| d.child(e))

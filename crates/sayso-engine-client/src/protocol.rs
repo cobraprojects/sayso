@@ -6,7 +6,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use sayso_core::models::ModelId;
-use sayso_core::stt::ModelStatus;
+use sayso_core::stt::{EngineReason, ModelStatus};
 use serde_json::{Map, Value, json};
 
 pub(crate) const PROTOCOL_VERSION: u64 = 1;
@@ -64,6 +64,13 @@ impl Message {
     }
 }
 
+/// The `reason` code of a message. `None` when an older engine sends none, and
+/// also for a code that this version does not know: the app then shows its
+/// general sentence with the English `message`.
+pub(crate) fn reason(message: &Message) -> Option<EngineReason> {
+    message.str("reason").and_then(EngineReason::from_code)
+}
+
 /// The model status that a `model_state` or `download_progress` message describes.
 pub(crate) fn model_status(message: &Message) -> Option<(ModelId, ModelStatus)> {
     let model = ModelId::new(message.str("model")?);
@@ -87,6 +94,7 @@ pub(crate) fn model_status(message: &Message) -> Option<(ModelId, ModelStatus)> 
                 .str("message")
                 .unwrap_or("unknown error")
                 .to_string(),
+            reason: reason(message),
         },
         _ => return None,
     };
@@ -135,9 +143,40 @@ mod tests {
             Some((
                 ModelId::new("a"),
                 ModelStatus::Failed {
-                    message: "boom".into()
+                    message: "boom".into(),
+                    reason: None
                 }
             ))
+        );
+        assert_eq!(
+            parse(
+                r#"{"v":1,"type":"model_state","model":"a","state":"failed","message":"boom","reason":"incomplete_download"}"#
+            ),
+            Some((
+                ModelId::new("a"),
+                ModelStatus::Failed {
+                    message: "boom".into(),
+                    reason: Some(EngineReason::IncompleteDownload)
+                }
+            ))
+        );
+        // A code from a newer engine is not an error: the app shows its general sentence.
+        assert_eq!(
+            parse(
+                r#"{"v":1,"type":"model_state","model":"a","state":"failed","message":"boom","reason":"from_the_future"}"#
+            ),
+            Some((
+                ModelId::new("a"),
+                ModelStatus::Failed {
+                    message: "boom".into(),
+                    reason: None
+                }
+            ))
+        );
+        // `reason` means nothing in a state other than `failed`.
+        assert_eq!(
+            parse(r#"{"v":1,"type":"model_state","model":"a","state":"ready","reason":"load_failed"}"#),
+            Some((ModelId::new("a"), ModelStatus::Ready))
         );
         assert_eq!(
             parse(

@@ -42,11 +42,14 @@ pub struct General {
     /// The name in the Home greeting. None uses the first name of the
     /// macOS account.
     pub name: Option<String>,
+    /// The interface language: "system" or a locale code such as "es" or
+    /// "zh-CN". See `docs/i18n.md`.
+    pub language: String,
 }
 
 impl Default for General {
     fn default() -> Self {
-        Self { launch_at_login: false, dock_icon_with_hub: true, name: None }
+        Self { launch_at_login: false, dock_icon_with_hub: true, name: None, language: sayso_i18n::SYSTEM.into() }
     }
 }
 
@@ -265,6 +268,33 @@ impl Default for Sounds {
     }
 }
 
+/// The thinking level that a CLI provider gets when the user chose none.
+/// All models of the two tools that have levels take it.
+pub const DEFAULT_CLI_THINKING: &str = "low";
+
+/// The thinking levels that Sayso knows, from the least thinking to the most.
+/// A provider can report other names; they sort after these.
+const THINKING_ORDER: [&str; 7] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/// Put thinking levels in order, from the least thinking to the most, without duplicates.
+pub fn sort_thinking(mut levels: Vec<String>) -> Vec<String> {
+    let rank = |level: &String| THINKING_ORDER.iter().position(|known| known == level).unwrap_or(THINKING_ORDER.len());
+    levels.sort_by_key(rank);
+    levels.dedup();
+    levels
+}
+
+/// The name of a thinking level for the UI.
+pub fn thinking_label(level: &str) -> String {
+    match level {
+        "xhigh" => "Extra high".into(),
+        other => {
+            let mut chars = other.chars();
+            chars.next().map(|first| first.to_uppercase().chain(chars).collect()).unwrap_or_default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProviderKind {
@@ -280,21 +310,48 @@ pub enum ProviderKind {
         /// OpenRouter only: route to zero-data-retention endpoints.
         #[serde(default)]
         zero_data_retention: bool,
+        /// The thinking level. None sends no level, and the model uses its own default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thinking: Option<String>,
     },
     ClaudeCli {
         #[serde(default)]
         path: Option<String>,
         #[serde(default = "default_claude_model")]
         model: String,
+        /// The folder that holds the login of the tool (`CLAUDE_CONFIG_DIR`). None uses the tool's own default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        config_dir: Option<String>,
+        /// The thinking level. None uses [`DEFAULT_CLI_THINKING`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thinking: Option<String>,
     },
     CodexCli {
         #[serde(default)]
         path: Option<String>,
         #[serde(default)]
         model: Option<String>,
+        /// The folder that holds the login of the tool (`CODEX_HOME`). None uses the tool's own default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        config_dir: Option<String>,
+        /// The thinking level. None uses [`DEFAULT_CLI_THINKING`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thinking: Option<String>,
     },
     /// The language model of macOS, which the engine runs on this Mac.
     AppleIntelligence,
+}
+
+impl ProviderKind {
+    /// The name of the kind, as `config.toml` has it.
+    pub fn name(&self) -> &'static str {
+        match self {
+            ProviderKind::OpenAiCompatible { .. } => "open_ai_compatible",
+            ProviderKind::ClaudeCli { .. } => "claude_cli",
+            ProviderKind::CodexCli { .. } => "codex_cli",
+            ProviderKind::AppleIntelligence => "apple_intelligence",
+        }
+    }
 }
 
 fn default_claude_model() -> String {
@@ -319,6 +376,54 @@ impl Provider {
             ProviderKind::AppleIntelligence => None,
         };
         model.filter(|m| !m.trim().is_empty())
+    }
+
+    /// The folder with the login of a CLI provider. None for the default folder of the tool, and for kinds without a login.
+    pub fn config_dir(&self) -> Option<&str> {
+        match &self.kind {
+            ProviderKind::ClaudeCli { config_dir, .. } | ProviderKind::CodexCli { config_dir, .. } => {
+                config_dir.as_deref().filter(|dir| !dir.trim().is_empty())
+            }
+            _ => None,
+        }
+    }
+
+    /// The thinking level that the user chose. None when the user chose
+    /// none, and for a kind without levels.
+    pub fn thinking(&self) -> Option<&str> {
+        match &self.kind {
+            ProviderKind::OpenAiCompatible { thinking, .. }
+            | ProviderKind::ClaudeCli { thinking, .. }
+            | ProviderKind::CodexCli { thinking, .. } => thinking.as_deref().filter(|level| !level.trim().is_empty()),
+            ProviderKind::AppleIntelligence => None,
+        }
+    }
+
+    /// The thinking level that goes to the provider. None sends no level.
+    pub fn thinking_sent(&self) -> Option<&str> {
+        let default = matches!(self.kind, ProviderKind::ClaudeCli { .. } | ProviderKind::CodexCli { .. }).then_some(DEFAULT_CLI_THINKING);
+        self.thinking().or(default)
+    }
+
+    pub fn set_thinking(&mut self, level: Option<String>) {
+        if let ProviderKind::OpenAiCompatible { thinking, .. }
+        | ProviderKind::ClaudeCli { thinking, .. }
+        | ProviderKind::CodexCli { thinking, .. } = &mut self.kind
+        {
+            *thinking = level;
+        }
+    }
+
+    /// Make the thinking level fit a model that offers `levels`, from the
+    /// least thinking to the most. A level that the model does not have
+    /// becomes its lowest level. A model without levels gets none.
+    pub fn fit_thinking(&mut self, levels: &[String]) {
+        let fits = self.thinking_sent().is_some_and(|sent| levels.iter().any(|level| level == sent));
+        if levels.is_empty() {
+            self.set_thinking(None);
+        } else if !fits {
+            self.set_thinking(levels.first().cloned());
+        }
     }
 
     pub fn set_model(&mut self, id: String) {
@@ -478,7 +583,44 @@ pub struct Onboarding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigIssue {
     pub field: String,
-    pub message: String,
+    pub problem: ConfigProblem,
+}
+
+/// What is wrong with a value. `Display` gives the English text for the log;
+/// the app shows the text of the interface language.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ConfigProblem {
+    /// The file is there, but Sayso cannot read it. `error` is the text of the system.
+    #[error("could not read {path}: {error}")]
+    Unreadable { path: String, error: String },
+    /// The TOML syntax is wrong. The text of the TOML parser.
+    #[error("{0}")]
+    Syntax(String),
+    /// A section has a bad value, so it uses its defaults. The text of the TOML parser.
+    #[error("{0} (using defaults for this section)")]
+    BadSection(String),
+    #[error("must be between 0.0 and 1.0")]
+    VolumeRange,
+    #[error("timeouts must be at least 500 ms")]
+    AiTimeoutTooShort,
+    #[error("is the same key as hotkeys.toggle")]
+    PushToTalkIsToggle,
+    #[error("no provider has the id \"{0}\"")]
+    UnknownProvider(String),
+    #[error("\"{0}\" is not a known model")]
+    UnknownModel(String),
+    #[error("\"{0}\" is not an interface language Sayso has. Sayso uses the language of the system")]
+    UnknownInterfaceLanguage(String),
+    #[error("\"{0}\" is not a language code Sayso knows. Use \"auto\" or a code such as \"en\"")]
+    UnknownDictationLanguage(String),
+    #[error("must be at least 1000 ms")]
+    SpeechTimeoutTooShort,
+    #[error("the provider id \"{0}\" must not be empty or contain a colon")]
+    BadProviderId(String),
+    #[error("two providers have the id \"{0}\"")]
+    DuplicateProviderId(String),
+    #[error("the provider \"{0}\" needs a base_url")]
+    NeedsBaseUrl(String),
 }
 
 #[derive(Debug)]
@@ -493,7 +635,8 @@ impl LoadedConfig {
     /// The defaults for a file that is there but cannot be read. Not
     /// `created`, so the app does not write the defaults over the file.
     pub fn unreadable(error: &ConfigError) -> Self {
-        let issue = ConfigIssue { field: "config.toml".into(), message: error.to_string() };
+        let ConfigError::Io(path, e) = error;
+        let issue = ConfigIssue { field: "config.toml".into(), problem: ConfigProblem::Unreadable { path: path.clone(), error: e.to_string() } };
         Self { config: Config::default(), issues: vec![issue], created: false }
     }
 }
@@ -530,7 +673,7 @@ impl Config {
                 let config = match toml::from_str::<toml::Table>(text) {
                     Ok(table) => Self::from_sections(table, &mut issues),
                     Err(_) => {
-                        issues.push(ConfigIssue { field: "config.toml".into(), message: whole.message().to_string() });
+                        issues.push(ConfigIssue { field: "config.toml".into(), problem: ConfigProblem::Syntax(whole.message().to_string()) });
                         Config::default()
                     }
                 };
@@ -550,7 +693,7 @@ impl Config {
                         Ok(parsed) => cfg.$field = parsed,
                         Err(e) => issues.push(ConfigIssue {
                             field: $name.into(),
-                            message: format!("{} (using defaults for this section)", toml::de::Error::message(&e)),
+                            problem: ConfigProblem::BadSection(toml::de::Error::message(&e).to_string()),
                         }),
                     }
                 }
@@ -575,38 +718,41 @@ impl Config {
 
     pub fn validate(&self) -> Vec<ConfigIssue> {
         let mut issues = Vec::new();
-        let mut issue = |field: &str, message: String| issues.push(ConfigIssue { field: field.into(), message });
+        let mut issue = |field: &str, problem: ConfigProblem| issues.push(ConfigIssue { field: field.into(), problem });
         if !(0.0..=1.0).contains(&self.sounds.volume) {
-            issue("sounds.volume", "must be between 0.0 and 1.0".into());
+            issue("sounds.volume", ConfigProblem::VolumeRange);
         }
         if self.ai.http_timeout_ms < 500 || self.ai.cli_timeout_ms < 500 {
-            issue("ai", "timeouts must be at least 500 ms".into());
+            issue("ai", ConfigProblem::AiTimeoutTooShort);
         }
         if self.hotkeys.toggle.is_some() && self.hotkeys.toggle == self.hotkeys.push_to_talk {
-            issue("hotkeys.push_to_talk", "is the same key as hotkeys.toggle".into());
+            issue("hotkeys.push_to_talk", ConfigProblem::PushToTalkIsToggle);
         }
         if let Some(id) = &self.ai.default_provider
             && !self.ai.providers.iter().any(|p| &p.id == id) {
-                issue("ai.default_provider", format!("no provider has the id \"{id}\""));
+                issue("ai.default_provider", ConfigProblem::UnknownProvider(id.clone()));
             }
         if crate::models::find_with(&self.speech, &self.dictation.model).is_none() {
-            issue("dictation.model", format!("\"{}\" is not a known model", self.dictation.model));
+            issue("dictation.model", ConfigProblem::UnknownModel(self.dictation.model.to_string()));
+        }
+        if !sayso_i18n::is_valid_setting(&self.general.language) {
+            issue("general.language", ConfigProblem::UnknownInterfaceLanguage(self.general.language.clone()));
         }
         if !crate::languages::is_valid(&self.dictation.language) {
-            issue("dictation.language", format!("\"{}\" is not a language code Sayso knows. Use \"auto\" or a code such as \"en\"", self.dictation.language));
+            issue("dictation.language", ConfigProblem::UnknownDictationLanguage(self.dictation.language.clone()));
         }
         if self.speech.timeout_ms < 1000 {
-            issue("speech.timeout_ms", "must be at least 1000 ms".into());
+            issue("speech.timeout_ms", ConfigProblem::SpeechTimeoutTooShort);
         }
         for (i, p) in self.speech.providers.iter().enumerate() {
             if p.id.is_empty() || p.id.contains(':') {
-                issue("speech.providers", format!("the provider id \"{}\" must not be empty or contain a colon", p.id));
+                issue("speech.providers", ConfigProblem::BadProviderId(p.id.clone()));
             }
             if self.speech.providers[..i].iter().any(|q| q.id == p.id) {
-                issue("speech.providers", format!("two providers have the id \"{}\"", p.id));
+                issue("speech.providers", ConfigProblem::DuplicateProviderId(p.id.clone()));
             }
             if p.kind == SpeechProviderKind::OpenAiCompatible && p.base_url().is_none() {
-                issue("speech.providers", format!("the provider \"{}\" needs a base_url", p.id));
+                issue("speech.providers", ConfigProblem::NeedsBaseUrl(p.id.clone()));
             }
         }
         issues
@@ -638,7 +784,7 @@ mod tests {
         let loaded = LoadedConfig::unreadable(&error);
         assert!(!loaded.created);
         assert_eq!(loaded.issues.len(), 1);
-        assert!(loaded.issues[0].message.contains("config.toml"), "{}", loaded.issues[0].message);
+        assert!(loaded.issues[0].problem.to_string().contains("config.toml"), "{}", loaded.issues[0].problem);
         assert_eq!(loaded.config, Config::default());
     }
 
@@ -744,6 +890,7 @@ mod tests {
                 model: "meta-llama/llama-3.3-8b-instruct".into(),
                 api_key_account: Some("openrouter".into()),
                 zero_data_retention: true,
+                thinking: None,
             },
         });
         c.ai.default_provider = Some("openrouter".into());
@@ -751,6 +898,56 @@ mod tests {
         let back = Config::parse(&c.to_toml());
         assert!(back.issues.is_empty(), "{:?}", back.issues);
         assert_eq!(back.config, c);
+    }
+
+    #[test]
+    fn the_thinking_level_is_low_until_the_user_changes_it() {
+        // A config from before the setting has no level.
+        let old = "[[ai.providers]]\nid = \"claude\"\nname = \"Claude CLI\"\nkind = \"claude_cli\"\nmodel = \"haiku\"\n";
+        let read = Config::parse(old);
+        assert!(read.issues.is_empty(), "{:?}", read.issues);
+        let claude = &read.config.ai.providers[0];
+        assert_eq!((claude.thinking(), claude.thinking_sent()), (None, Some("low")));
+        assert!(!read.config.to_toml().contains("thinking"), "no level is written until the user chooses one");
+
+        let mut c = read.config;
+        c.ai.providers[0].set_thinking(Some("xhigh".into()));
+        assert!(c.to_toml().contains("thinking = \"xhigh\""));
+        let back = Config::parse(&c.to_toml());
+        assert!(back.issues.is_empty(), "{:?}", back.issues);
+        assert_eq!(back.config.ai.providers[0].thinking_sent(), Some("xhigh"));
+
+        // An HTTP provider sends no level until the user chooses one.
+        let http = Provider {
+            id: "o".into(),
+            name: "O".into(),
+            kind: ProviderKind::OpenAiCompatible { base_url: "http://x".into(), model: "m".into(), api_key_account: None, zero_data_retention: false, thinking: None },
+        };
+        assert_eq!(http.thinking_sent(), None);
+    }
+
+    #[test]
+    fn a_new_model_gets_a_level_that_it_has() {
+        let levels = |names: &[&str]| sort_thinking(names.iter().map(|n| n.to_string()).collect());
+        assert_eq!(levels(&["high", "odd", "none", "low", "high"]), ["none", "low", "high", "odd"]);
+        assert_eq!((thinking_label("xhigh"), thinking_label("none")), ("Extra high".to_string(), "None".to_string()));
+
+        let mut claude = Provider { id: "k".into(), name: "K".into(), kind: ProviderKind::ClaudeCli { path: None, model: "haiku".into(), config_dir: None, thinking: None } };
+        claude.fit_thinking(&levels(&["low", "medium", "high"]));
+        assert_eq!(claude.thinking(), None, "the default level fits, so nothing is written");
+        claude.set_thinking(Some("max".into()));
+        claude.fit_thinking(&levels(&["low", "medium", "high"]));
+        assert_eq!(claude.thinking(), Some("low"), "a level that the model does not have becomes its lowest");
+        claude.fit_thinking(&[]);
+        assert_eq!(claude.thinking(), None, "a model without levels has none");
+
+        let mut http = Provider {
+            id: "o".into(),
+            name: "O".into(),
+            kind: ProviderKind::OpenAiCompatible { base_url: "http://x".into(), model: "m".into(), api_key_account: None, zero_data_retention: false, thinking: None },
+        };
+        http.fit_thinking(&levels(&["high", "minimal", "low"]));
+        assert_eq!(http.thinking_sent(), Some("minimal"));
     }
 
     #[test]
@@ -768,14 +965,43 @@ mod tests {
 
     #[test]
     fn cli_providers_never_need_a_model() {
-        let mut codex = Provider { id: "c".into(), name: "Codex CLI".into(), kind: ProviderKind::CodexCli { path: None, model: None } };
+        let mut codex = Provider { id: "c".into(), name: "Codex CLI".into(), kind: ProviderKind::CodexCli { path: None, model: None, config_dir: None, thinking: Default::default() } };
         assert_eq!(codex.model(), None);
         assert!(!codex.needs_model(), "Codex uses its own default");
         codex.set_model("gpt-6.1-sol".into());
         assert_eq!(codex.model(), Some("gpt-6.1-sol"));
-        let claude = Provider { id: "k".into(), name: "Claude CLI".into(), kind: ProviderKind::ClaudeCli { path: None, model: "haiku".into() } };
+        let claude = Provider { id: "k".into(), name: "Claude CLI".into(), kind: ProviderKind::ClaudeCli { path: None, model: "haiku".into(), config_dir: None, thinking: Default::default() } };
         assert_eq!(claude.model(), Some("haiku"));
         assert!(!claude.needs_model());
+    }
+
+    #[test]
+    fn cli_config_dir_is_optional_and_not_written_when_unset() {
+        // An old file has no config_dir.
+        let old = "[[ai.providers]]\nid = \"k\"\nname = \"Claude CLI\"\nkind = \"claude_cli\"\nmodel = \"haiku\"\n";
+        let parsed = Config::parse(old);
+        assert!(parsed.issues.is_empty(), "{:?}", parsed.issues);
+        let provider = parsed.config.ai.providers.iter().find(|p| p.id == "k").unwrap();
+        assert_eq!(provider.config_dir(), None);
+
+        let mut claude = Provider { id: "k".into(), name: "Claude CLI".into(), kind: ProviderKind::ClaudeCli { path: None, model: "haiku".into(), config_dir: None, thinking: Default::default() } };
+        let unset = toml::to_string(&claude).unwrap();
+        assert!(!unset.contains("config_dir"), "{unset}");
+
+        let ProviderKind::ClaudeCli { config_dir, .. } = &mut claude.kind else { unreachable!() };
+        *config_dir = Some("~/.claude-work".into());
+        assert_eq!(claude.config_dir(), Some("~/.claude-work"));
+        let set = toml::to_string(&claude).unwrap();
+        assert!(set.contains("config_dir = \"~/.claude-work\""), "{set}");
+        assert_eq!(toml::from_str::<Provider>(&set).unwrap(), claude);
+
+        let ProviderKind::ClaudeCli { config_dir, .. } = &mut claude.kind else { unreachable!() };
+        *config_dir = Some("  ".into());
+        assert_eq!(claude.config_dir(), None, "a blank folder counts as unset");
+        let codex = Provider { id: "c".into(), name: "C".into(), kind: ProviderKind::CodexCli { path: None, model: None, config_dir: Some("/x".into()), thinking: Default::default() } };
+        assert_eq!(codex.config_dir(), Some("/x"));
+        let apple = Provider { id: "a".into(), name: "A".into(), kind: ProviderKind::AppleIntelligence };
+        assert_eq!(apple.config_dir(), None);
     }
 
     #[test]
@@ -887,7 +1113,7 @@ mod tests {
             api_key_account: None,
             models: vec![],
         });
-        let messages: Vec<_> = c.validate().into_iter().map(|i| i.message).collect();
+        let messages: Vec<_> = c.validate().into_iter().map(|i| i.problem.to_string()).collect();
         assert!(messages.iter().any(|m| m.contains("two providers")));
         assert!(messages.iter().any(|m| m.contains("base_url")));
     }

@@ -1,0 +1,27 @@
+_version: 1
+
+settings:
+  overlay:
+    title: "Indicador"
+    subtitle: "A pílula e o que ela mostra enquanto você dita."
+    pill: "Pílula"
+    size: "Tamanho"
+    size_small: "Pequeno"
+    size_medium: "Médio"
+    size_large: "Grande"
+    size_detail: "O tamanho da pílula e de tudo o que ela mostra enquanto você dita."
+    idle_pill: "Mostrar a pílula em repouso"
+    idle_pill_detail: "Uma pílula pequena na parte de baixo da tela. Clique nela para iniciar um ditado."
+    hide_fullscreen: "Ocultar sobre apps em tela cheia"
+    hide_fullscreen_detail: "A pílula sai da frente de vídeos e apresentações."
+    follow: "Seguir a tela em uso"
+    follow_detail_placed: "A pílula vai para a tela do seu mouse ou da janela que você usa, a que mudou por último."
+    follow_detail: "A pílula vai para a tela que você usa cada vez que um ditado começa."
+    position: "Posição da pílula"
+    position_detail: "Coloca a pílula de volta no centro, embaixo. Para fazer isso agora, clique com o botão direito na pílula e escolha Redefinir posição."
+    reset_position: "Redefinir posição"
+    reset_done: "O Sayso esqueceu a posição salva. A pílula vai para o centro, embaixo, na próxima vez que o Sayso iniciar."
+    reset_failed: "O Sayso não conseguiu redefinir a posição: %{error}. Confira se a pasta de dados permite escrita."
+    while_dictating: "Enquanto você dita"
+    live_preview: "Mostrar a prévia ao vivo"
+    live_preview_detail: "Mostra suas palavras acima da pílula enquanto você fala. Só o texto final vai para o app."

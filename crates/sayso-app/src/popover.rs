@@ -7,12 +7,13 @@
 use crate::hub::Route;
 use crate::model::AppModel;
 use gpui_kit::*;
+use sayso_i18n::t;
 use crate::shell::{self as mac, TrayEvent, native as ns_window};
 use sayso_core::dictation::State;
 use sayso_ui::ActivePaper;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
-use sayso_ui::fonts::UI;
+use sayso_ui::fonts::{Face, LocaleFonts as _, UI};
 use sayso_ui::paper::PaperStyled;
 use sayso_ui::text;
 use sayso_ui::texture::{Grain, grain};
@@ -121,6 +122,15 @@ pub fn install(model: &Entity<AppModel>, cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// Give the tray menu its labels again, after a change of language.
+pub fn refresh_tray_labels() {
+    TRAY.with(|t| {
+        if let Some(icon) = t.borrow().as_ref().and_then(|t| t.icon.as_ref()) {
+            icon.refresh_labels();
+        }
+    });
 }
 
 fn icon_rect() -> Option<mac::Rect> {
@@ -288,7 +298,7 @@ type OnPick = Box<dyn Fn(&mut AppModel, &mut Context<AppModel>)>;
 struct SubmenuItem {
     label: String,
     /// Small text at the right, for example "Cloud".
-    note: Option<&'static str>,
+    note: Option<String>,
     selected: bool,
     on_pick: OnPick,
 }
@@ -357,7 +367,7 @@ impl PopoverView {
                 let id = info.id.clone();
                 SubmenuItem {
                     selected: info.id == active,
-                    note: info.is_remote().then_some("Cloud"),
+                    note: info.is_remote().then(|| t!("popover.cloud")),
                     label: info.name,
                     on_pick: Box::new(move |m, cx| m.set_active_model(id.clone(), cx)),
                 }
@@ -368,7 +378,7 @@ impl PopoverView {
     fn microphone_items(&self, cx: &App) -> Vec<SubmenuItem> {
         let m = self.model.read(cx);
         let current = m.config.audio.input_device.clone();
-        let mut options: Vec<(Option<String>, String)> = vec![(None, "System default".into())];
+        let mut options: Vec<(Option<String>, String)> = vec![(None, t!("popover.system_default"))];
         options.extend(m.input_devices().into_iter().map(|d| (Some(d.id), d.name)));
         // The config can hold a device name from a hand-edited file.
         let selected_at = options.iter().position(|(id, name)| match &current {
@@ -399,11 +409,11 @@ impl PopoverView {
         }
     }
 
-    fn submenu(&self, kind: Submenu, footer: Option<(&'static str, Route)>, cx: &mut Context<Self>) -> impl IntoElement {
+    fn submenu(&self, kind: Submenu, footer: Option<(String, Route)>, cx: &mut Context<Self>) -> impl IntoElement {
         let c = cx.paper().colors;
         let (items, empty) = match kind {
-            Submenu::Model => (self.model_items(cx), "No model is downloaded yet."),
-            Submenu::Microphone => (self.microphone_items(cx), "No microphone found."),
+            Submenu::Model => (self.model_items(cx), t!("popover.no_model_downloaded")),
+            Submenu::Microphone => (self.microphone_items(cx), t!("popover.no_microphone")),
         };
         let mut rows = div().id("submenu-rows").flex().flex_col().max_h(px(SUBMENU_MAX_H)).overflow_y_scroll();
         if items.is_empty() {
@@ -443,6 +453,7 @@ impl PopoverView {
             .bg(c.sheet_raised)
             .shadow(sayso_ui::paper::floating(&c))
             .font_family(UI)
+            .locale_fonts(Face::Sans)
             .occlude()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
                 this.submenu = None;
@@ -499,20 +510,20 @@ impl Render for PopoverView {
         let last: Option<(String, String)> = m.recent.first().filter(|_| history_on && !incognito).map(|e| {
             let app = e.app.as_ref().map(|a| a.name.clone()).unwrap_or_else(|| "Sayso".into());
             let time = e.created_at.with_timezone(&chrono::Local).format("%-H:%M").to_string();
-            (format!("Last · {app} · {time}"), e.final_text.clone())
+            (t!("popover.last", app = app, time = time), e.final_text.clone())
         });
         let today = if incognito {
-            "Incognito".to_string()
+            t!("popover.incognito")
         } else if history_on {
-            format!("{} words today", sayso_core::stats::format_count(m.stats.words_today))
+            t!("popover.words_today", count = m.stats.words_today, number = sayso_core::stats::format_count(m.stats.words_today))
         } else {
-            "History off".to_string()
+            t!("popover.history_off")
         };
         let active_style = m.config.ai.active_style.clone();
         let styles: Vec<(String, String, Hsla)> = m
             .styles
             .styles()
-            .map(|s| (s.id.clone(), s.name.clone(), sayso_core::ink::Rgb::parse(&s.ink).map(sayso_ui::theme::hsla).unwrap_or(c.ink)))
+            .map(|s| (s.id.clone(), s.display_name(), sayso_core::ink::Rgb::parse(&s.ink).map(sayso_ui::theme::hsla).unwrap_or(c.ink)))
             .collect();
         let model_name = m.active_model().name;
         let devices = m.input_devices();
@@ -523,11 +534,11 @@ impl Render for PopoverView {
             .as_ref()
             .and_then(|cur| devices.iter().find(|d| &d.id == cur || &d.name == cur).map(|d| d.name.clone()))
             .or_else(|| devices.iter().find(|d| d.is_default).map(|d| d.name.clone()))
-            .unwrap_or_else(|| "System default".into());
+            .unwrap_or_else(|| t!("popover.system_default"));
         let side = SUBMENU_SIDE.with(|s| s.get());
         let open = self.submenu;
 
-        let dictate_label = if recording { "Stop dictation" } else { "Start dictation" };
+        let dictate_label = if recording { t!("popover.stop_dictation") } else { t!("popover.start_dictation") };
         let mut sheet = div()
             .id("popover-sheet")
             .relative()
@@ -540,6 +551,7 @@ impl Render for PopoverView {
             .bg(c.sheet)
             .shadow(sayso_ui::paper::floating(&c))
             .font_family(UI)
+            .locale_fonts(Face::Sans)
             // A click on the sheet must not reach the clear part of the window.
             .occlude()
             .on_key_down(cx.listener(|_, e: &KeyDownEvent, _, cx| {
@@ -619,7 +631,7 @@ impl Render for PopoverView {
                                         model_copy.read(cx).copy_text(&text_copy);
                                         hide(cx);
                                     })
-                                    .child(text::ui("Copy", 12., FontWeight::SEMIBOLD, c.accent)),
+                                    .child(text::ui(t!("popover.copy"), 12., FontWeight::SEMIBOLD, c.accent)),
                             ),
                     )
                     .child(text::serif(last_text.replace('\n', " "), 14., c.ink).line_clamp(3).text_ellipsis()),
@@ -647,13 +659,13 @@ impl Render for PopoverView {
                 .px(px(6.))
                 .pt(px(10.))
                 .pb(px(4.))
-                .child(text::caps("Style", &c).px(px(4.)))
+                .child(text::caps(t!("popover.style"), &c).px(px(4.)))
                 .child(chips),
         );
 
         // Model and microphone rows. Each opens a submenu beside the sheet, on
         // hover or on a click, as a native menu does.
-        let row = |kind: Submenu, id: &'static str, ic: Icon, label: &'static str, value: String, cx: &mut Context<Self>| {
+        let row = |kind: Submenu, id: &'static str, ic: Icon, label: String, value: String, cx: &mut Context<Self>| {
             let active = open == Some(kind);
             div()
                 .id(id)
@@ -684,10 +696,10 @@ impl Render for PopoverView {
                 .child(text::ui(value, 13., FontWeight::NORMAL, c.graphite).max_w(px(150.)).truncate())
                 .when(side == SubmenuSide::Right, |d| d.child(icon(Icon::ChevronRight, 10., c.pencil)))
         };
-        let mut model_row = row(Submenu::Model, "model-row", Icon::Models, "Model", model_name, cx);
-        let mut mic_row = row(Submenu::Microphone, "mic-row", Icon::Mic, "Microphone", device_name, cx);
+        let mut model_row = row(Submenu::Model, "model-row", Icon::Models, t!("popover.model"), model_name, cx);
+        let mut mic_row = row(Submenu::Microphone, "mic-row", Icon::Mic, t!("popover.microphone"), device_name, cx);
         match open {
-            Some(Submenu::Model) => model_row = model_row.child(self.submenu(Submenu::Model, Some(("Manage models…", Route::Models)), cx)),
+            Some(Submenu::Model) => model_row = model_row.child(self.submenu(Submenu::Model, Some((t!("popover.manage_models"), Route::Models)), cx)),
             Some(Submenu::Microphone) => mic_row = mic_row.child(self.submenu(Submenu::Microphone, None, cx)),
             None => {}
         }
@@ -705,8 +717,8 @@ impl Render for PopoverView {
                 .border_t_1()
                 .border_color(c.rule)
                 .child(icon(Icon::Wordmark, 15., c.graphite).opacity(if incognito { 0.45 } else { 1.0 }))
-                .child(text::ui("Incognito", 14., FontWeight::NORMAL, c.ink))
-                .child(text::ui("Not saved to history", 13., FontWeight::NORMAL, c.graphite).flex_1().when(!incognito, |d| d.invisible()))
+                .child(text::ui(t!("popover.incognito"), 14., FontWeight::NORMAL, c.ink))
+                .child(text::ui(t!("popover.not_saved"), 13., FontWeight::NORMAL, c.graphite).flex_1().when(!incognito, |d| d.invisible()))
                 .child(Switch::new("incognito", incognito).on_toggle(move |on, _, cx| model.update(cx, |m, cx| m.set_incognito(on, cx))))
         });
         let rows = div().flex().flex_col().px(px(4.)).pt(px(6.)).child(model_row).child(mic_row).children(incognito_row);
@@ -730,11 +742,11 @@ impl Render for PopoverView {
                 .pb(px(2.))
                 .border_t_1()
                 .border_color(c.rule)
-                .child(div().flex_1().child(Button::new("open", "Open Sayso").full_width().on_click(cx.listener(|this, _, _, cx| {
+                .child(div().flex_1().child(Button::new("open", t!("popover.open_sayso")).full_width().on_click(cx.listener(|this, _, _, cx| {
                     hide_popover(cx);
                     this.model.update(cx, |m, cx| m.open_hub(Route::Home, cx));
                 }))))
-                .child(Button::new("quit", "Quit").ghost().on_click(|_, _, cx| cx.quit())),
+                .child(Button::new("quit", t!("popover.quit")).ghost().on_click(|_, _, cx| cx.quit())),
         );
 
         // The sheet takes the side of the window under the icon. The other

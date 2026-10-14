@@ -224,6 +224,9 @@ impl Tray {
         Some(Tray { icon })
     }
 
+    /// The icon has no menu, so no label changes with the language.
+    pub fn refresh_labels(&self) {}
+
     /// Gray out the icon while incognito is on.
     pub fn set_incognito(&self, on: bool) {
         if let Err(e) = self.icon.set_icon(tray_icon_image(on)) {

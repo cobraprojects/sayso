@@ -1,31 +1,58 @@
-//! The styles page. See the Paper board "Hub — Styles".
+//! The styles page. See the Paper page "Styles · Compact".
 //!
-//! A grid of style cards (click to make one active, Edit to change it), the
-//! style editor panel, and the Providers strip with its Add flow.
+//! A panel that shows the featured style with an example, one row for each
+//! style (click to make it the default, Edit to change it), the style editor
+//! panel, and a line that names the default provider. The providers are in
+//! Settings.
 
-use super::ext::{StyleRoute, provider_detail};
+use super::ext::StyleRoute;
 use super::kit::{self, ui};
 use crate::model::AppModel;
 use crate::model_picker::{self, Extra};
 use gpui_kit::component::input::{InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use sayso_core::config::{Provider, ProviderKind, is_local_url};
 use sayso_core::ink::NamedInk;
 use sayso_core::style::{Style, StyleOrigin};
 use sayso_core::style_rules::{self, TypedTarget};
+use sayso_i18n::t;
 use sayso_platform::AppInfo;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
 use sayso_ui::{ActivePaper, Colors, text};
-use std::collections::HashMap;
 
-#[derive(Clone)]
-enum Test {
-    Running,
-    Passed(u64),
-    Failed(String),
+/// The style that the page shows with an example.
+const FEATURED_STYLE_ID: &str = "rambling";
+
+/// Why the editor cannot save. It keeps the reason, not the sentence, so it
+/// changes with the language.
+enum EditError {
+    NeedsName,
+    BadTimeout,
+    SaveFailed(String),
+    BaseSaveFailed(String),
+}
+
+impl EditError {
+    fn text(&self) -> String {
+        match self {
+            EditError::NeedsName => t!("styles.error.needs_name"),
+            EditError::BadTimeout => t!("styles.error.bad_timeout"),
+            EditError::SaveFailed(e) => t!("styles.error.save_failed", error = e),
+            EditError::BaseSaveFailed(e) => t!("styles.error.base_save_failed", error = e),
+        }
+    }
+}
+
+/// The placeholder of the "add" field. Only some systems read the address of a page.
+fn target_placeholder(sites_ok: bool) -> String {
+    match (sites_ok, cfg!(target_os = "macos")) {
+        (true, true) => t!("styles.targets.placeholder_site_bundle"),
+        (true, false) => t!("styles.targets.placeholder_site_app"),
+        (false, true) => t!("styles.targets.placeholder_bundle"),
+        (false, false) => t!("styles.targets.placeholder_app"),
+    }
 }
 
 struct Editor {
@@ -44,7 +71,7 @@ struct Editor {
     timeout: Entity<InputState>,
     /// False for a standalone style.
     use_base: bool,
-    error: Option<String>,
+    error: Option<EditError>,
     confirm_delete: bool,
     /// The apps and sites that use this style (see `style_rules`).
     apps: Vec<String>,
@@ -72,48 +99,18 @@ const MAX_CHOICES: usize = 40;
 /// The editor of the base prompt.
 struct BaseEditor {
     prompt: Entity<TextareaState>,
-    error: Option<String>,
+    error: Option<EditError>,
 }
-
-#[derive(Clone, Copy, PartialEq)]
-enum AddKind {
-    OpenAi,
-    Claude,
-    Codex,
-}
-
-struct AddProvider {
-    kind: AddKind,
-    name: Entity<InputState>,
-    url: Entity<InputState>,
-    key: Entity<InputState>,
-    error: Option<String>,
-}
-
-/// Height of the tiles in the Providers strip: name, model, and status lines.
-const CARD_H: f32 = 78.;
-
-/// (name, base URL). The model is chosen from the provider's list after it is added.
-const PRESETS: [(&str, &str); 4] = [
-    ("OpenRouter", "https://openrouter.ai/api/v1"),
-    ("OpenAI", "https://api.openai.com/v1"),
-    ("Ollama", "http://localhost:11434/v1"),
-    ("LM Studio", "http://localhost:1234/v1"),
-];
 
 pub struct StylesPage {
     model: Entity<AppModel>,
     hovered: Option<String>,
-    hovered_provider: Option<String>,
-    /// The provider whose "⋯" menu is open.
-    provider_menu: Option<String>,
-    confirm_remove: Option<String>,
     editor: Option<Editor>,
     base_editor: Option<BaseEditor>,
-    add: Option<AddProvider>,
-    tests: HashMap<String, Test>,
     /// The apps on this computer, for the names and the picker of the style rules.
     apps: Vec<AppInfo>,
+    /// The locale of the text in the placeholders of the editors.
+    locale: String,
     _subs: Vec<Subscription>,
 }
 
@@ -134,14 +131,10 @@ impl StylesPage {
         Self {
             model,
             hovered: None,
-            hovered_provider: None,
-            provider_menu: None,
-            confirm_remove: None,
             editor: None,
             base_editor: None,
-            add: None,
-            tests: HashMap::new(),
             apps: Vec::new(),
+            locale: sayso_i18n::locale(),
             _subs: vec![observe],
         }
     }
@@ -167,16 +160,17 @@ impl StylesPage {
         let origin = if is_new { None } else { self.model.read(cx).style_origin(&base.id) };
         let http_s = self.model.read(cx).config.ai.http_timeout_ms as f64 / 1000.0;
         let b = base.clone();
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder("For example, Slack").default_value(b.name.clone()));
-        let description = cx.new(|cx| InputState::new(window, cx).placeholder("One line about what the style does").default_value(b.description.clone()));
+        // A built-in style shows its name and description in the interface language.
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder(t!("styles.editor.name_placeholder")).default_value(b.display_name()));
+        let description = cx.new(|cx| InputState::new(window, cx).placeholder(t!("styles.editor.description_placeholder")).default_value(b.display_description()));
         let prompt = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .placeholder("Tell the AI how to rewrite the text. Leave empty for no AI.")
+                .placeholder(t!("styles.editor.prompt_placeholder"))
                 .default_value(b.prompt.clone())
         });
         let timeout = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder(format!("Default, {} s", trim_float(http_s)))
+                .placeholder(t!("styles.editor.timeout_placeholder", seconds = trim_float(http_s)))
                 .default_value(b.timeout_ms.map(|ms| trim_float(ms as f64 / 1000.0)).unwrap_or_default())
         });
         name.update(cx, |s, cx| s.focus(window, cx));
@@ -186,12 +180,7 @@ impl StylesPage {
             (rule.apps, rule.sites, m.services.platform.context.reads_page_url())
         };
         let target = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(match (sites_ok, cfg!(target_os = "macos")) {
-                (true, true) => "Add an app, a site, or a bundle ID",
-                (true, false) => "Add an app, a site, or an app ID",
-                (false, true) => "Add an app or a bundle ID",
-                (false, false) => "Add an app or an app ID",
-            })
+            InputState::new(window, cx).placeholder(target_placeholder(sites_ok))
         });
         let _target_sub = cx.subscribe_in(&target, window, |this, _, ev: &InputEvent, window, cx| {
             if matches!(ev, InputEvent::PressEnter { .. })
@@ -290,7 +279,7 @@ impl StylesPage {
         let Some(ed) = self.editor.as_mut() else { return };
         let name = ed.name.read(cx).value().trim().to_string();
         if name.is_empty() {
-            ed.error = Some("Enter a name for the style.".into());
+            ed.error = Some(EditError::NeedsName);
             cx.notify();
             return;
         }
@@ -301,18 +290,23 @@ impl StylesPage {
             match timeout.trim_end_matches('s').trim().parse::<f64>() {
                 Ok(s) if s > 0.0 && s <= 120.0 => Some((s * 1000.0).round() as u64),
                 _ => {
-                    ed.error = Some("Enter the timeout in seconds, from 0.5 to 120. For example, 4.".into());
+                    ed.error = Some(EditError::BadTimeout);
                     cx.notify();
                     return;
                 }
             }
         };
         let id = if ed.is_new { self.model.read(cx).new_style_id(&name) } else { ed.id.clone() };
+        // A name or description that the user did not change keeps the text
+        // from before, so a built-in style still follows the interface language.
+        let description = ed.description.read(cx).value().trim().to_string();
+        let name = if name == ed.base.display_name() { ed.base.name.clone() } else { name };
+        let description = if description == ed.base.display_description() { ed.base.description.clone() } else { description };
         let style = Style {
             id,
             name,
             ink: ed.ink.clone(),
-            description: ed.description.read(cx).value().trim().to_string(),
+            description,
             prompt: ed.prompt.read(cx).value().trim().to_string(),
             provider: ed.provider.clone(),
             model: ed.model.clone(),
@@ -334,7 +328,7 @@ impl StylesPage {
             Ok(()) => self.editor = None,
             Err(e) => {
                 if let Some(ed) = self.editor.as_mut() {
-                    ed.error = Some(format!("Sayso could not save the style: {e}"));
+                    ed.error = Some(EditError::SaveFailed(e));
                 }
             }
         }
@@ -354,10 +348,10 @@ impl StylesPage {
             (Some(id), Some(p)) => m.model_label(&p.id, id),
             (Some(id), None) => id.clone(),
             (None, Some(p)) => match p.model() {
-                Some(id) => format!("Provider's model ({})", m.model_label(&p.id, id)),
-                None => "Provider's model".into(),
+                Some(id) => t!("styles.editor.provider_model_with", model = m.model_label(&p.id, id)),
+                None => t!("styles.editor.provider_model"),
             },
-            (None, None) => "Provider's model".into(),
+            (None, None) => t!("styles.editor.provider_model"),
         };
 
         // Ink swatches.
@@ -389,16 +383,16 @@ impl StylesPage {
         let ink_name = NamedInk::ALL
             .iter()
             .find(|n| ed.ink.eq_ignore_ascii_case(&format!("#{:06X}", n.color().0)))
-            .map(|n| n.name().to_string())
-            .unwrap_or_else(|| format!("Custom {}", ed.ink));
+            .map(|n| n.label())
+            .unwrap_or_else(|| t!("styles.editor.ink_custom", ink = ed.ink));
         swatches = swatches.child(ui(ink_name, 13., 16., FontWeight::MEDIUM, c.graphite).pl(px(4.)));
 
         // Provider select.
         let current = match &ed.provider {
-            Some(id) => providers.iter().find(|p| &p.0 == id).map(|p| p.1.clone()).unwrap_or_else(|| format!("{id} (not set up)")),
+            Some(id) => providers.iter().find(|p| &p.0 == id).map(|p| p.1.clone()).unwrap_or_else(|| t!("styles.editor.provider_not_set_up", provider = id)),
             None => match &default_name {
-                Some(n) => format!("Default provider ({n})"),
-                None => "Default provider".into(),
+                Some(n) => t!("styles.editor.default_provider_named", provider = n),
+                None => t!("styles.editor.default_provider"),
             },
         };
         let mut select = div().relative().child(
@@ -422,7 +416,7 @@ impl StylesPage {
                 .child(icon(Icon::ChevronDown, 12., c.graphite)),
         );
         if ed.provider_menu {
-            let mut items: Vec<(SharedString, bool)> = vec![("Default provider".into(), ed.provider.is_none())];
+            let mut items: Vec<(SharedString, bool)> = vec![(t!("styles.editor.default_provider").into(), ed.provider.is_none())];
             for (id, name) in &providers {
                 items.push((name.clone().into(), ed.provider.as_deref() == Some(id)));
             }
@@ -458,13 +452,13 @@ impl StylesPage {
             )));
         }
         let provider_field = if providers.is_empty() {
-            ui("No providers yet. Add one under Providers to use AI.", 13., 18., FontWeight::NORMAL, c.graphite).into_any_element()
+            ui(t!("styles.editor.no_providers"), 13., 18., FontWeight::NORMAL, c.graphite).into_any_element()
         } else {
             select.into_any_element()
         };
 
         let model_field = match target {
-            None => ui("Add a provider to choose a model.", 13., 18., FontWeight::NORMAL, c.graphite).into_any_element(),
+            None => ui(t!("styles.editor.add_provider_for_model"), 13., 18., FontWeight::NORMAL, c.graphite).into_any_element(),
             Some(p) => {
                 let pid = p.id.clone();
                 div()
@@ -487,7 +481,8 @@ impl StylesPage {
                         let request = model_picker::Request {
                             key: "style-model".into(),
                             list_key: pid.clone(),
-                            extra: Some(Extra { label: "Provider's model".into(), selected: selected.is_none() }),
+                            extra: Some(Extra { label: t!("styles.editor.provider_model").into(), selected: selected.is_none() }),
+                            thinking_for: None,
                             selected,
                             on_pick: Box::new(move |pick, cx| {
                                 let _ = page.update(cx, |this, cx| {
@@ -516,28 +511,28 @@ impl StylesPage {
             .child(Textarea::new(&ed.prompt).appearance(false).h(px(150.)).text_size(px(14.)));
         let targets = self.targets_group(ed, cx);
 
-        let title = if ed.is_new { "New style".to_string() } else { format!("Edit {}", ed.base.name) };
+        let title = if ed.is_new { t!("styles.editor.new_title") } else { t!("styles.editor.edit_title", name = ed.base.name) };
         let file_note = if ed.is_new {
-            format!("Saved as a file in {}.", styles_dir)
+            t!("styles.editor.saved_in", dir = styles_dir)
         } else {
             match ed.origin {
-                Some(StyleOrigin::BuiltIn) => "A built-in style. Saving writes your copy to the styles folder.".into(),
-                Some(StyleOrigin::Overridden) => "You changed this built-in style. Reset brings back the original.".into(),
+                Some(StyleOrigin::BuiltIn) => t!("styles.editor.built_in_note"),
+                Some(StyleOrigin::Overridden) => t!("styles.editor.overridden_note"),
                 _ => format!("{}/{}.toml", styles_dir, ed.id),
             }
         };
 
         let mut buttons = div().flex().items_center().gap(px(8.)).child(
-            Button::new("save-style", "Save").primary().on_click(cx.listener(|this, _, _, cx| this.save_editor(cx))),
+            Button::new("save-style", t!("styles.save")).primary().on_click(cx.listener(|this, _, _, cx| this.save_editor(cx))),
         );
-        buttons = buttons.child(Button::new("cancel-style", "Cancel").ghost().on_click(cx.listener(|this, _, _, cx| {
+        buttons = buttons.child(Button::new("cancel-style", t!("styles.cancel")).ghost().on_click(cx.listener(|this, _, _, cx| {
             this.editor = None;
             cx.notify();
         })));
         buttons = buttons.child(div().flex_1());
         if ed.origin == Some(StyleOrigin::Overridden) {
             let id = ed.id.clone();
-            buttons = buttons.child(Button::new("reset-style", "Reset to built-in").icon(Icon::Undo).on_click(cx.listener(
+            buttons = buttons.child(Button::new("reset-style", t!("styles.editor.reset_built_in")).icon(Icon::Undo).on_click(cx.listener(
                 move |this, _, _, cx| {
                     let id = id.clone();
                     this.model.update(cx, |m, cx| m.reset_style(&id, cx));
@@ -549,14 +544,14 @@ impl StylesPage {
         if ed.origin == Some(StyleOrigin::User) {
             let id = ed.id.clone();
             if ed.confirm_delete {
-                buttons = buttons.child(Button::new("delete-style-yes", "Delete style").danger().on_click(cx.listener(move |this, _, _, cx| {
+                buttons = buttons.child(Button::new("delete-style-yes", t!("styles.editor.delete_style")).danger().on_click(cx.listener(move |this, _, _, cx| {
                     let id = id.clone();
                     this.model.update(cx, |m, cx| m.delete_style(&id, cx));
                     this.editor = None;
                     cx.notify();
                 })));
             } else {
-                buttons = buttons.child(Button::new("delete-style", "Delete").danger().icon(Icon::Trash).on_click(cx.listener(|this, _, _, cx| {
+                buttons = buttons.child(Button::new("delete-style", t!("styles.editor.delete")).danger().icon(Icon::Trash).on_click(cx.listener(|this, _, _, cx| {
                     if let Some(ed) = this.editor.as_mut() {
                         ed.confirm_delete = true;
                     }
@@ -587,10 +582,10 @@ impl StylesPage {
                         cx.notify();
                     }))),
             )
-            .child(kit::field("Name", kit::input_well(&ed.name, cx), None, cx))
-            .child(kit::field("Description", kit::input_well(&ed.description, cx), None, cx))
-            .child(kit::field("Ink", swatches, None, cx))
-            .child(kit::field("Prompt", prompt, Some("Sayso adds your dictionary words and asks for JSON. You only write the style."), cx))
+            .child(kit::field(&t!("styles.editor.name"), kit::input_well(&ed.name, cx), None, cx))
+            .child(kit::field(&t!("styles.editor.description"), kit::input_well(&ed.description, cx), None, cx))
+            .child(kit::field(&t!("styles.editor.ink"), swatches, None, cx))
+            .child(kit::field(&t!("styles.editor.prompt"), prompt, Some(&t!("styles.editor.prompt_hint")), cx))
             .child(
                 div()
                     .flex()
@@ -604,9 +599,9 @@ impl StylesPage {
                             .flex_1()
                             .min_w_0()
                             .gap(px(2.))
-                            .child(ui("Use the base prompt", 13., 16., FontWeight::SEMIBOLD, c.ink))
+                            .child(ui(t!("styles.editor.use_base"), 13., 16., FontWeight::SEMIBOLD, c.ink))
                             .child(ui(
-                                "The base prompt cleans up the text: filler words, corrections, numbers. Turn it off for a style that does something else, for example a translation.",
+                                t!("styles.editor.use_base_detail"),
                                 12.,
                                 16.,
                                 FontWeight::NORMAL,
@@ -625,16 +620,16 @@ impl StylesPage {
                         }
                     }))),
             )
-            .child(kit::field("Provider", provider_field, None, cx))
+            .child(kit::field(&t!("styles.editor.provider"), provider_field, None, cx))
             .child(
                 div()
                     .flex()
                     .gap(px(12.))
-                    .child(kit::field("Model", model_field, None, cx).flex_1())
-                    .child(kit::field("Timeout in seconds", kit::input_well(&ed.timeout, cx), None, cx).w(px(150.))),
+                    .child(kit::field(&t!("styles.editor.model"), model_field, None, cx).flex_1())
+                    .child(kit::field(&t!("styles.editor.timeout"), kit::input_well(&ed.timeout, cx), None, cx).w(px(150.))),
             )
             .child(targets)
-            .when_some(ed.error.clone(), |d, e| d.child(Banner::new(BannerKind::Warning, e)))
+            .when_some(ed.error.as_ref(), |d, e| d.child(Banner::new(BannerKind::Warning, e.text())))
             .child(div().pt(px(6.)).child(buttons));
 
         Some(self.side_panel("style-editor", body, cx))
@@ -652,8 +647,8 @@ impl StylesPage {
         Some(match names.as_slice() {
             [] => return None,
             [one] => one.clone(),
-            [one, two] => format!("{one} and {two}"),
-            [one, two, rest @ ..] => format!("{one}, {two}, and {} more", rest.len()),
+            [one, two] => t!("styles.targets.names_two", one = one, two = two),
+            [one, two, rest @ ..] => t!("styles.targets.names_many", one = one, two = two, more = rest.len()),
         })
     }
 
@@ -665,7 +660,7 @@ impl StylesPage {
         let rules = &m.config.ai.style_rules;
         let sites_ok = m.services.platform.context.reads_page_url();
         // "Moves from Message": the app or site leaves that style on Save.
-        let moves_from = |owner: Option<&str>| owner.filter(|id| *id != ed.id).map(|id| format!("Moves from {}", m.style_name(id)));
+        let moves_from = |owner: Option<&str>| owner.filter(|id| *id != ed.id).map(|id| t!("styles.targets.moves_from", style = m.style_name(id)));
         let note = |s: String| ui(s, 12., 16., FontWeight::NORMAL, c.graphite).flex_none();
 
         let count = ed.apps.len() + ed.sites.len();
@@ -681,7 +676,7 @@ impl StylesPage {
                     .when(known.is_some(), |d| d.child(ui(name, 14., 18., FontWeight::MEDIUM, c.ink).flex_none()))
                     .child(div().flex_1().min_w_0().child(text::mono(id.clone(), 11., if known.is_some() { c.graphite } else { c.ink }).truncate()))
                     // Before the list of apps loads, each app would get this note.
-                    .when(known.is_none() && !self.apps.is_empty(), |d| d.child(note("Not on this computer".into())))
+                    .when(known.is_none() && !self.apps.is_empty(), |d| d.child(note(t!("styles.targets.not_here"))))
                     .when_some(moves_from(rules.style_of_app(id)), |d, s| d.child(note(s)))
                     .child(kit::icon_button(("remove-app", i), Icon::Close, 10., cx).on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(ed) = this.editor.as_mut() {
@@ -719,7 +714,7 @@ impl StylesPage {
         let no_app = typed && !ed.target.read(cx).value().contains('/') && !choices.iter().any(|ch| matches!(ch, Choice::App(_)));
         let mut panel = div().id("target-choices").flex().flex_col().gap(px(2.)).p(px(6.)).max_h(px(236.)).overflow_y_scroll().rounded(px(10.)).bg(c.sheet_raised).raised_small(&c);
         if no_app {
-            panel = panel.child(div().px(px(6.)).py(px(4.)).child(note("No app on this computer has this name or ID.".into())));
+            panel = panel.child(div().px(px(6.)).py(px(4.)).child(note(t!("styles.targets.no_app"))));
         }
         for (i, choice) in choices.into_iter().take(MAX_CHOICES).enumerate() {
             let line = div()
@@ -746,21 +741,22 @@ impl StylesPage {
                     .when_some(moves_from(rules.style_of_app(&app.bundle_id)), |d, s| d.child(note(s))),
                 Choice::AppId(id) => line
                     .child(slot(Icon::Plus))
-                    .child(label(if cfg!(target_os = "macos") { "Add bundle ID" } else { "Add app ID" }))
+                    .child(label(&t!(crate::shell::os_text!("styles.targets.add_bundle_id", "styles.targets.add_app_id"))))
                     .child(id_text(id, c.ink)),
                 Choice::Site(site) => line
                     .child(slot(Icon::Globe))
-                    .child(label("Add site"))
+                    .child(label(&t!("styles.targets.add_site")))
                     .child(id_text(site, c.ink))
                     .when_some(moves_from(rules.style_of_site(site)), |d, s| d.child(note(s))),
             };
             panel = panel.child(line.on_click(cx.listener(move |this, _, window, cx| this.add_target(choice.clone(), window, cx))));
         }
 
-        let intro = if sites_ok {
-            format!("Sayso uses {} when you dictate into one of these apps or sites.", if ed.base.name.is_empty() { "this style" } else { &ed.base.name })
-        } else {
-            format!("Sayso uses {} when you dictate into one of these apps.", if ed.base.name.is_empty() { "this style" } else { &ed.base.name })
+        let intro = match (sites_ok, ed.base.name.is_empty()) {
+            (true, true) => t!("styles.targets.intro_sites_unnamed"),
+            (true, false) => t!("styles.targets.intro_sites", style = ed.base.name),
+            (false, true) => t!("styles.targets.intro_apps_unnamed"),
+            (false, false) => t!("styles.targets.intro_apps", style = ed.base.name),
         };
         div()
             .flex()
@@ -774,16 +770,16 @@ impl StylesPage {
                     .flex()
                     .flex_col()
                     .gap(px(3.))
-                    .child(text::title("Use automatically".to_string(), 18., &c).line_height(px(24.)))
+                    .child(text::title(t!("styles.targets.title"), 18., &c).line_height(px(24.)))
                     .child(ui(intro, 13., 18., FontWeight::NORMAL, c.graphite)),
             )
-            .when(!rules.enabled, |d| d.child(Banner::new(BannerKind::Info, "This is off. Turn it on in Settings › Dictation.")))
+            .when(!rules.enabled, |d| d.child(Banner::new(BannerKind::Info, t!("styles.targets.off"))))
             .when(count > 0, |d| d.child(list))
             .child(kit::search_well(&ed.target, 36., Some(open.into_any_element()), cx))
             .when(typed || ed.target_open, |d| d.child(panel))
             .when(sites_ok, |d| {
                 d.child(ui(
-                    "A site also covers its subdomains. Add a path to limit it: facebook.com/messages.",
+                    t!("styles.targets.site_hint"),
                     12.,
                     16.,
                     FontWeight::NORMAL,
@@ -827,7 +823,7 @@ impl StylesPage {
 
     fn open_base_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.model.read(cx).styles.base_prompt().to_string();
-        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder("Rules that all styles share. Leave empty for no shared rules.").default_value(text));
+        let prompt = cx.new(|cx| TextareaState::new(window, cx).placeholder(t!("styles.base.placeholder")).default_value(text));
         prompt.update(cx, |s, cx| s.focus(window, cx));
         self.base_editor = Some(BaseEditor { prompt, error: None });
         cx.notify();
@@ -847,7 +843,7 @@ impl StylesPage {
             Ok(()) => self.base_editor = None,
             Err(e) => {
                 if let Some(ed) = self.base_editor.as_mut() {
-                    ed.error = Some(format!("Sayso could not save the base prompt: {e}"));
+                    ed.error = Some(EditError::BaseSaveFailed(e));
                 }
             }
         }
@@ -860,9 +856,9 @@ impl StylesPage {
         let m = self.model.read(cx);
         let changed = m.styles.user_base_prompt.is_some();
         let file_note = if changed {
-            format!("You changed the base prompt. It is the file {}/{}.", m.styles_dir_display(), sayso_core::style::BASE_PROMPT_FILE)
+            t!("styles.base.changed_note", file = format!("{}/{}", m.styles_dir_display(), sayso_core::style::BASE_PROMPT_FILE))
         } else {
-            "The default base prompt. Saving a change writes your copy to the styles folder.".to_string()
+            t!("styles.base.default_note")
         };
         let prompt = div()
             .p(px(4.))
@@ -874,14 +870,14 @@ impl StylesPage {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(Button::new("save-base", "Save").primary().on_click(cx.listener(|this, _, _, cx| this.save_base_editor(cx))))
-            .child(Button::new("cancel-base", "Cancel").ghost().on_click(cx.listener(|this, _, _, cx| {
+            .child(Button::new("save-base", t!("styles.save")).primary().on_click(cx.listener(|this, _, _, cx| this.save_base_editor(cx))))
+            .child(Button::new("cancel-base", t!("styles.cancel")).ghost().on_click(cx.listener(|this, _, _, cx| {
                 this.base_editor = None;
                 cx.notify();
             })))
             .child(div().flex_1());
         if changed {
-            buttons = buttons.child(Button::new("reset-base", "Reset to default").icon(Icon::Undo).on_click(cx.listener(|this, _, _, cx| {
+            buttons = buttons.child(Button::new("reset-base", t!("styles.base.reset")).icon(Icon::Undo).on_click(cx.listener(|this, _, _, cx| {
                 this.model.update(cx, |m, cx| m.reset_base_prompt(cx));
                 this.base_editor = None;
                 cx.notify();
@@ -898,7 +894,7 @@ impl StylesPage {
                     .items_start()
                     .justify_between()
                     .gap(px(12.))
-                    .child(div().flex().flex_col().flex_1().min_w_0().gap(px(6.)).child(text::title("Base prompt", 28., &c)).child(ui(
+                    .child(div().flex().flex_col().flex_1().min_w_0().gap(px(6.)).child(text::title(t!("styles.base.title"), 28., &c)).child(ui(
                         file_note,
                         13.,
                         18.,
@@ -911,64 +907,132 @@ impl StylesPage {
                     }))),
             )
             .child(kit::field(
-                "Rules for all styles",
+                &t!("styles.base.rules"),
                 prompt,
-                Some("Short rules and a few short examples work best with a small model. A style with \"Use the base prompt\" off does not get this text."),
+                Some(&t!("styles.base.rules_hint")),
                 cx,
             ))
-            .when_some(ed.error.clone(), |d, e| d.child(Banner::new(BannerKind::Warning, e)))
+            .when_some(ed.error.as_ref(), |d, e| d.child(Banner::new(BannerKind::Warning, e.text())))
             .child(div().pt(px(6.)).child(buttons));
         Some(self.side_panel("base-editor", body, cx))
     }
 
     // -----------------------------------------------------------------------
-    // Cards
+    // Featured style and rows
     // -----------------------------------------------------------------------
 
-    fn card(&self, style: &Style, active: bool, cx: &mut Context<Self>) -> AnyElement {
+    fn edit_button(&self, id: &str, style: &Style, cx: &mut Context<Self>) -> Button {
+        let st = style.clone();
+        Button::new(SharedString::from(format!("{id}-{}", style.id)), t!("styles.edit")).small().ghost().on_click(cx.listener(move |this, _, w, cx| {
+            cx.stop_propagation();
+            this.open_editor(Some(st.clone()), w, cx);
+        }))
+    }
+
+    /// The featured style: what it does, and one example of speech and the
+    /// text that the style makes from it.
+    fn featured(&self, style: &Style, active: bool, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
         let c = cx.paper().colors;
-        let route = self.model.read(cx).style_route(style);
-        let line_color = match &route {
+        let id = style.id.clone();
+        let actions = div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .pt(px(6.))
+            .map(|d| {
+                if active {
+                    d.child(Badge::new(t!("styles.default"), BadgeTone::Ink))
+                } else {
+                    d.child(Button::new("featured-default", t!("styles.make_default")).primary().small().on_click(cx.listener(move |this, _, _, cx| {
+                        let id = id.clone();
+                        this.model.update(cx, |m, cx| m.set_active_style(&id, cx));
+                    })))
+                }
+            })
+            .child(self.edit_button("featured-edit", style, cx));
+        let about = div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .when(!narrow, |d| d.w(px(252.)))
+            .gap(px(8.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .h(px(20.))
+                    .child(kit::seal_dot(Some(style.ink.as_str()), 14., cx))
+                    .child(kit::caps(t!("styles.recommended"), 11., c.graphite)),
+            )
+            .child(text::title(style.display_name(), 26., &c).line_height(px(32.)))
+            .child(ui(style.display_description(), 14., 20., FontWeight::NORMAL, c.graphite))
+            .child(actions);
+        let side = |label: String, body: Div| div().flex().flex_col().flex_1().min_w_0().gap(px(6.)).py(px(14.)).px(px(16.)).child(kit::caps(label, 11., c.graphite)).child(body);
+        let example = div()
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .rounded(px(10.))
+            .debossed(&c)
+            .child(side(t!("styles.featured.you_say"), kit::mono(t!("styles.featured.said"), 12., c.graphite).line_height(px(18.))))
+            .child(side(t!("styles.featured.sayso_writes"), ui(t!("styles.featured.written"), 14., 20., FontWeight::MEDIUM, c.ink)).border_l_1().border_color(c.deboss_shade));
+        div()
+            .flex()
+            .when(narrow, |d| d.flex_col())
+            .gap(px(if narrow { 16. } else { 24. }))
+            .py(px(20.))
+            .px(px(22.))
+            .rounded(px(14.))
+            .bg(c.sheet_raised)
+            .shadow(vec![
+                BoxShadow::new(px(0.), px(1.), c.highlight(1.0)).inset(),
+                BoxShadow::new(px(0.), px(1.), c.shadow(0.14)).blur_radius(px(2.)),
+                BoxShadow::new(px(0.), px(8.), c.shadow(0.08)).blur_radius(px(22.)),
+            ])
+            .child(about)
+            .child(example)
+            .into_any_element()
+    }
+
+    /// The detail of a style row: the apps and sites of the style, or its
+    /// provider when that is not the default provider.
+    fn row_detail(&self, style: &Style, cx: &App) -> Option<(String, Hsla)> {
+        let c = cx.paper().colors;
+        if let Some(line) = self.target_line(&style.id, cx) {
+            return Some((line, c.ink));
+        }
+        let m = self.model.read(cx);
+        let route = m.style_route(style);
+        let color = match &route {
+            StyleRoute::NoAi => c.graphite,
+            StyleRoute::NeedsModel { .. } => c.danger,
+            // The line below the rows names the default provider.
+            _ if route == m.style_route(&Style { provider: None, model: None, ..style.clone() }) => return None,
             StyleRoute::Cloud { .. } => c.accent,
             StyleRoute::Local { .. } => c.success,
-            StyleRoute::NoAi => c.graphite,
             StyleRoute::NeedsProvider => c.pencil,
-            StyleRoute::NeedsModel { .. } => c.danger,
         };
+        Some((route.line(), color))
+    }
+
+    fn row(&self, style: &Style, active: bool, last: bool, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
+        let c = cx.paper().colors;
         let hovered = self.hovered.as_deref() == Some(style.id.as_str());
-        let rules_on = self.model.read(cx).config.ai.style_rules.enabled;
-        let targets = self.target_line(&style.id, cx);
+        let detail = self.row_detail(style, cx);
+        let has_rule = self.target_line(&style.id, cx).is_some();
         let id2 = style.id.clone();
         let id3 = style.id.clone();
-        let st = style.clone();
-        let edit = Button::new(SharedString::from(format!("edit-{}", style.id)), "Edit").small().ghost().on_click(cx.listener(
-            move |this, _, w, cx| {
-                cx.stop_propagation();
-                this.open_editor(Some(st.clone()), w, cx);
-            },
-        ));
-        let mut shadows = Vec::new();
-        if active {
-            shadows.push(BoxShadow::new(px(0.), px(0.), c.ink).spread_radius(px(2.)));
-        }
-        shadows.extend([
-            BoxShadow::new(px(0.), px(1.), c.highlight(1.0)).inset(),
-            BoxShadow::new(px(0.), px(1.), c.shadow(0.14)).blur_radius(px(2.)),
-            BoxShadow::new(px(0.), px(8.), c.shadow(if active { 0.12 } else { 0.08 })).blur_radius(px(22.)),
-        ]);
+        let edit = self.edit_button("edit", style, cx);
         div()
             .id(SharedString::from(format!("style-{}", style.id)))
             .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .h(px(if rules_on { 200. } else { 178. }))
-            .gap(px(10.))
-            .py(px(18.))
-            .px(px(20.))
-            .rounded(px(14.))
-            .bg(c.sheet_raised)
-            .shadow(shadows)
+            .items_center()
+            .gap(px(14.))
+            .h(px(48.))
+            .px(px(4.))
+            .when(!last, |d| d.border_b_1().border_color(c.rule))
+            .when(hovered, |d| d.bg(c.deboss.opacity(0.55)))
             .cursor_pointer()
             .on_hover(cx.listener(move |this, h: &bool, _, cx| {
                 if *h {
@@ -982,610 +1046,67 @@ impl StylesPage {
                 let id = id3.clone();
                 this.model.update(cx, |m, cx| m.set_active_style(&id, cx));
             }))
+            .child(kit::seal_dot(style.uses_ai().then_some(style.ink.as_str()), 14., cx))
+            .child(text::title(style.display_name(), 18., &c).line_height(px(24.)).flex_none().w(px(112.)).truncate())
+            .child(ui(style.display_description(), 14., 20., FontWeight::NORMAL, c.graphite).flex_1().min_w_0().truncate())
+            .child(div().flex().flex_none().items_center().gap(px(6.)).w(px(if narrow { 150. } else { 236. })).when_some(detail, |d, (line, color)| {
+                d.when(has_rule, |d| d.child(icon(Icon::ArrowRight, 11., c.graphite))).child(ui(line, 12., 16., FontWeight::MEDIUM, color).min_w_0().truncate())
+            }))
             .child(
                 div()
                     .flex()
+                    .flex_none()
                     .items_center()
-                    .justify_between()
-                    .h(px(22.))
-                    .child(kit::seal_dot(style.uses_ai().then_some(style.ink.as_str()), 16., cx))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .when(hovered || active, |d| d.child(edit))
-                            .when(active, |d| d.child(Badge::new("Default", BadgeTone::Ink))),
-                    ),
+                    .justify_end()
+                    .w(px(80.))
+                    // Edit takes the place of the badge, so the row keeps its columns.
+                    .when(hovered, |d| d.child(edit))
+                    .when(active && !hovered, |d| d.child(Badge::new(t!("styles.default"), BadgeTone::Ink))),
             )
-            .child(text::title(style.name.clone(), 24., &c).line_height(px(30.)))
-            .child(ui(style.description.clone(), 14., 20., FontWeight::NORMAL, c.graphite).flex_1().line_clamp(2).text_ellipsis())
-            .when_some(targets, |d, line| {
-                d.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .child(icon(Icon::ArrowRight, 11., c.graphite))
-                        .child(ui(line, 12., 16., FontWeight::MEDIUM, c.ink).truncate()),
-                )
-            })
-            .child(ui(route.line(), 12., 16., FontWeight::MEDIUM, line_color).truncate())
             .into_any_element()
     }
 
-    // -----------------------------------------------------------------------
-    // Providers
-    // -----------------------------------------------------------------------
-
-    fn test(&mut self, id: String, cx: &mut Context<Self>) {
-        self.tests.insert(id.clone(), Test::Running);
-        let entity = cx.entity();
-        self.model.update(cx, |m, cx| {
-            m.test_provider(&id.clone(), cx, move |_, result, cx| {
-                entity.update(cx, |this, cx| {
-                    this.tests.insert(id, match result {
-                        Ok(ms) => Test::Passed(ms),
-                        Err(e) => Test::Failed(test_error(&e)),
-                    });
-                    cx.notify();
-                });
-            })
-        });
-        cx.notify();
-    }
-
-    fn provider_card(&self, p: &Provider, default: bool, cx: &mut Context<Self>) -> AnyElement {
+    /// The default provider in one line, with the way to the providers.
+    fn provider_line(&self, cx: &mut Context<Self>) -> AnyElement {
         let c = cx.paper().colors;
-        let hovered = self.hovered_provider.as_deref() == Some(p.id.as_str());
-        let test = self.tests.get(&p.id).cloned();
-        let (dot, line, line_color) = match &test {
-            Some(Test::Running) => (c.accent, "Testing".to_string(), c.graphite),
-            Some(Test::Passed(ms)) => (c.success, format!("Answered in {ms} ms"), c.success),
-            Some(Test::Failed(e)) => (c.danger, e.clone(), c.danger),
-            None => (
-                if p.is_cloud() { c.pencil } else { c.success },
-                provider_detail(p),
-                if p.is_cloud() { c.accent } else { c.graphite },
-            ),
-        };
-        let id_hover = p.id.clone();
-        let confirm = self.confirm_remove.as_deref() == Some(p.id.as_str());
-        let menu_open = self.provider_menu.as_deref() == Some(p.id.as_str());
-        let needs_model = p.needs_model();
-        let (dot, line, line_color) = if needs_model && test.is_none() {
-            (c.danger, "Choose a model to use this provider".to_string(), c.danger)
-        } else {
-            (dot, line, line_color)
-        };
-
-        let card = div()
-            .id(SharedString::from(format!("provider-{}", p.id)))
-            .relative()
-            .flex()
-            .items_center()
-            .gap(px(12.))
-            .flex_basis(px(230.))
-            .flex_grow(1.)
-            .min_w(px(230.))
-            .h(px(CARD_H))
-            .px(px(14.))
-            .rounded(px(12.))
-            .bg(c.deboss)
-            .shadow(vec![
-                BoxShadow::new(px(0.), px(1.), c.shadow(0.18)).blur_radius(px(3.)).inset(),
-                BoxShadow::new(px(0.), px(-1.), c.highlight(0.75)).inset(),
-            ])
-            .on_hover(cx.listener(move |this, h: &bool, _, cx| {
-                if *h {
-                    this.hovered_provider = Some(id_hover.clone());
-                } else if this.hovered_provider.as_deref() == Some(id_hover.as_str()) {
-                    this.hovered_provider = None;
-                    if this.confirm_remove.as_deref() == Some(id_hover.as_str()) {
-                        this.confirm_remove = None;
-                    }
-                }
-                cx.notify();
-            }));
-
-        // Removing asks first, in place of the card's content.
-        if confirm {
-            let (rid, cid) = (p.id.clone(), p.id.clone());
-            return card
-                .flex_col()
-                .items_start()
-                .justify_center()
-                .gap(px(6.))
-                .child(ui(format!("Remove {}?", p.name), 14., 18., FontWeight::SEMIBOLD, c.ink).truncate())
-                .child(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .gap(px(6.))
-                        .child(Button::new(SharedString::from(format!("rm-yes-{}", p.id)), "Remove").small().danger().on_click(cx.listener(
-                            move |this, _, _, cx| {
-                                this.confirm_remove = None;
-                                this.tests.remove(&rid);
-                                let id = rid.clone();
-                                this.model.update(cx, |m, cx| m.remove_provider(&id, cx));
-                            },
-                        )))
-                        .child(Button::new(SharedString::from(format!("rm-no-{}", p.id)), "Cancel").small().ghost().on_click(cx.listener(
-                            move |this, _, _, cx| {
-                                if this.confirm_remove.as_deref() == Some(cid.as_str()) {
-                                    this.confirm_remove = None;
-                                }
-                                cx.notify();
-                            },
-                        ))),
-                )
-                .into_any_element();
-        }
-
-        // The actions sit in a corner menu, so hovering never squeezes the text.
-        let more = (hovered || menu_open).then(|| {
-            let mid = p.id.clone();
-            let mut corner = div().absolute().top(px(8.)).right(px(8.)).child(
-                kit::icon_button(SharedString::from(format!("more-{}", p.id)), Icon::More, 14., cx)
-                    .size(px(24.))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.provider_menu = if this.provider_menu.as_deref() == Some(mid.as_str()) { None } else { Some(mid.clone()) };
-                        cx.notify();
-                    })),
-            );
-            if menu_open {
-                let mut items: Vec<(SharedString, bool)> = Vec::new();
-                let mut actions: Vec<&'static str> = Vec::new();
-                if !needs_model && !matches!(test, Some(Test::Running)) {
-                    items.push(("Test connection".into(), false));
-                    actions.push("test");
-                }
-                if !default {
-                    items.push(("Make default".into(), false));
-                    actions.push("default");
-                }
-                items.push(("Remove".into(), false));
-                actions.push("remove");
-                let (pick_page, close_page) = (cx.entity(), cx.entity());
-                let pid = p.id.clone();
-                // The menu opens at its parent's left edge; a parent as wide as
-                // the menu lines its right edge up with the button.
-                corner = corner.child(div().absolute().top_full().right_0().w(px(200.)).child(kit::menu(
-                    "provider-actions",
-                    items,
-                    move |i, _, cx| {
-                        let action = actions.get(i).copied();
-                        let id = pid.clone();
-                        pick_page.update(cx, |this, cx| {
-                            this.provider_menu = None;
-                            match action {
-                                Some("test") => this.test(id, cx),
-                                Some("default") => {
-                                    this.model.update(cx, |m, cx| m.edit_config(cx, |c| c.ai.default_provider = Some(id)));
-                                }
-                                Some("remove") => this.confirm_remove = Some(id),
-                                _ => {}
-                            }
-                            cx.notify();
-                        });
-                    },
-                    move |_, cx| {
-                        close_page.update(cx, |this, cx| {
-                            this.provider_menu = None;
-                            cx.notify();
-                        })
-                    },
-                    cx,
-                )));
-            }
-            corner
-        });
-
-        let picker = self.model_picker(p, cx);
-        card.child(div().flex_none().size(px(8.)).rounded_full().bg(dot))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .gap(px(1.))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            // Room for the corner menu button.
-                            .pr(px(26.))
-                            .child(ui(p.name.clone(), 14., 18., FontWeight::SEMIBOLD, c.ink).truncate())
-                            .when(default, |d| d.child(ui("Default", 11., 14., FontWeight::MEDIUM, c.graphite))),
-                    )
-                    .child(picker)
-                    .child(ui(line, 12., 16., FontWeight::NORMAL, line_color).truncate()),
-            )
-            .children(more)
-            .into_any_element()
-    }
-
-    /// The model line of a provider card. A click opens the provider's list.
-    fn model_picker(&self, p: &Provider, cx: &mut Context<Self>) -> AnyElement {
         let m = self.model.read(cx);
-        let label = match p.model() {
-            Some(id) => m.model_label(&p.id, id),
-            None if p.needs_model() => "Choose a model".into(),
-            // macOS chooses the model. Its name comes with the list.
-            None if p.kind == ProviderKind::AppleIntelligence => match m.model_lists.get(&p.id) {
-                Some(crate::model::ModelList::Ready(list)) if !list.is_empty() => list[0].name.clone(),
-                _ => "Default model".into(),
-            },
-            None => "Default model".into(),
+        let default = m.config.ai.provider(None).filter(|_| m.config.ai.enabled);
+        let (dot, line) = match default {
+            Some(p) => {
+                let line = match p.model() {
+                    Some(id) => t!("styles.provider_line.with_model", provider = p.name, model = m.model_label(&p.id, id)),
+                    None => t!("styles.provider_line.no_model", provider = p.name),
+                };
+                (c.success, line)
+            }
+            None if m.config.ai.providers.is_empty() => (c.pencil, t!("styles.provider_line.no_provider")),
+            None => (c.pencil, t!("styles.provider_line.ai_off")),
         };
-        let pid = p.id.clone();
-        model_picker::trigger(&format!("provider:{}", p.id), label, !p.needs_model(), cx)
-            .on_click(cx.listener(move |this, _, _, cx| this.open_models(&pid, cx)))
-            .into_any_element()
-    }
-
-    /// Open the model list of a saved provider under its card.
-    fn open_models(&mut self, id: &str, cx: &mut Context<Self>) {
-        let Some(p) = self.model.read(cx).config.ai.providers.iter().find(|p| p.id == id).cloned() else { return };
-        self.model.update(cx, |m, cx| m.load_provider_models(id, false, cx));
-        let page = cx.entity().downgrade();
+        let label = if m.config.ai.providers.is_empty() { t!("styles.provider_line.set_up") } else { t!("styles.provider_line.manage") };
         let model = self.model.clone();
-        let (pick_id, refresh_id) = (p.id.clone(), p.id.clone());
-        let request = model_picker::Request {
-            key: format!("provider:{}", p.id),
-            list_key: p.id.clone(),
-            selected: p.model().map(str::to_string),
-            extra: None,
-            on_pick: Box::new(move |pick, cx| {
-                let Some(choice) = pick else { return };
-                let id = pick_id.clone();
-                let _ = page.update(cx, |this, cx| {
-                    this.tests.remove(&id);
-                    this.model.update(cx, |m, cx| m.set_provider_model(&id, choice, cx));
-                });
-            }),
-            on_refresh: Box::new(move |cx| model.update(cx, |m, cx| m.load_provider_models(&refresh_id, true, cx))),
-        };
-        model_picker::open(&self.model, request, cx);
-    }
-
-    fn suggestion(&self, id: &'static str, title: &str, detail: String, provider: Provider, cx: &mut Context<Self>) -> AnyElement {
-        let c = cx.paper().colors;
-        kit::dashed(id, cx)
-            .justify_start()
-            .gap(px(12.))
-            .flex_basis(px(230.))
-            .flex_grow(1.)
-            .min_w(px(230.))
-            .h(px(CARD_H))
-            .px(px(14.))
-            .rounded(px(12.))
-            .cursor_default()
-            .child(div().flex_none().size(px(8.)).rounded_full().border_1().border_color(c.success))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .gap(px(1.))
-                    .child(ui(title.to_string(), 14., 18., FontWeight::SEMIBOLD, c.ink))
-                    .child(ui(detail, 12., 16., FontWeight::NORMAL, c.graphite).truncate()),
-            )
-            .child(Button::new(SharedString::from(format!("{id}-add")), "Add").small().on_click(cx.listener(move |this, _, window, cx| {
-                let p = provider.clone();
-                this.added(p, None, window, cx);
-            })))
-            .into_any_element()
-    }
-
-    fn providers(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let c = cx.paper().colors;
-        let (providers, default, enabled, detected) = {
-            let m = self.model.read(cx);
-            (m.config.ai.providers.clone(), m.config.ai.default_provider.clone(), m.config.ai.enabled, m.detected.clone())
-        };
-        let model = self.model.clone();
-        let note = div()
+        div()
             .flex()
             .items_center()
-            .gap(px(14.))
-            .child(ui("Cloud providers receive the style prompt and your transcript. Nothing else.", 13., 16., FontWeight::NORMAL, c.graphite))
-            .child(
-                div().flex().items_center().gap(px(8.)).child(ui("Use AI", 13., 16., FontWeight::MEDIUM, c.ink)).child(
-                    Switch::new("ai-on", enabled).on_toggle(move |on, _, cx| model.update(cx, |m, cx| m.set_ai_enabled(on, cx))),
-                ),
-            );
-        let mut strip = div().flex().flex_wrap().gap(px(12.));
-        for p in &providers {
-            let is_default = default.as_deref() == Some(p.id.as_str());
-            strip = strip.child(self.provider_card(p, is_default, cx));
-        }
-        // Providers found on this Mac that are not set up yet.
-        let has_ollama = providers.iter().any(|p| matches!(&p.kind, ProviderKind::OpenAiCompatible { base_url, .. } if base_url.contains(":11434")));
-        if let (Some(models), false) = (&detected.ollama, has_ollama) {
-            // With no model pulled, the picker opens after Add instead.
-            let first = models.first().cloned().unwrap_or_default();
-            let p = Provider {
-                id: self.model.read(cx).new_provider_id("ollama"),
-                name: "Ollama".into(),
-                kind: ProviderKind::OpenAiCompatible {
-                    base_url: "http://localhost:11434/v1".into(),
-                    model: first.clone(),
-                    api_key_account: None,
-                    zero_data_retention: false,
-                },
-            };
-            let detail = if models.is_empty() {
-                format!("Running on this {} · no models pulled yet", crate::shell::COMPUTER)
-            } else {
-                format!("Running on this {} · {}", crate::shell::COMPUTER, kit::plural(models.len(), "model", "models"))
-            };
-            strip = strip.child(self.suggestion("suggest-ollama", "Ollama", detail, p, cx));
-        }
-        let has_claude = providers.iter().any(|p| matches!(p.kind, ProviderKind::ClaudeCli { .. }));
-        if let (Some(path), false) = (&detected.claude_cli, has_claude) {
-            let p = Provider {
-                id: self.model.read(cx).new_provider_id("claude"),
-                name: "Claude CLI".into(),
-                kind: ProviderKind::ClaudeCli { path: Some(path.display().to_string()), model: "haiku".into() },
-            };
-            strip = strip.child(self.suggestion("suggest-claude", "Claude CLI", format!("Found on this {} · Cloud", crate::shell::COMPUTER), p, cx));
-        }
-        let has_codex = providers.iter().any(|p| matches!(p.kind, ProviderKind::CodexCli { .. }));
-        if let (Some(path), false) = (&detected.codex_cli, has_codex) {
-            let p = Provider {
-                id: self.model.read(cx).new_provider_id("codex"),
-                name: "Codex CLI".into(),
-                kind: ProviderKind::CodexCli { path: Some(path.display().to_string()), model: None },
-            };
-            strip = strip.child(self.suggestion("suggest-codex", "Codex CLI", format!("Found on this {} · Cloud · about 5 s", crate::shell::COMPUTER), p, cx));
-        }
-        let has_apple = providers.iter().any(|p| matches!(p.kind, ProviderKind::AppleIntelligence));
-        if let (Some(model), false) = (&detected.apple_intelligence, has_apple) {
-            let p = Provider {
-                id: self.model.read(cx).new_provider_id("apple-intelligence"),
-                name: "Apple Intelligence".into(),
-                kind: ProviderKind::AppleIntelligence,
-            };
-            strip = strip.child(self.suggestion("suggest-apple", "Apple Intelligence", format!("Runs on this Mac · {model}"), p, cx));
-        }
-        strip = strip.child(
-            kit::dashed("add-provider", cx)
-                .w(px(140.))
-                .h(px(CARD_H))
-                .rounded(px(12.))
-                .on_click(cx.listener(|this, _, w, cx| this.open_add(w, cx)))
-                .child(icon(Icon::Plus, 12., c.graphite))
-                .child(ui("Add", 14., 18., FontWeight::NORMAL, c.graphite)),
-        );
-        let mut col = div().flex().flex_col().gap(px(12.)).child(kit::section_head("Providers", Some(note.into_any_element()), cx).pb(px(8.)));
-        if providers.is_empty() && !detected.done {
-            col = col.child(ui(format!("Looking for AI providers on this {}.", crate::shell::COMPUTER), 13., 16., FontWeight::NORMAL, c.graphite));
-        }
-        col = col.child(strip);
-        if let Some(panel) = self.add_panel(cx) {
-            col = col.child(panel);
-        }
-        col.into_any_element()
-    }
-
-    fn open_add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.add.is_some() {
-            self.add = None;
-            cx.notify();
-            return;
-        }
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder("For example, OpenRouter"));
-        let url = cx.new(|cx| InputState::new(window, cx).placeholder("https://openrouter.ai/api/v1"));
-        let key = cx.new(|cx| InputState::new(window, cx).placeholder(crate::shell::os_text!("Stored in your Keychain", "Stored in Windows Credential Manager", "Stored in your system keyring")).masked(true));
-        self._subs.push(cx.subscribe_in(&url, window, |_, _, _: &InputEvent, _, cx| cx.notify()));
-        name.update(cx, |s, cx| s.focus(window, cx));
-        self.add = Some(AddProvider { kind: AddKind::OpenAi, name, url, key, error: None });
-        cx.notify();
-    }
-
-    fn apply_preset(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(add) = self.add.as_mut() else { return };
-        let (name, url) = PRESETS[i];
-        add.name.update(cx, |s, cx| s.set_value(name, window, cx));
-        add.url.update(cx, |s, cx| s.set_value(url, window, cx));
-        add.error = None;
-        cx.notify();
-    }
-
-    fn save_add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(add) = self.add.as_mut() else { return };
-        let name = add.name.read(cx).value().trim().to_string();
-        let detected = self.model.read(cx).detected.clone();
-        let (name, kind, key) = match add.kind {
-            AddKind::OpenAi => {
-                let url = add.url.read(cx).value().trim().trim_end_matches('/').to_string();
-                if name.is_empty() {
-                    add.error = Some("Enter a name for the provider.".into());
-                } else if !(url.starts_with("http://") || url.starts_with("https://")) {
-                    add.error = Some("Enter a base URL that starts with http:// or https://.".into());
-                }
-                if add.error.is_some() {
-                    cx.notify();
-                    return;
-                }
-                let key = add.key.read(cx).value().trim().to_string();
-                (name, Some(url), (!key.is_empty()).then_some(key))
-            }
-            AddKind::Claude | AddKind::Codex => {
-                let claude = add.kind == AddKind::Claude;
-                let found = if claude { detected.claude_cli.is_some() } else { detected.codex_cli.is_some() };
-                if !found {
-                    add.error = Some(if claude {
-                        "Sayso cannot find the Claude CLI. Install it and sign in, then try again.".into()
-                    } else {
-                        "Sayso cannot find the Codex CLI. Install it and sign in, then try again.".into()
-                    });
-                    cx.notify();
-                    return;
-                }
-                (if claude { "Claude CLI".into() } else { "Codex CLI".into() }, None, None)
-            }
-        };
-        let id = self.model.read(cx).new_provider_id(&name);
-        let kind = match (add.kind, kind) {
-            (AddKind::OpenAi, Some(base_url)) => ProviderKind::OpenAiCompatible {
-                api_key_account: key.as_ref().map(|_| format!("provider.{id}")),
-                zero_data_retention: base_url.contains("openrouter.ai"),
-                base_url,
-                model: String::new(),
-            },
-            // Haiku is the fast choice for cleanup; the picker offers the rest.
-            (AddKind::Claude, _) => ProviderKind::ClaudeCli { path: detected.claude_cli.map(|p| p.display().to_string()), model: "haiku".into() },
-            _ => ProviderKind::CodexCli { path: detected.codex_cli.map(|p| p.display().to_string()), model: None },
-        };
-        let provider = Provider { id, name, kind };
-        self.add = None;
-        self.added(provider, key, window, cx);
-    }
-
-    /// Save a new provider and fetch its models. A provider that cannot run
-    /// without a model opens its picker; one that can is tested right away.
-    fn added(&mut self, provider: Provider, key: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
-        let id = provider.id.clone();
-        let needs_model = provider.needs_model();
-        self.model.update(cx, |m, cx| {
-            m.save_provider(provider, key, false, cx);
-            m.load_provider_models(&id, true, cx);
-        });
-        if needs_model {
-            // The card's trigger records its place when it is drawn; open after that.
-            cx.spawn_in(window, async move |this, cx| {
-                cx.background_executor().timer(std::time::Duration::from_millis(120)).await;
-                let _ = this.update(cx, |this, cx| this.open_models(&id, cx));
-            })
-            .detach();
-        } else {
-            self.test(id, cx);
-        }
-    }
-
-    fn add_panel(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let c = cx.paper().colors;
-        let add = self.add.as_ref()?;
-        let (claude, codex) = {
-            let m = self.model.read(cx);
-            (m.detected.claude_cli.clone(), m.detected.codex_cli.clone())
-        };
-        let kinds = vec!["OpenAI-compatible", "Claude CLI", "Codex CLI"];
-        let selected = match add.kind {
-            AddKind::OpenAi => 0,
-            AddKind::Claude => 1,
-            AddKind::Codex => 2,
-        };
-        let entity = cx.entity();
-        let seg = Segmented::new("add-kind", kinds, selected).on_select(move |i, _, cx| {
-            entity.update(cx, |this, cx| {
-                if let Some(a) = this.add.as_mut() {
-                    a.kind = [AddKind::OpenAi, AddKind::Claude, AddKind::Codex][i];
-                    a.error = None;
-                }
-                cx.notify();
-            })
-        });
-
-        let mut body = div().flex().flex_col().gap(px(16.));
-        match add.kind {
-            AddKind::OpenAi => {
-                let mut presets = div().flex().gap(px(6.));
-                for (i, (name, _)) in PRESETS.iter().enumerate() {
-                    presets = presets.child(
-                        Chip::new(("preset", i), *name, false).on_click(cx.listener(move |this, _, w, cx| this.apply_preset(i, w, cx))),
-                    );
-                }
-                let url = add.url.read(cx).value().to_string();
-                let cloud = !url.trim().is_empty() && !is_local_url(&url);
-                body = body
-                    .child(kit::field("Start from", presets, None, cx))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(12.))
-                            .child(kit::field("Name", kit::input_well(&add.name, cx), None, cx).w(px(220.)))
-                            .child(kit::field("Base URL", kit::input_well(&add.url, cx), None, cx).flex_1()),
-                    )
-                    .child(kit::field(
-                        "API key",
-                        kit::input_well(&add.key, cx),
-                        Some("Not needed for local servers. You choose the model from the provider's list after you add it."),
-                        cx,
-                    ))
-                    .when(cloud, |d| {
-                        d.child(Banner::new(
-                            BannerKind::Info,
-                            "This is a cloud provider. When a style uses it, Sayso sends the style prompt, your dictionary words, and the transcript to it.",
-                        ))
-                    });
-            }
-            AddKind::Claude | AddKind::Codex => {
-                let (path, name) = if add.kind == AddKind::Claude { (claude, "Claude CLI") } else { (codex, "Codex CLI") };
-                let status = match path {
-                    Some(p) => format!("Found at {}. Sayso runs it with no tools and no saved session.", p.display()),
-                    None => format!("Sayso cannot find the {name}. Install it and sign in, then try again."),
-                };
-                body = body.child(ui(status, 13., 18., FontWeight::NORMAL, c.graphite)).child(Banner::new(
-                    BannerKind::Info,
-                    if add.kind == AddKind::Claude {
-                        "Cloud. About 1.8 s for each dictation with Haiku. The CLI uses your own account. You can choose another model after you add it."
-                    } else {
-                        "Cloud. About 5 s for each dictation. The CLI uses your own account. You can choose a model after you add it."
-                    },
-                ));
-            }
-        }
-        let panel = div()
-            .flex()
-            .flex_col()
-            .gap(px(18.))
-            .mt(px(6.))
-            .p(px(22.))
-            .rounded(px(14.))
-            .raised(&c)
+            .gap(px(10.))
+            .pt(px(16.))
+            .border_t_1()
+            .border_color(c.rule)
+            .child(div().flex_none().size(px(8.)).rounded_full().bg(dot))
+            .child(ui(line, 13., 18., FontWeight::NORMAL, c.graphite).flex_1().min_w_0())
             .child(
                 div()
+                    .id("manage-providers")
                     .flex()
+                    .flex_none()
                     .items_center()
-                    .justify_between()
-                    .child(text::title("Add a provider", 22., &c))
-                    .child(seg),
+                    .gap(px(4.))
+                    .cursor_pointer()
+                    .hover(|s| s.opacity(0.75))
+                    .on_click(move |_, _, cx| model.update(cx, |m, cx| m.navigate(crate::hub::Route::Settings(crate::hub::SettingsPage::Providers), cx)))
+                    .child(ui(label, 13., 18., FontWeight::SEMIBOLD, c.accent))
+                    .child(icon(Icon::ChevronRight, 12., c.accent)),
             )
-            .child(body)
-            .when_some(add.error.clone(), |d, e| d.child(Banner::new(BannerKind::Warning, e)))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(8.))
-                    .child(Button::new("save-provider", "Add provider").primary().on_click(cx.listener(|this, _, window, cx| this.save_add(window, cx))))
-                    .child(Button::new("cancel-provider", "Cancel").ghost().on_click(cx.listener(|this, _, _, cx| {
-                        this.add = None;
-                        cx.notify();
-                    }))),
-            );
-        Some(panel.into_any_element())
-    }
-}
-
-/// A provider test error in plain words, with what to do next.
-fn test_error(raw: &str) -> String {
-    let lower = raw.to_lowercase();
-    if lower.contains("refused") || lower.contains("connect") || lower.contains("dns") {
-        "Cannot connect. Start the server or check the URL, then test again.".into()
-    } else if lower.contains("timed out") || lower.contains("timeout") {
-        "No answer in time. Test again, or raise the timeout.".into()
-    } else if lower.contains("401") || lower.contains("403") || lower.contains("unauthorized") || lower.contains("api key") {
-        "The provider refused the API key. Check the key, then test again.".into()
-    } else if lower.contains("404") || lower.contains("model") {
-        format!("The provider did not accept the model. {raw}")
-    } else {
-        raw.to_string()
+            .into_any_element()
     }
 }
 
@@ -1597,6 +1118,22 @@ fn trim_float(v: f64) -> String {
 impl Render for StylesPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c: Colors = cx.paper().colors;
+        // The inputs of the editors keep their placeholders, so they change with the language.
+        if self.locale != sayso_i18n::locale() {
+            self.locale = sayso_i18n::locale();
+            let http_s = self.model.read(cx).config.ai.http_timeout_ms as f64 / 1000.0;
+            let sites_ok = self.model.read(cx).services.platform.context.reads_page_url();
+            if let Some(ed) = &self.editor {
+                ed.name.update(cx, |s, cx| s.set_placeholder(t!("styles.editor.name_placeholder"), window, cx));
+                ed.description.update(cx, |s, cx| s.set_placeholder(t!("styles.editor.description_placeholder"), window, cx));
+                ed.prompt.update(cx, |s, cx| s.set_placeholder(t!("styles.editor.prompt_placeholder"), window, cx));
+                ed.timeout.update(cx, |s, cx| s.set_placeholder(t!("styles.editor.timeout_placeholder", seconds = trim_float(http_s)), window, cx));
+                ed.target.update(cx, |s, cx| s.set_placeholder(target_placeholder(sites_ok), window, cx));
+            }
+            if let Some(ed) = &self.base_editor {
+                ed.prompt.update(cx, |s, cx| s.set_placeholder(t!("styles.base.placeholder"), window, cx));
+            }
+        }
         let (styles, active, dir) = {
             let m = self.model.read(cx);
             (m.styles.styles().cloned().collect::<Vec<_>>(), m.active_style().id, m.styles_dir_display())
@@ -1605,9 +1142,9 @@ impl Render for StylesPage {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(Button::new("edit-base", "Base prompt").large().icon(Icon::File).on_click(cx.listener(|this, _, w, cx| this.open_base_editor(w, cx))))
+            .child(Button::new("edit-base", t!("styles.base.button")).large().icon(Icon::File).on_click(cx.listener(|this, _, w, cx| this.open_base_editor(w, cx))))
             .child(
-                Button::new("new-style", "New style")
+                Button::new("new-style", t!("styles.new_style"))
                     .primary()
                     .large()
                     .icon(Icon::Plus)
@@ -1615,9 +1152,9 @@ impl Render for StylesPage {
             )
             .into_any_element();
         let head = kit::page_head(
-            "Styles",
+            &t!("styles.title"),
             Some(kit::intro(
-                format!("A style rewrites what you said before it is inserted. Each style is a file in {dir}, so you can edit it by hand."),
+                t!("styles.intro", dir = dir),
                 560.,
                 cx,
             )),
@@ -1625,21 +1162,14 @@ impl Render for StylesPage {
             cx,
         );
         let pad = crate::layout::page_pad(window, &self.model.read(cx).config);
-        // Three cards in a row, or two on a narrow page.
-        let columns = if crate::layout::page_narrow(window, &self.model.read(cx).config) { 2 } else { 3 };
-        let mut grid = div().flex().flex_col().gap(px(18.));
-        for chunk in styles.chunks(columns) {
-            let mut row = div().flex().gap(px(18.));
-            for s in chunk {
-                row = row.child(self.card(s, s.id == active, cx));
-            }
-            for _ in chunk.len()..columns {
-                row = row.child(div().flex_1());
-            }
-            grid = grid.child(row);
+        let narrow = crate::layout::page_narrow(window, &self.model.read(cx).config);
+        let featured = styles.iter().find(|s| s.id == FEATURED_STYLE_ID).map(|s| self.featured(s, s.id == active, narrow, cx));
+        let mut rows = div().flex().flex_col();
+        for (i, s) in styles.iter().enumerate() {
+            rows = rows.child(self.row(s, s.id == active, i + 1 == styles.len(), narrow, cx));
         }
         let errors = self.model.read(cx).styles.errors.clone();
-        let providers = self.providers(cx);
+        let providers = self.provider_line(cx);
         let editor = self.editor_panel(cx).or_else(|| self.base_editor_panel(cx));
         div()
             .absolute()
@@ -1651,12 +1181,13 @@ impl Render for StylesPage {
                         .flex()
                         .flex_col()
                         .w_full()
-                        .gap(px(28.))
+                        .gap(px(24.))
                         .py(px(pad.min(44.)))
                         .px(px(pad))
                         .child(head)
-                        .children(errors.into_iter().map(|e| Banner::new(BannerKind::Warning, format!("A style file has an error: {e}"))))
-                        .child(grid)
+                        .children(errors.into_iter().map(|e| Banner::new(BannerKind::Warning, t!("styles.file_error", error = e))))
+                        .children(featured)
+                        .child(rows)
                         .child(providers),
                 ),
             )

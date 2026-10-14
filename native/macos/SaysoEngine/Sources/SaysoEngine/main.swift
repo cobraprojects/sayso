@@ -53,7 +53,10 @@ func handle(_ request: Request) async {
         case "language_model":
             switch SystemModel.status() {
             case .success(let model): out.ok(id: id, ["available": true, "model": model])
-            case .failure(let failure): out.ok(id: id, ["available": false, "message": failure.message])
+            case .failure(let failure):
+                out.ok(
+                    id: id,
+                    ["available": false, "message": failure.message, "reason": failure.reason])
             }
         case "generate":
             let reply = try await SystemModel.generate(
@@ -67,7 +70,7 @@ func handle(_ request: Request) async {
             throw EngineError("unknown request type \(request.type)")
         }
     } catch let failure as LanguageModelError {
-        out.error(failure.message, id: id, code: failure.code)
+        out.error(failure.message, id: id, code: failure.code, reason: failure.reason)
     } catch {
         out.error("\(error)", id: id)
     }

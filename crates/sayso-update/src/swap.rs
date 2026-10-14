@@ -3,6 +3,7 @@
 //! The order and the rules are in `docs/updates.md`, "The swap on macOS and
 //! Linux, step by step" and "Recovery at start".
 
+use crate::Failure;
 use crate::install::Installer;
 use crate::lock::InstallLock;
 use crate::manifest::{self, PublicKey, Verified};
@@ -37,7 +38,7 @@ pub enum AtStart {
     /// This is the first start of the new version. Call [`confirm`] when it runs well.
     Updated(Version),
     /// The last update failed.
-    Failed(String),
+    Failed(Failure),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -46,7 +47,7 @@ pub enum SwapError {
     /// update at this moment. The staged update stays.
     Busy,
     /// The update is gone, with the cause for the user.
-    Failed(String),
+    Failed(Failure),
 }
 
 /// Run "Recovery at start". Call it before the engine starts, with the
@@ -73,7 +74,7 @@ pub fn at_start(context: &Context, installer: &dyn Installer, lock: &InstallLock
         Phase::Staged => match swap(context, installer, lock) {
             Ok(()) => AtStart::Relaunching,
             Err(SwapError::Busy) => AtStart::Ready(record.to_version),
-            Err(SwapError::Failed(message)) => AtStart::Failed(message),
+            Err(SwapError::Failed(failure)) => AtStart::Failed(failure),
         },
         // The exchange happened, and this is the new version.
         Phase::Swapping | Phase::Swapped if running_new => AtStart::Updated(record.to_version),
@@ -83,11 +84,10 @@ pub fn at_start(context: &Context, installer: &dyn Installer, lock: &InstallLock
         // The exchange did not happen, or it was put back.
         Phase::Swapping | Phase::Swapped => {
             installer.remove_staging();
-            let message = "Sayso could not install the update. You still have the version from before.";
-            record.fail(&path, message);
-            AtStart::Failed(message.into())
+            record.fail(&path, Failure::NotInstalled);
+            AtStart::Failed(Failure::NotInstalled)
         }
-        Phase::Failed => AtStart::Failed(record.error.unwrap_or_else(|| "The update failed.".into())),
+        Phase::Failed => AtStart::Failed(record.failure.or(record.error.map(Failure::Recorded)).unwrap_or(Failure::Unknown)),
     }
 }
 
@@ -99,25 +99,25 @@ pub fn swap(context: &Context, installer: &dyn Installer, lock: &InstallLock) ->
     };
     // Read the record with the lock held: a staging step can have changed it.
     let Some(mut record) = Record::load(&installer.record_path()).filter(|r| r.phase == Phase::Staged) else {
-        return Err(SwapError::Failed("No update is ready to install.".into()));
+        return Err(SwapError::Failed(Failure::NothingStaged));
     };
     swap_locked(context, installer, &mut record)
 }
 
 fn swap_locked(context: &Context, installer: &dyn Installer, record: &mut Record) -> Result<(), SwapError> {
     let path = installer.record_path();
-    let give_up = |record: &Record, message: String| {
+    let give_up = |record: &Record, failure: Failure| {
         installer.remove_staging();
-        record.clone().fail(&path, message.clone());
-        SwapError::Failed(message)
+        record.clone().fail(&path, failure.clone());
+        SwapError::Failed(failure)
     };
-    if let Err(message) = check(context, installer, record) {
-        return Err(give_up(record, message));
+    if let Err(failure) = check(context, installer, record) {
+        return Err(give_up(record, failure));
     }
     record.phase = Phase::Swapping;
     record.attempts += 1;
-    record.save(&path).map_err(|e| give_up(record, format!("Sayso could not write the update record: {e}")))?;
-    installer.exchange().map_err(|e| give_up(record, format!("Sayso could not replace the app: {e}")))?;
+    record.save(&path).map_err(|e| give_up(record, Failure::WriteRecord(e.to_string())))?;
+    installer.exchange().map_err(|e| give_up(record, Failure::Exchange(e.to_string())))?;
     record.phase = Phase::Swapped;
     if let Err(e) = record.save(&path) {
         // The exchange is done. `swapping` with the new version means the same at the next start.
@@ -126,12 +126,12 @@ fn swap_locked(context: &Context, installer: &dyn Installer, record: &mut Record
     if let Err(e) = installer.relaunch() {
         // Put the old version back, so this process and the installed app are the same again.
         return Err(match installer.exchange() {
-            Ok(()) => give_up(record, format!("Sayso could not start the new version: {e}. You still have the version from before.")),
+            Ok(()) => give_up(record, Failure::Relaunch(e.to_string())),
             Err(back) => {
                 // The staging folder holds the old version. Keep it for a repair by hand.
-                let message = format!("Sayso could not start the new version: {e}. It could not put the old version back: {back}. Install Sayso again from the download page.");
-                record.clone().fail(&path, message.clone());
-                SwapError::Failed(message)
+                let failure = Failure::RelaunchAndRestore { error: e.to_string(), back: back.to_string() };
+                record.clone().fail(&path, failure.clone());
+                SwapError::Failed(failure)
             }
         });
     }
@@ -140,21 +140,21 @@ fn swap_locked(context: &Context, installer: &dyn Installer, record: &mut Record
 
 /// The checks before the exchange: the staged update is the one that the
 /// signed manifest names, for this install.
-fn check(context: &Context, installer: &dyn Installer, record: &Record) -> Result<(), String> {
+fn check(context: &Context, installer: &dyn Installer, record: &Record) -> Result<(), Failure> {
     match manifest::verify_for(record.envelope.as_bytes(), &context.keys, &context.url_prefix) {
         Ok(Verified::Manifest(manifest)) if manifest.version == record.to_version => {}
-        _ => return Err("The update record does not have a signature of Sayso.".into()),
+        _ => return Err(Failure::BadSignature),
     }
     if record.install_path != installer.install_path() {
-        return Err("Sayso moved to another folder after the update was prepared.".into());
+        return Err(Failure::Moved);
     }
     if record.to_version.cmp_precedence(&context.running).is_le() {
-        return Err("The prepared update is not newer than this version.".into());
+        return Err(Failure::NotNewer);
     }
     if !installer.staging_exists() {
-        return Err("The prepared update is gone.".into());
+        return Err(Failure::StagingGone);
     }
-    installer.verify_staged()
+    installer.verify_staged().map_err(Failure::Verify)
 }
 
 /// True while the old version waits in the staging folder for [`confirm`].
@@ -321,6 +321,7 @@ pub(crate) mod tests {
             phase,
             attempts: 0,
             error: None,
+            failure: None,
         }
     }
 
@@ -404,7 +405,7 @@ pub(crate) mod tests {
     fn a_staged_app_that_does_not_verify_is_deleted() {
         let (f, context) = staged();
         *f.installer.verify.lock().unwrap() = Err("the signature is not the signature of Sayso".into());
-        assert!(matches!(swap(&context, &f.installer, &f.lock), Err(SwapError::Failed(m)) if m.contains("signature")));
+        assert!(matches!(swap(&context, &f.installer, &f.lock), Err(SwapError::Failed(m)) if m.to_string().contains("signature")));
         assert_eq!(f.installer.installed(), "0.2.0");
         assert_eq!(f.installer.staged(), None);
         assert_eq!(phase(&f), Some(Phase::Failed));
@@ -448,7 +449,7 @@ pub(crate) mod tests {
     fn a_start_that_fails_puts_the_old_version_back() {
         let (f, context) = staged();
         f.installer.relaunch_fails.store(true, Ordering::SeqCst);
-        assert!(matches!(swap(&context, &f.installer, &f.lock), Err(SwapError::Failed(m)) if m.contains("still have")));
+        assert!(matches!(swap(&context, &f.installer, &f.lock), Err(SwapError::Failed(m)) if m.to_string().contains("still have")));
         assert_eq!(f.installer.installed(), "0.2.0");
         assert_eq!(f.installer.staged(), None);
         assert_eq!(phase(&f), Some(Phase::Failed));

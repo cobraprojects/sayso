@@ -34,7 +34,7 @@ pub fn run() {
     init_logging(&paths, loaded.config.advanced.log_level.as_deref());
     crate::shell::prepare();
     for issue in &loaded.issues {
-        log::warn!("config: {}: {}", issue.field, issue.message);
+        log::warn!("config: {}: {}", issue.field, issue.problem);
     }
     if loaded.created {
         let _ = loaded.config.save(&paths.config_file());
@@ -47,8 +47,8 @@ pub fn run() {
                 log::info!("update: the new version starts");
                 std::process::exit(0);
             }
-            if let sayso_update::AtStart::Failed(message) = &found {
-                log::warn!("update: {message}");
+            if let sayso_update::AtStart::Failed(failure) = &found {
+                log::warn!("update: {failure}");
             }
             (options, found)
         });
@@ -64,6 +64,7 @@ pub fn run() {
         cx.bind_keys([KeyBinding::new("shift-insert", gpui_kit::base::input::Paste, Some("Input"))]);
         crate::shell::become_accessory();
 
+        apply_language(&loaded.config);
         let services = start_services(&paths, &loaded.config, updates);
         apply_theme(&loaded.config, &services, cx);
         cx.set_global(Windows::default());
@@ -76,6 +77,10 @@ pub fn run() {
         cx.subscribe(&model, |model, event, cx| match event {
             AppEvent::OpenHub(route) => open_hub(&model, *route, cx),
             AppEvent::ThemeChanged => {}
+            AppEvent::LanguageChanged => {
+                crate::popover::refresh_tray_labels();
+                cx.refresh_windows();
+            }
         })
         .detach();
 
@@ -175,6 +180,15 @@ fn start_services(paths: &Paths, config: &Config, updates: Option<(sayso_update:
     };
 
     Services { platform, engine, language_model, store, secrets: Arc::new(sayso_enhance::KeychainStore), updates }
+}
+
+/// Set the interface language from config and the languages of the system.
+/// `--pseudo` turns on the pseudo-locale in a debug build (see `docs/i18n.md`).
+pub fn apply_language(config: &Config) {
+    let setting = if sayso_i18n::HAS_PSEUDO && crate::dev::flag("pseudo") { sayso_i18n::PSEUDO } else { config.general.language.as_str() };
+    let locale = sayso_i18n::resolve(setting, &sayso_i18n::system_locales());
+    sayso_i18n::set_locale(locale);
+    log::info!("interface language: {locale}");
 }
 
 /// Build the paper theme from config and the system appearance.

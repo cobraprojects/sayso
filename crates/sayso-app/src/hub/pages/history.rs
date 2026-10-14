@@ -12,10 +12,11 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::history::{EnhanceOutcome, HistoryEntry, InsertOutcome, TargetApp};
+use sayso_i18n::t;
 use sayso_store::{AppCount, HistoryQuery};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
-use sayso_ui::fonts::DISPLAY;
+use sayso_ui::fonts::{DISPLAY, Face, LocaleFonts as _};
 use sayso_ui::paper;
 use sayso_ui::{ActivePaper, Colors};
 use std::cell::Cell;
@@ -28,6 +29,22 @@ const DETAIL_SIZE: f32 = 33.;
 const DETAIL_LINE: f32 = 44.;
 /// A transcript longer than this gets "Show full transcript".
 const TRANSCRIPT_PREVIEW_CHARS: usize = 140;
+
+/// A message under the player. It keeps the reason, not the sentence, so it
+/// changes with the language.
+enum Notice {
+    AudioMissing,
+    Play(player::PlayError),
+}
+
+impl Notice {
+    fn text(&self) -> String {
+        match self {
+            Notice::AudioMissing => t!("history.notice.audio_missing"),
+            Notice::Play(e) => e.text(),
+        }
+    }
+}
 
 pub struct HistoryPage {
     model: Entity<AppModel>,
@@ -55,7 +72,7 @@ pub struct HistoryPage {
     /// (entry id, position in ms) for the paused position.
     position: (i64, u64),
     audio: Option<(String, Rc<Vec<f32>>)>,
-    notice: Option<String>,
+    notice: Option<Notice>,
     confirm_delete: bool,
     busy: Option<&'static str>,
     copied: bool,
@@ -69,20 +86,22 @@ pub struct HistoryPage {
     transcript_open: bool,
     modal_focus: FocusHandle,
     bar_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// The locale of the text in the placeholders.
+    locale: String,
     _subs: Vec<Subscription>,
 }
 
 impl HistoryPage {
     pub fn new(model: Entity<AppModel>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let observe = cx.observe(&model, |_, _, cx| cx.notify());
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search what you said"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder(t!("history.search_placeholder")));
         let sub = cx.subscribe_in(&search, window, |this: &mut Self, _, ev: &InputEvent, _, cx| {
             if matches!(ev, InputEvent::Change) {
                 this.limit = PAGE;
                 this.refresh(cx);
             }
         });
-        let app_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Find an app"));
+        let app_filter = cx.new(|cx| InputState::new(window, cx).placeholder(t!("history.app_filter_placeholder")));
         let app_sub = cx.subscribe_in(&app_filter, window, |this: &mut Self, _, ev: &InputEvent, _, cx| match ev {
             InputEvent::Change => this.reset_app_cursor(cx),
             InputEvent::PressEnter { .. } => this.pick_app(this.app_cursor, cx),
@@ -118,6 +137,7 @@ impl HistoryPage {
             transcript_open: false,
             modal_focus: cx.focus_handle(),
             bar_bounds: Rc::new(Cell::new(None)),
+            locale: sayso_i18n::locale(),
             _subs: vec![observe, sub, app_sub],
         };
         page.refresh(cx);
@@ -213,7 +233,7 @@ impl HistoryPage {
         let current = self.app.as_ref().map(|a| a.0.as_str());
         let mut list = div().id("app-rows").track_scroll(&self.app_scroll).flex().flex_col().gap(px(1.)).max_h(px(298.)).overflow_y_scroll().px(px(5.)).pb(px(5.));
         if rows.is_empty() {
-            list = list.child(div().px(px(9.)).py(px(8.)).child(ui("No app matches.", 13., 16., FontWeight::NORMAL, c.graphite)));
+            list = list.child(div().px(px(9.)).py(px(8.)).child(ui(t!("history.app_none"), 13., 16., FontWeight::NORMAL, c.graphite)));
         }
         for (i, row) in rows.iter().enumerate() {
             let selected = row.as_ref().map(|a| a.bundle_id.as_str()) == current;
@@ -225,7 +245,7 @@ impl HistoryPage {
                 ),
                 None => (
                     div().flex().flex_none().items_center().justify_center().size(px(18.)).child(icon(Icon::History, 14., c.graphite)).into_any_element(),
-                    "All apps".to_string(),
+                    t!("history.all_apps"),
                     self.model.read(cx).history_total,
                 ),
             };
@@ -343,7 +363,7 @@ impl HistoryPage {
         self.stop_audio();
         let Some(file) = entry.audio_file.clone() else { return };
         let Some(samples) = self.samples(&file, cx) else {
-            self.notice = Some("The audio file is missing. It may have expired.".into());
+            self.notice = Some(Notice::AudioMissing);
             cx.notify();
             return;
         };
@@ -371,7 +391,7 @@ impl HistoryPage {
                 })
                 .detach();
             }
-            Err(e) => self.notice = Some(e),
+            Err(e) => self.notice = Some(Notice::Play(e)),
         }
         cx.notify();
     }
@@ -434,9 +454,9 @@ impl HistoryPage {
         let total = self.model.read(cx).history_total;
         let filtered = self.filters_active(cx);
         let count = if filtered {
-            format!("{} of {}", sayso_core::stats::format_count(self.matches), sayso_core::stats::format_count(total))
+            t!("history.count_filtered", shown = sayso_core::stats::format_count(self.matches), total = sayso_core::stats::format_count(total))
         } else {
-            kit::plural(total, "dictation", "dictations").replacen(&total.to_string(), &sayso_core::stats::format_count(total), 1)
+            t!("history.count", count = total, formatted = sayso_core::stats::format_count(total))
         };
 
         let mut list = div().flex().flex_col().gap(px(4.));
@@ -454,7 +474,7 @@ impl HistoryPage {
         if self.entries.len() < self.matches {
             list = list.child(
                 div().flex().justify_center().py(px(12.)).child(
-                    Button::new("more", format!("Show {} more", (self.matches - self.entries.len()).min(PAGE)))
+                    Button::new("more", t!("history.show_more", number = (self.matches - self.entries.len()).min(PAGE)))
                         .small()
                         .ghost()
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -465,11 +485,11 @@ impl HistoryPage {
             );
         }
         if self.entries.is_empty() && filtered {
-            let clear = Button::new("clear", "Clear filters").small().on_click(cx.listener(|this, _, w, cx| this.clear_filters(w, cx)));
+            let clear = Button::new("clear", t!("history.clear_filters")).small().on_click(cx.listener(|this, _, w, cx| this.clear_filters(w, cx)));
             list = list.child(kit::empty_state(
                 Icon::Search,
-                "Nothing matches",
-                "No dictation has these words or filters. Try other words.",
+                &t!("history.no_match_title"),
+                &t!("history.no_match_body"),
                 Some(clear.into_any_element()),
                 cx,
             ));
@@ -493,7 +513,7 @@ impl HistoryPage {
                     .items_end()
                     .justify_between()
                     .px(px(4.))
-                    .child(sayso_ui::text::title("History", 32., &c).line_height(px(40.)))
+                    .child(sayso_ui::text::title(t!("history.title"), 32., &c).line_height(px(40.)))
                     .child(ui(count, 13., 16., FontWeight::NORMAL, c.graphite).pb(px(6.))),
             )
             .child(kit::search_well(&self.search, 38., Some(kit::mini_key(if cfg!(target_os = "macos") { "⌘F" } else { "Ctrl F" }, cx).into_any_element()), cx))
@@ -533,7 +553,7 @@ impl HistoryPage {
                         d.child(
                             div().absolute().bottom(px(16.)).left_0().right_0().flex().justify_center().child(
                                 div().rounded(px(9.)).shadow(sayso_ui::paper::floating(&c)).child(
-                                    Button::new("back-to-top", "Back to top").small().on_click(cx.listener(|this, _, _, cx| {
+                                    Button::new("back-to-top", t!("history.back_to_top")).small().on_click(cx.listener(|this, _, _, cx| {
                                         this.list_scroll.set_offset(point(px(0.), px(0.)));
                                         this.list_scrolled = false;
                                         cx.notify();
@@ -547,23 +567,23 @@ impl HistoryPage {
 
     fn filters(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let all = !self.enhanced && !self.has_audio && self.app.is_none();
-        let app_label = self.app.as_ref().map(|a| a.1.clone()).unwrap_or_else(|| "App".into());
+        let app_label = self.app.as_ref().map(|a| a.1.clone()).unwrap_or_else(|| t!("history.filter_app"));
         let mut row = div()
             .flex()
             .flex_none()
             .flex_wrap()
             .gap(px(6.))
-            .child(Chip::new("f-all", "All", all).on_click(cx.listener(|this, _, _, cx| {
+            .child(Chip::new("f-all", t!("history.filter_all"), all).on_click(cx.listener(|this, _, _, cx| {
                 this.enhanced = false;
                 this.has_audio = false;
                 this.app = None;
                 this.refresh(cx);
             })))
-            .child(Chip::new("f-enh", "Enhanced", self.enhanced).on_click(cx.listener(|this, _, _, cx| {
+            .child(Chip::new("f-enh", t!("history.filter_enhanced"), self.enhanced).on_click(cx.listener(|this, _, _, cx| {
                 this.enhanced = !this.enhanced;
                 this.refresh(cx);
             })))
-            .child(Chip::new("f-audio", "Has audio", self.has_audio).on_click(cx.listener(|this, _, _, cx| {
+            .child(Chip::new("f-audio", t!("history.filter_audio"), self.has_audio).on_click(cx.listener(|this, _, _, cx| {
                 this.has_audio = !this.has_audio;
                 this.refresh(cx);
             })));
@@ -581,7 +601,7 @@ impl HistoryPage {
     fn entry_row(&self, e: &HistoryEntry, cx: &mut Context<Self>) -> impl IntoElement {
         let c = cx.paper().colors;
         let selected = self.selected == Some(e.id);
-        let app = e.app.as_ref().map(|a| a.name.clone()).unwrap_or_else(|| "Unknown app".into());
+        let app = e.app.as_ref().map(|a| a.name.clone()).unwrap_or_else(|| t!("history.unknown_app"));
         let app_icon = e.app.as_ref().and_then(|a| self.model.read(cx).icons.get(&a.bundle_id));
         let site_icon = self.model.read(cx).site_icon(e);
         let id = e.id;
@@ -630,7 +650,7 @@ impl HistoryPage {
         let Some(e) = self.current().cloned() else {
             return div().flex_1().into_any_element();
         };
-        let app = e.app.as_ref().map(|a| a.name.clone()).unwrap_or_else(|| "Unknown app".into());
+        let app = e.app.as_ref().map(|a| a.name.clone()).unwrap_or_else(|| t!("history.unknown_app"));
         let app_icon = e.app.as_ref().and_then(|a| self.model.read(cx).icons.get(&a.bundle_id));
         let site_icon = self.model.read(cx).site_icon(&e);
         let (can_enhance, engine) = {
@@ -648,21 +668,21 @@ impl HistoryPage {
                 .flex_none()
                 .items_center()
                 .gap(px(8.))
-                .child(ui("Delete this dictation and its audio?", 13., 16., FontWeight::MEDIUM, c.ink))
-                .child(Button::new("del-yes", "Delete").small().danger().on_click(cx.listener(move |this, _, _, cx| {
+                .child(ui(t!("history.confirm_delete"), 13., 16., FontWeight::MEDIUM, c.ink))
+                .child(Button::new("del-yes", t!("history.delete")).small().danger().on_click(cx.listener(move |this, _, _, cx| {
                     this.stop_audio();
                     this.confirm_delete = false;
                     this.model.update(cx, |m, cx| m.delete_entry(id, cx));
                 })))
-                .child(Button::new("del-no", "Cancel").small().ghost().on_click(cx.listener(|this, _, _, cx| {
+                .child(Button::new("del-no", t!("history.cancel")).small().ghost().on_click(cx.listener(|this, _, _, cx| {
                     this.confirm_delete = false;
                     cx.notify();
                 })))
         } else {
             let status = match (self.busy, self.copied) {
-                (Some("enhance"), _) => Some("Enhancing…"),
-                (Some("retranscribe"), _) => Some("Transcribing…"),
-                (_, true) => Some("Copied"),
+                (Some("enhance"), _) => Some(t!("history.status_enhancing")),
+                (Some("retranscribe"), _) => Some(t!("history.status_transcribing")),
+                (_, true) => Some(t!("history.status_copied")),
                 _ => None,
             };
             let open = self.actions_menu;
@@ -671,19 +691,19 @@ impl HistoryPage {
                 cx.notify();
             })));
             if self.actions_menu {
-                let mut items = vec![kit::MenuAction::new(Icon::Copy, "Copy")];
-                let mut picks: Vec<&'static str> = vec!["copy"];
+                let mut items = vec![kit::MenuAction::new(Icon::Copy, t!("history.menu.copy")), kit::MenuAction::new(Icon::Code, t!("history.menu.copy_metadata"))];
+                let mut picks: Vec<&'static str> = vec!["copy", "metadata"];
                 if can_enhance && self.busy.is_none() {
                     // Says what a pick does: a second pass if a style already ran.
                     let again = matches!(e.enhance, EnhanceOutcome::Applied { .. });
-                    items.push(kit::MenuAction::new(Icon::Sparkle, if again { "Re-enhance" } else { "Enhance" }));
+                    items.push(kit::MenuAction::new(Icon::Sparkle, if again { t!("history.menu.re_enhance") } else { t!("history.menu.enhance") }));
                     picks.push("enhance");
                 }
                 if e.audio_file.is_some() && engine && self.busy.is_none() {
-                    items.push(kit::MenuAction::new(Icon::Undo, "Transcribe again"));
+                    items.push(kit::MenuAction::new(Icon::Undo, t!("history.menu.transcribe_again")));
                     picks.push("retranscribe");
                 }
-                items.push(kit::MenuAction::new(Icon::Trash, "Delete").danger());
+                items.push(kit::MenuAction::new(Icon::Trash, t!("history.delete")).danger());
                 picks.push("delete");
                 let (pick_page, close_page) = (cx.entity(), cx.entity());
                 let entry = e.clone();
@@ -699,6 +719,7 @@ impl HistoryPage {
                             this.actions_menu = false;
                             match pick {
                                 Some("copy") => this.copy_text(&entry.final_text, cx),
+                                Some("metadata") => this.copy_text(&entry.metadata_json(), cx),
                                 Some("enhance") => {
                                     this.busy = Some("enhance");
                                     this.model.update(cx, |m, cx| m.enhance_entry(entry, cx));
@@ -747,7 +768,7 @@ impl HistoryPage {
                     .child(ui(app.clone(), 14., 18., FontWeight::SEMIBOLD, c.ink).truncate())
                     .child(
                         ui(
-                            format!("{} · {}", kit::clock(e.created_at), kit::duration_words(e.duration_ms)),
+                            t!("history.time_and_duration", time = kit::clock(e.created_at), duration = kit::duration_words(e.duration_ms)),
                             14.,
                             18.,
                             FontWeight::NORMAL,
@@ -820,7 +841,7 @@ impl HistoryPage {
                     .min_h_0()
                     .overflow_y_scroll()
                     .track_scroll(&self.text_scroll)
-                    .font_family(DISPLAY)
+                    .font_family(DISPLAY).locale_fonts(Face::Serif)
                     .text_size(px(DETAIL_SIZE))
                     .line_height(px(DETAIL_LINE))
                     .font_weight(FontWeight::MEDIUM)
@@ -899,8 +920,8 @@ impl HistoryPage {
                             .flex()
                             .flex_col()
                             .gap(px(4.))
-                            .child(caps("Transcript", 12., c.graphite))
-                            .child(ui(format!("What {model_name} heard, before your dictionary and style."), 13., 18., FontWeight::NORMAL, c.graphite)),
+                            .child(caps(t!("history.transcript.title"), 12., c.graphite))
+                            .child(ui(t!("history.transcript.detail", model = model_name), 13., 18., FontWeight::NORMAL, c.graphite)),
                     )
                     .child(
                         div()
@@ -915,10 +936,10 @@ impl HistoryPage {
                             .flex()
                             .justify_end()
                             .gap(px(8.))
-                            .child(Button::new("transcript-copy", "Copy").on_click(cx.listener(move |this, _, _, cx| {
+                            .child(Button::new("transcript-copy", t!("history.menu.copy")).on_click(cx.listener(move |this, _, _, cx| {
                                 this.model.read(cx).copy_text(&transcript);
                             })))
-                            .child(Button::new("transcript-close", "Close").primary().on_click(cx.listener(|this, _, _, cx| {
+                            .child(Button::new("transcript-close", t!("history.transcript.close")).primary().on_click(cx.listener(|this, _, _, cx| {
                                 this.transcript_open = false;
                                 cx.notify();
                             }))),
@@ -974,7 +995,7 @@ impl HistoryPage {
             })
             .child(bars(e.waveform.clone(), progress, if has_audio { c.ink } else { rest }, rest, bounds).size_full());
 
-        let time = if has_audio { format!("{} / {}", kit::duration(pos), kit::duration(total)) } else { kit::duration(total) };
+        let time = if has_audio { t!("history.player.position", pos = kit::duration(pos), total = kit::duration(total)) } else { kit::duration(total) };
         let tray = div()
             .flex()
             .items_center()
@@ -994,13 +1015,13 @@ impl HistoryPage {
 
         let m = self.model.read(cx);
         let note = if let Some(n) = &self.notice {
-            n.clone()
+            n.text()
         } else if !has_audio {
-            if m.config.history.save_audio { "The audio of this dictation was not saved or has expired.".into() } else { "Audio was not saved. You can turn on saving in Settings › History.".into() }
+            if m.config.history.save_audio { t!("history.audio.expired") } else { t!("history.audio.not_saved") }
         } else if let Some(at) = m.audio_expiry(e) {
-            format!("Audio is kept until {}. Change this in Settings › History.", at.format("%B %-d"))
+            t!("history.audio.kept_until", date = sayso_i18n::dates::day_month(&at))
         } else {
-            "Audio is kept until you delete it. Change this in Settings › History.".into()
+            t!("history.audio.kept")
         };
         let model = self.model.clone();
         div().flex().flex_col().flex_none().gap(px(10.)).child(tray).child(
@@ -1018,11 +1039,14 @@ impl HistoryPage {
         let m = self.model.read(cx);
         let mut steps: Vec<(String, Option<AnyElement>)> = Vec::new();
 
-        let ms = if e.transcribe_ms > 0 { format!(" · {} ms", e.transcribe_ms) } else { String::new() };
         let long = e.transcript.chars().count() > TRANSCRIPT_PREVIEW_CHARS || e.transcript.contains('\n');
         let preview = fraunces(e.transcript.replace('\n', " "), 15., 21., c.graphite).italic().line_clamp(2).text_ellipsis();
         steps.push((
-            format!("Transcript · {}{ms}", m.model_name(&e.model)),
+            if e.transcribe_ms > 0 {
+                t!("history.trail.transcript_ms", model = m.model_name(&e.model), ms = e.transcribe_ms)
+            } else {
+                t!("history.trail.transcript", model = m.model_name(&e.model))
+            },
             Some(if long {
                 div()
                     .flex()
@@ -1033,7 +1057,7 @@ impl HistoryPage {
                         div()
                             .id("show-transcript")
                             .cursor_pointer()
-                            .child(ui("Show full transcript", 13., 16., FontWeight::SEMIBOLD, c.accent))
+                            .child(ui(t!("history.trail.show_transcript"), 13., 16., FontWeight::SEMIBOLD, c.accent))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.transcript_open = true;
                                 this.modal_focus.focus(window, cx);
@@ -1048,7 +1072,7 @@ impl HistoryPage {
 
         let n: usize = e.replacements.iter().map(|r| r.count.max(1)).sum();
         if e.replacements.is_empty() {
-            steps.push(("Dictionary · no changes".into(), None));
+            steps.push((t!("history.trail.dictionary_none"), None));
         } else {
             let mut body = div().flex().flex_col().gap(px(2.));
             // Three lines at most, so the trail keeps its height.
@@ -1057,35 +1081,36 @@ impl HistoryPage {
                 body = body.child(ui(format!("“{}” → “{}”{times}", r.from, r.to.replace("\\n", "↵")), 14., 18., FontWeight::NORMAL, c.graphite));
             }
             if e.replacements.len() > 3 {
-                body = body.child(ui(format!("and {} more", e.replacements.len() - 3), 14., 18., FontWeight::NORMAL, c.pencil));
+                body = body.child(ui(t!("history.trail.more", more = e.replacements.len() - 3), 14., 18., FontWeight::NORMAL, c.pencil));
             }
-            steps.push((format!("Dictionary · {}", kit::plural(n, "replacement", "replacements")), Some(body.into_any_element())));
+            steps.push((t!("history.trail.dictionary", count = n), Some(body.into_any_element())));
         }
 
         let style_name = m.style_name(&e.style_id);
-        let style_desc = m.styles.get(&e.style_id).map(|s| s.description.clone()).unwrap_or_default();
+        let style_desc = m.styles.get(&e.style_id).map(|s| s.display_description()).unwrap_or_default();
         match &e.enhance {
             EnhanceOutcome::Applied { provider_id, model, elapsed_ms } => steps.push((
-                format!(
-                    "Style · {style_name} · {}, {} · {:.2} s",
-                    m.provider_name(provider_id),
-                    super::ext::short_model(model),
-                    *elapsed_ms as f64 / 1000.0
+                t!(
+                    "history.trail.style_applied",
+                    style = style_name,
+                    provider = m.provider_name(provider_id),
+                    model = super::ext::short_model(model),
+                    seconds = format!("{:.2}", *elapsed_ms as f64 / 1000.0)
                 ),
                 (!style_desc.is_empty()).then(|| ui(style_desc.clone(), 14., 18., FontWeight::NORMAL, c.graphite).into_any_element()),
             )),
             EnhanceOutcome::Failed { provider_id, reason } => steps.push((
-                format!("Style · {style_name} · failed with {}", m.provider_name(provider_id)),
+                t!("history.trail.style_failed", style = style_name, provider = m.provider_name(provider_id)),
                 Some(
-                    ui(format!("{reason}. Sayso inserted the text without the style."), 14., 18., FontWeight::NORMAL, c.danger)
+                    ui(t!("history.trail.style_failed_detail", reason = reason), 14., 18., FontWeight::NORMAL, c.danger)
                         .into_any_element(),
                 ),
             )),
             EnhanceOutcome::NotUsed => steps.push((
-                format!("Style · {style_name} · not used"),
+                t!("history.trail.style_unused", style = style_name),
                 Some(
                     ui(
-                        if e.style_id == sayso_core::style::RAW_STYLE_ID { "Raw does not use AI." } else { "AI did not run on this text." },
+                        if e.style_id == sayso_core::style::RAW_STYLE_ID { t!("history.trail.raw_no_ai") } else { t!("history.trail.ai_not_run") },
                         14.,
                         18.,
                         FontWeight::NORMAL,
@@ -1098,21 +1123,21 @@ impl HistoryPage {
 
         // With a site: "chatgpt.com in Aside".
         let app = match &e.app {
-            Some(TargetApp { name, site: Some(site), .. }) => format!("{site} in {name}"),
+            Some(TargetApp { name, site: Some(site), .. }) => t!("history.trail.site_in_app", site = site, app = name),
             Some(a) => a.name.clone(),
-            None => "the app".into(),
+            None => t!("history.trail.the_app"),
         };
         let (last, last_color) = match &e.insert {
             InsertOutcome::Pasted { clipboard_restored } => (
-                format!("Pasted into {app} · {}", if *clipboard_restored { "clipboard restored" } else { "clipboard kept" }),
+                if *clipboard_restored { t!("history.trail.pasted_restored", app = app) } else { t!("history.trail.pasted_kept", app = app) },
                 c.accent,
             ),
-            InsertOutcome::Typed => (format!("Typed into {app}"), c.accent),
-            InsertOutcome::Failed { reason } => (format!("Not inserted · {reason}"), c.danger),
-            InsertOutcome::NotInserted => ("Not inserted · The dictation was cancelled".into(), c.pencil),
+            InsertOutcome::Typed => (t!("history.trail.typed", app = app), c.accent),
+            InsertOutcome::Failed { reason } => (t!("history.trail.not_inserted", reason = reason), c.danger),
+            InsertOutcome::NotInserted => (t!("history.trail.cancelled"), c.pencil),
         };
 
-        let mut col = div().flex().flex_col().flex_none().pt(px(4.)).child(div().pb(px(14.)).child(caps("How it got here", 12., c.graphite)));
+        let mut col = div().flex().flex_col().flex_none().pt(px(4.)).child(div().pb(px(14.)).child(caps(t!("history.trail.title"), 12., c.graphite)));
         for (title, body) in steps {
             col = col.child(
                 div()
@@ -1196,6 +1221,12 @@ fn bars(peaks: Vec<u8>, progress: f32, played: Hsla, rest: Hsla, out: Rc<Cell<Op
 impl Render for HistoryPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c: Colors = cx.paper().colors;
+        // The inputs keep their placeholders, so they change with the language.
+        if self.locale != sayso_i18n::locale() {
+            self.locale = sayso_i18n::locale();
+            self.search.update(cx, |s, cx| s.set_placeholder(t!("history.search_placeholder"), window, cx));
+            self.app_filter.update(cx, |s, cx| s.set_placeholder(t!("history.app_filter_placeholder"), window, cx));
+        }
         self.narrow = crate::layout::page_narrow(window, &self.model.read(cx).config);
         if let Some(id) = kit::take_history_selection(cx) {
             if !self.entries.iter().any(|e| e.id == id) {
@@ -1212,13 +1243,13 @@ impl Render for HistoryPage {
         let root = div().absolute().inset_0().flex().text_color(c.ink);
         if total == 0 && !self.model.read(cx).config.history.enabled {
             let model = self.model.clone();
-            let turn_on = Button::new("turn-on-history", "Turn on history")
+            let turn_on = Button::new("turn-on-history", t!("history.off.turn_on"))
                 .small()
                 .on_click(move |_, _, cx| model.update(cx, |m, cx| m.edit_config(cx, |c| c.history.enabled = true)));
             return root.items_center().justify_center().child(kit::empty_state(
                 Icon::History,
-                "History is off",
-                "Sayso does not keep your dictations. Turn on history to keep each dictation here.",
+                &t!("history.off.title"),
+                &t!("history.off.body"),
                 Some(turn_on.into_any_element()),
                 cx,
             ));
@@ -1232,11 +1263,11 @@ impl Render for HistoryPage {
                 .toggle
                 .as_ref()
                 .map(|h| h.keycaps().join(" "))
-                .unwrap_or_else(|| "your hotkey".into());
+                .unwrap_or_else(|| t!("history.empty.your_hotkey"));
             return root.items_center().justify_center().child(kit::empty_state(
                 Icon::History,
-                "No dictations yet",
-                &format!("Press {hk} in any app and speak. Each dictation is kept here with its transcript and audio."),
+                &t!("history.empty.title"),
+                &t!("history.empty.body", hotkey = hk),
                 None,
                 cx,
             ));

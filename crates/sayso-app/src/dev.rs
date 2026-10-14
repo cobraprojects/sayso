@@ -8,6 +8,7 @@
 //! - `--size=WxH` opens the Hub or onboarding at this size and drops the
 //!   minimum size, as a tiling window manager does.
 //! - `--seed-demo` fills an empty database with the sample content from the design.
+//! - `--pseudo` shows the interface in the pseudo-locale, in a debug build (see `docs/i18n.md`).
 //!
 //! Use temporary `XDG_CONFIG_HOME` and `XDG_DATA_HOME` with `--seed-demo` so
 //! your real history stays untouched.
@@ -45,6 +46,7 @@ pub fn route() -> Option<Route> {
         s => {
             let page = match s.strip_prefix("settings-").unwrap_or("dictation") {
                 "general" => SettingsPage::General,
+                "providers" => SettingsPage::Providers,
                 "overlay" => SettingsPage::Overlay,
                 "audio" => SettingsPage::Audio,
                 "appearance" => SettingsPage::Appearance,
@@ -107,6 +109,7 @@ pub fn seed_demo(store: &sayso_store::Store) {
             insert: InsertOutcome::Pasted { clipboard_restored: true },
             audio_file: None,
             waveform: peaks,
+            diagnostics: None,
         };
         let _ = store.insert_entry(&entry);
     }

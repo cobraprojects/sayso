@@ -1,0 +1,14 @@
+_version: 1
+
+model_picker:
+  filter: "Filter models"
+  default: "Default"
+  thinking: "Thinking"
+  loading: "Loading models…"
+  load_failed: "Sayso could not load the models: %{error}. Check the provider, then refresh."
+  no_models: "This provider lists no models."
+  no_match: "No model matches the filter."
+  refresh: "Refresh"
+  count:
+    one: "%{count} model"
+    other: "%{count} models"

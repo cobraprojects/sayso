@@ -107,11 +107,6 @@ pub fn integrity_blocks(own: Integrity, target: Integrity) -> bool {
     }
 }
 
-/// The message for an app that runs as administrator.
-pub fn elevated_message(app: &str) -> String {
-    format!("{app} runs as administrator, so Windows does not let Sayso type into it.")
-}
-
 /// Check that a window is in front and that Windows lets Sayso send keys to it.
 fn preflight() -> Result<(), InsertError> {
     // SAFETY: plain query.
@@ -124,8 +119,7 @@ fn preflight() -> Result<(), InsertError> {
         return Err(InsertError::NoFocusedField);
     }
     if integrity_blocks(context::own_integrity(), context::process_integrity(pid)) {
-        let name = context::app_name_for_pid(pid).unwrap_or_else(|| "This app".to_string());
-        return Err(InsertError::Failed(elevated_message(&name)));
+        return Err(InsertError::Elevated { app: context::app_name_for_pid(pid) });
     }
     Ok(())
 }
@@ -750,8 +744,12 @@ mod tests {
     #[test]
     fn the_elevated_message_names_the_app() {
         assert_eq!(
-            elevated_message("Task Manager"),
+            InsertError::Elevated { app: Some("Task Manager".into()) }.to_string(),
             "Task Manager runs as administrator, so Windows does not let Sayso type into it."
+        );
+        assert_eq!(
+            InsertError::Elevated { app: None }.to_string(),
+            "This app runs as administrator, so Windows does not let Sayso type into it."
         );
     }
 

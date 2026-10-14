@@ -2,12 +2,14 @@
 
 use super::OnboardingView;
 use gpui_kit::*;
+use sayso_i18n::t;
+use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper;
 use sayso_ui::{ActivePaper, Colors, text};
 
-fn tour_card(art: Div, title: &'static str, body: &'static str, c: &Colors) -> Div {
+fn tour_card(art: Div, title: String, body: String, c: &Colors) -> Div {
     div()
         .flex()
         .flex_col()
@@ -30,9 +32,9 @@ impl OnboardingView {
         let c = cx.paper().colors;
         let m = self.model.read(cx);
         let lead = match (m.config.hotkeys.toggle, m.config.hotkeys.push_to_talk) {
-            (Some(t), _) => format!("Press {} in any app to dictate. Here is where Sayso lives.", t.keycaps().join(" ")),
-            (None, Some(p)) => format!("Hold {} in any app to dictate. Here is where Sayso lives.", p.keycaps().join(" ")),
-            (None, None) => "Set a hotkey in Settings › Dictation to dictate in any app. Here is where Sayso lives.".to_string(),
+            (Some(hk), _) => t!("onboarding.done.lead_toggle", keys = hk.keycaps().join(" ")),
+            (None, Some(hk)) => t!("onboarding.done.lead_push", keys = hk.keycaps().join(" ")),
+            (None, None) => t!("onboarding.done.lead_none"),
         };
         let paste = m.config.hotkeys.paste_last;
         // Shown only on a Mac that has Pindrop data.
@@ -40,7 +42,7 @@ impl OnboardingView {
             let state = m.pindrop_import.clone();
             let running = state == crate::pindrop_import::PindropImport::Running;
             let message = match &state {
-                crate::pindrop_import::PindropImport::Idle => "You used Pindrop on this computer. Sayso can copy your dictations, dictionary, and prompt presets.".to_string(),
+                crate::pindrop_import::PindropImport::Idle => t!("onboarding.done.pindrop_found"),
                 other => other.message(),
             };
             (message, running)
@@ -71,17 +73,17 @@ impl OnboardingView {
             .child(icon(Icon::Wordmark, 18., c.ink));
         let keys = match paste {
             Some(hk) => div().child(Keycaps::hotkey(&hk).size(KeySize::Small)),
-            None => div().child(text::ui("Not set", 12., FontWeight::NORMAL, c.graphite)),
+            None => div().child(text::ui(t!("onboarding.done.not_set"), 12., FontWeight::NORMAL, c.graphite)),
         };
 
         let title = |color: Hsla| {
             div()
-                .font_family(sayso_ui::fonts::DISPLAY)
+                .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
                 .text_size(px(48.))
                 .line_height(px(58.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color)
-                .child("You are ready")
+                .child(t!("onboarding.done.title"))
         };
         div()
             .flex()
@@ -107,9 +109,9 @@ impl OnboardingView {
                     .flex()
                     .w_full()
                     .gap(px(14.))
-                    .child(tour_card(pill, "The pill", "Bottom of your screen. Click it, or drag it where you like.", &c))
-                    .child(tour_card(menu, crate::shell::os_text!("The menu bar", "The tray icon"), "Switch style, model, or microphone, and copy your last text.", &c))
-                    .child(tour_card(keys, "Paste last text", "If text did not land where you wanted, paste it again.", &c)),
+                    .child(tour_card(pill, t!("onboarding.done.pill_title"), t!("onboarding.done.pill_body"), &c))
+                    .child(tour_card(menu, t!(crate::shell::os_text!("onboarding.done.menu_title_mac", "onboarding.done.menu_title_other")), t!("onboarding.done.menu_body"), &c))
+                    .child(tour_card(keys, t!("onboarding.done.paste_title"), t!("onboarding.done.paste_body"), &c)),
             )
             .children(pindrop.map(|(message, running)| {
                 div()
@@ -118,7 +120,7 @@ impl OnboardingView {
                     .gap(px(14.))
                     .w_full()
                     .child(text::ui(message, 13., FontWeight::NORMAL, c.graphite).line_height(px(19.)).flex_1())
-                    .child(Button::new("import-pindrop", "Import from Pindrop").small().disabled(running).on_click(cx.listener(|this, _, _, cx| {
+                    .child(Button::new("import-pindrop", t!("onboarding.done.import_pindrop")).small().disabled(running).on_click(cx.listener(|this, _, _, cx| {
                         this.model.update(cx, |m, cx| m.import_pindrop(cx));
                     })))
             }))

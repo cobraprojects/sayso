@@ -4,6 +4,7 @@ use super::kit::{self, group, row};
 use crate::model::AppModel;
 use gpui_kit::*;
 use sayso_core::config::OverlaySize;
+use sayso_i18n::t;
 use sayso_ui::components::*;
 
 pub struct OverlaySettings {
@@ -22,7 +23,7 @@ impl Render for OverlaySettings {
         let o = self.model.read(cx).config.overlay.clone();
         let (m1, m2, m3, m4, m5) = (self.model.clone(), self.model.clone(), self.model.clone(), self.model.clone(), self.model.clone());
         let size_index = OverlaySize::ALL.iter().position(|s| *s == o.size).unwrap_or(2);
-        let size = Segmented::new("overlay-size", ["Small", "Medium", "Large"], size_index).on_select(move |i, _, cx| {
+        let size = Segmented::new("overlay-size", [t!("settings.overlay.size_small"), t!("settings.overlay.size_medium"), t!("settings.overlay.size_large")], size_index).on_select(move |i, _, cx| {
             let size = OverlaySize::ALL[i];
             m4.update(cx, |m, cx| m.edit_config(cx, |c| c.overlay.size = size));
         });
@@ -36,46 +37,41 @@ impl Render for OverlaySettings {
             m5.update(cx, |m, cx| m.edit_config(cx, |c| c.overlay.follow_display = on));
         });
         let follow_help = if crate::shell::can_place_windows() {
-            "The pill moves to the display of your mouse or of the window you use, whichever changed last."
+            t!("settings.overlay.follow_detail_placed")
         } else {
-            "The pill moves to the display you use each time a dictation starts."
+            t!("settings.overlay.follow_detail")
         };
         let preview = Switch::new("show-preview", o.show_preview).on_toggle(move |on, _, cx| {
             m3.update(cx, |m, cx| m.edit_config(cx, |c| c.overlay.show_preview = on));
         });
-        let reset = Button::new("reset-pill", "Reset position").small().on_click(cx.listener(|this, _, _, cx| {
+        let reset = Button::new("reset-pill", t!("settings.overlay.reset_position")).small().on_click(cx.listener(|this, _, _, cx| {
             this.reset_note = Some(this.model.read(cx).reset_pill_position());
             cx.notify();
         }));
 
-        let mut g = group("Pill", cx)
-            .child(row("Size", "The size of the pill and of everything it shows while you dictate.", size, cx))
-            .child(row("Show the idle pill", "A small pill at the bottom of the screen. Click it to start a dictation.", pill, cx))
-            .child(row("Hide over full-screen apps", "The pill stays out of the way of videos and presentations.", fullscreen, cx))
-            .child(row("Follow the display in use", follow_help, follow, cx))
-            .child(row(
-                "Pill position",
-                "Puts the pill back at the bottom center. To do this now, right-click the pill and choose Reset position.",
-                reset,
-                cx,
-            ));
+        let mut g = group(&t!("settings.overlay.pill"), cx)
+            .child(row(&t!("settings.overlay.size"), &t!("settings.overlay.size_detail"), size, cx))
+            .child(row(&t!("settings.overlay.idle_pill"), &t!("settings.overlay.idle_pill_detail"), pill, cx))
+            .child(row(&t!("settings.overlay.hide_fullscreen"), &t!("settings.overlay.hide_fullscreen_detail"), fullscreen, cx))
+            .child(row(&t!("settings.overlay.follow"), &follow_help, follow, cx))
+            .child(row(&t!("settings.overlay.position"), &t!("settings.overlay.position_detail"), reset, cx));
         match &self.reset_note {
             Some(Ok(())) => {
-                g = g.child(kit::banner(BannerKind::Info, "Sayso forgot the saved position. The pill moves to the bottom center the next time Sayso starts.", cx))
+                g = g.child(kit::banner(BannerKind::Info, t!("settings.overlay.reset_done"), cx))
             }
             Some(Err(e)) => {
-                g = g.child(kit::banner(BannerKind::Warning, format!("Sayso could not reset the position: {e}. Check that the data folder can be written."), cx))
+                g = g.child(kit::banner(BannerKind::Warning, t!("settings.overlay.reset_failed", error = e), cx))
             }
             None => {}
         }
 
-        let rec = group("While you dictate", cx).child(row(
-            "Show the live preview",
-            "Shows your words above the pill while you speak. Only the final text goes into the app.",
+        let rec = group(&t!("settings.overlay.while_dictating"), cx).child(row(
+            &t!("settings.overlay.live_preview"),
+            &t!("settings.overlay.live_preview_detail"),
             preview,
             cx,
         ));
 
-        kit::page("overlay-page", "Overlay", "The pill and what it shows while you dictate.", kit::body().child(g).child(rec), cx)
+        kit::page("overlay-page", &t!("settings.overlay.title"), &t!("settings.overlay.subtitle"), kit::body().child(g).child(rec), cx)
     }
 }

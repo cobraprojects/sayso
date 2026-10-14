@@ -4,6 +4,7 @@
 
 use crate::model::AppModel;
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_core::paths::{PathEnv, SystemEnv};
 use sayso_core::stats::format_count;
 use sayso_core::style::{Style, StyleLibrary};
@@ -32,28 +33,27 @@ impl PindropImport {
     /// The line under "Import from Pindrop" in Settings and in onboarding.
     pub fn message(&self) -> String {
         match self {
-            PindropImport::Idle => {
-                "Copies your Pindrop dictations, dictionary, and prompt presets into Sayso. Pindrop and its data stay as they are.".into()
-            }
-            PindropImport::Running => "Importing from Pindrop…".into(),
+            PindropImport::Idle => t!("app.pindrop.idle"),
+            PindropImport::Running => t!("app.pindrop.running"),
             PindropImport::Done(s) => {
+                // One text for each kind of item, so that each language plurals its own nouns.
                 let parts: Vec<String> = [
-                    (s.dictations, "dictation", "dictations"),
-                    (s.words, "word", "words"),
-                    (s.replacements, "replacement", "replacements"),
-                    (s.styles, "style", "styles"),
+                    (s.dictations, t!("app.pindrop.dictations", count = s.dictations, number = format_count(s.dictations))),
+                    (s.words, t!("app.pindrop.words", count = s.words, number = format_count(s.words))),
+                    (s.replacements, t!("app.pindrop.replacements", count = s.replacements, number = format_count(s.replacements))),
+                    (s.styles, t!("app.pindrop.styles", count = s.styles, number = format_count(s.styles))),
                 ]
                 .into_iter()
-                .filter(|(n, _, _)| *n > 0)
-                .map(|(n, one, many)| format!("{} {}", format_count(n), if n == 1 { one } else { many }))
+                .filter(|(n, _)| *n > 0)
+                .map(|(_, text)| text)
                 .collect();
                 match parts.as_slice() {
-                    [] => "Everything from Pindrop is in Sayso already.".into(),
-                    [one] => format!("Added {one}."),
-                    [first @ .., last] => format!("Added {}, and {last}.", first.join(", ")),
+                    [] => t!("app.pindrop.nothing_new"),
+                    [one] => t!("app.pindrop.added", items = one),
+                    [first @ .., last] => t!("app.pindrop.added", items = t!("app.pindrop.list_end", first = first.join(&t!("app.pindrop.list_separator")), last = last)),
                 }
             }
-            PindropImport::Failed(reason) => format!("The import did not finish, and nothing was added: {reason}. Try again."),
+            PindropImport::Failed(reason) => t!("app.pindrop.failed", reason = reason),
         }
     }
 }
@@ -82,7 +82,7 @@ fn preset_style(preset: &PindropPreset) -> Style {
         id: if slug.is_empty() { "pindrop-preset".into() } else { format!("pindrop-{slug}") },
         name: preset.name.trim().to_string(),
         ink: "#1D1B18".into(),
-        description: "Imported from Pindrop.".into(),
+        description: t!("app.pindrop.style_description"),
         prompt: preset.prompt.clone(),
         provider: None,
         model: None,

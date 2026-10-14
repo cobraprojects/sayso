@@ -7315,6 +7315,7 @@ dependencies = [
  "sayso-core",
  "sayso-engine-client",
  "sayso-enhance",
+ "sayso-i18n",
  "sayso-platform",
  "sayso-platform-common",
  "sayso-platform-linux",
@@ -7341,6 +7342,7 @@ dependencies = [
  "chrono",
  "log",
  "regex",
+ "sayso-i18n",
  "serde",
  "serde_json",
  "tempfile",
@@ -7395,12 +7397,24 @@ dependencies = [
  "parking_lot",
  "sayso-core",
  "sayso-engine-client",
+ "sayso-i18n",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "tiny_http",
  "ureq 3.4.2",
  "wait-timeout",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sayso-i18n"
+version = "0.7.1"
+dependencies = [
+ "chrono",
+ "regex",
+ "rust-i18n",
+ "sys-locale",
  "workspace-hack",
 ]
 
@@ -7544,6 +7558,7 @@ dependencies = [
  "log",
  "rust-embed",
  "sayso-core",
+ "sayso-i18n",
  "workspace-hack",
 ]
 
@@ -10630,6 +10645,8 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 name = "workspace-hack"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
+ "anstyle",
  "base64 0.23.1",
  "bitflags 2.13.2",
  "block2 0.6.2",
@@ -10659,11 +10676,13 @@ dependencies = [
  "percent-encoding",
  "proc-macro2",
  "quote",
+ "regex-automata",
+ "regex-syntax",
+ "rust-i18n-support",
  "rustix",
  "semver",
  "serde",
  "serde_core",
- "serde_json",
  "simd-adler32",
  "smallvec",
  "subtle",
@@ -10677,6 +10696,7 @@ dependencies = [
  "windows 0.62.2",
  "windows-core 0.62.2",
  "windows-sys 0.61.2",
+ "winnow 0.7.15",
  "winnow 1.0.4",
  "zbus",
  "zeroize",

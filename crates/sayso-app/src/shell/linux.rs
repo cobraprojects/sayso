@@ -306,7 +306,7 @@ impl Tray {
     pub fn install(on_event: impl Fn(TrayEvent) + Send + Sync + 'static) -> Option<Tray> {
         let last_click = std::sync::Arc::new(parking_lot::Mutex::new(None));
         let clicks = last_click.clone();
-        let icon = sayso_platform_linux::tray::Tray::install(tray_image(false), move |event| {
+        let icon = sayso_platform_linux::tray::Tray::install(tray_image(false), tray_labels(), move |event| {
             use sayso_platform_linux::tray::TrayEvent as E;
             match event {
                 E::Click { x, y } => {
@@ -326,6 +326,11 @@ impl Tray {
         self.icon.set_image(tray_image(on));
     }
 
+    /// Show the menu labels again, in the current interface language.
+    pub fn refresh_labels(&self) {
+        self.icon.set_labels(tray_labels());
+    }
+
     /// A small rectangle around the last click on the icon, when the panel
     /// said where it was. Only X11 can use it.
     pub fn icon_rect(&self) -> Option<Rect> {
@@ -336,6 +341,14 @@ impl Tray {
         let scale = xw::scale();
         let (x, y) = (f64::from(x) / scale, xw::primary_screen_height() - f64::from(y) / scale);
         Some(Rect { x: x - 12.0, y: y - 12.0, width: 24.0, height: 24.0 })
+    }
+}
+
+fn tray_labels() -> sayso_platform_linux::tray::TrayLabels {
+    sayso_platform_linux::tray::TrayLabels {
+        toggle_dictation: sayso_i18n::t!("tray.toggle_dictation"),
+        open_hub: sayso_i18n::t!("tray.open_hub"),
+        quit: sayso_i18n::t!("tray.quit"),
     }
 }
 

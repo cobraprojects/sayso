@@ -28,6 +28,11 @@ cp "target/$profile/sayso" "$app/Contents/MacOS/Sayso"
 cp native/macos/SaysoEngine/.build/release/SaysoEngine "$app/Contents/MacOS/SaysoEngine"
 cp assets/app/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" packaging/Info.plist > "$app/Contents/Info.plist"
+# The microphone prompt in each reviewed interface language
+# (scripts/i18n-system-files.py writes these folders).
+for lproj in packaging/macos/*.lproj; do
+  [ -d "$lproj" ] && cp -R "$lproj" "$app/Contents/Resources/"
+done
 printf 'APPL????' > "$app/Contents/PkgInfo"
 
 echo "==> sign ($identity)"

@@ -19,6 +19,8 @@ use windows::Win32::Foundation::ERROR_HOTKEY_ALREADY_REGISTERED;
 use windows::Win32::UI::Input::KeyboardAndMouse::{HOT_KEY_MODIFIERS, RegisterHotKey, UnregisterHotKey};
 
 /// Windows shortcuts by hotkey. The names follow the Windows keyboard shortcut list.
+/// The app shows each name in the interface language (`shortcut_name` in
+/// `sayso-app/src/hub/settings/recorder.rs`), so a new name goes there too.
 pub const SYSTEM_SHORTCUTS: &[(&str, &str)] = &[
     ("opt+space", "Window menu"),
     ("opt+tab", "Switch apps"),
