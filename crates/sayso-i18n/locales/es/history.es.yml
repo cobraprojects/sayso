@@ -44,9 +44,9 @@ history:
     play_failed_plain: "No se pudo reproducir el audio."
   audio:
     expired: "El audio de este dictado no se guardó o ha caducado."
-    not_saved: "El audio no se guardó. Puedes activar el guardado en Ajustes › Historial."
-    kept_until: "El audio se conserva hasta el %{date}. Cámbialo en Ajustes › Historial."
-    kept: "El audio se conserva hasta que lo elimines. Cámbialo en Ajustes › Historial."
+    not_saved: "El audio no se guardó. Puedes activar el guardado en Ajustes › Historial y privacidad."
+    kept_until: "El audio se conserva hasta el %{date}. Cámbialo en Ajustes › Historial y privacidad."
+    kept: "El audio se conserva hasta que lo elimines. Cámbialo en Ajustes › Historial y privacidad."
   transcript:
     title: "Transcripción"
     detail: "Lo que oyó %{model}, antes de tu diccionario y tu estilo."

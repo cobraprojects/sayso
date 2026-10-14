@@ -43,9 +43,9 @@ history:
     play_failed_plain: "Could not play the audio."
   audio:
     expired: "The audio of this dictation was not saved or has expired."
-    not_saved: "Audio was not saved. You can turn on saving in Settings › History."
-    kept_until: "Audio is kept until %{date}. Change this in Settings › History."
-    kept: "Audio is kept until you delete it. Change this in Settings › History."
+    not_saved: "Audio was not saved. You can turn on saving in Settings › History and privacy."
+    kept_until: "Audio is kept until %{date}. Change this in Settings › History and privacy."
+    kept: "Audio is kept until you delete it. Change this in Settings › History and privacy."
   transcript:
     title: "Transcript"
     detail: "What %{model} heard, before your dictionary and style."
