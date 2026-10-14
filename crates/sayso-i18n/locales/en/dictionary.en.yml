@@ -27,7 +27,7 @@ dictionary:
     title: "Try a phrase"
     result_empty: "The result shows here."
     rules_apply:
-      one: "%{count} rule apply"
+      one: "%{count} rule applies"
       other: "%{count} rules apply"
   error:
     word_exists: "“%{word}” is already in your words."

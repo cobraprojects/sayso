@@ -72,11 +72,6 @@ pub fn day_label(day: chrono::NaiveDate) -> String {
     }
 }
 
-/// "1 replacement", "3 replacements".
-pub fn plural(n: usize, one: &str, many: &str) -> String {
-    if n == 1 { format!("1 {one}") } else { format!("{n} {many}") }
-}
-
 /// A style or app color from `#RRGGBB`, made readable on dark paper.
 pub fn ink_color(hex: &str, c: &Colors) -> Hsla {
     let Some(rgb) = Rgb::parse(hex) else { return c.ink };
