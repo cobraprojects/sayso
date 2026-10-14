@@ -2,16 +2,32 @@
 Type=Application
 Name=Sayso
 GenericName=Voice Dictation
+GenericName[es]=Dictado por voz
+GenericName[pt_BR]=Ditado por voz
+GenericName[zh_CN]=语音听写
+GenericName[ja]=音声入力
 Comment=Speak, and Sayso writes the text into the app you use
+Comment[es]=Habla y Sayso escribe el texto en la app que usas
+Comment[pt_BR]=Fale e o Sayso escreve o texto no app que você usa
+Comment[zh_CN]=说话，Sayso 就会将文字写入你正在使用的应用
+Comment[ja]=話すと、使用中のアプリに Sayso がテキストを書き込みます
 Exec=sayso
 Icon=dev.sayso.Sayso
 Terminal=false
 Categories=Utility;Accessibility;
 Keywords=dictation;speech;voice;transcription;whisper;parakeet;
+Keywords[es]=dictado;dictar;voz;transcripción;reconocimiento de voz;whisper;parakeet;
+Keywords[pt_BR]=ditado;voz;fala;transcrição;transcrever;whisper;parakeet;
+Keywords[zh_CN]=听写;语音;语音输入;语音识别;转录;转文字;dictation;whisper;parakeet;
+Keywords[ja]=音声入力;音声認識;文字起こし;ディクテーション;書き起こし;whisper;parakeet;
 StartupNotify=false
 StartupWMClass=dev.sayso.Sayso
 Actions=Toggle;
 
 [Desktop Action Toggle]
 Name=Start or Stop Dictation
+Name[es]=Iniciar o detener el dictado
+Name[pt_BR]=Iniciar ou parar o ditado
+Name[zh_CN]=开始或停止听写
+Name[ja]=音声入力の開始/停止
 Exec=sayso --toggle

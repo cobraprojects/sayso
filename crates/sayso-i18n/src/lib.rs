@@ -41,10 +41,10 @@ pub struct Locale {
 /// reviewed the catalog.
 pub const LOCALES: &[Locale] = &[
     Locale { code: "en", name: "English", draft: false },
-    Locale { code: "es", name: "Español", draft: true },
-    Locale { code: "pt-BR", name: "Português (Brasil)", draft: true },
-    Locale { code: "zh-CN", name: "简体中文", draft: true },
-    Locale { code: "ja", name: "日本語", draft: true },
+    Locale { code: "es", name: "Español", draft: false },
+    Locale { code: "pt-BR", name: "Português (Brasil)", draft: false },
+    Locale { code: "zh-CN", name: "简体中文", draft: false },
+    Locale { code: "ja", name: "日本語", draft: false },
 ];
 
 /// The locales that the Language menu offers and that "system" can select:

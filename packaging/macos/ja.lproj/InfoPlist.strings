@@ -1,0 +1,2 @@
+/* Written by scripts/i18n-system-files.py from the system catalog. */
+"NSMicrophoneUsageDescription" = "Sayso は音声入力中だけマイクを使用します。音声はこの Mac 上で文字起こしされます。";
