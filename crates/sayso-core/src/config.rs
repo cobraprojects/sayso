@@ -265,6 +265,43 @@ impl Default for Sounds {
     }
 }
 
+/// The thinking level of a CLI provider: how much the model thinks before it
+/// answers. More thinking is slower. The tools have no level below `low`
+/// that all their models take.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Thinking {
+    #[default]
+    Low,
+    Medium,
+    High,
+}
+
+impl Thinking {
+    pub const ALL: [Thinking; 3] = [Thinking::Low, Thinking::Medium, Thinking::High];
+
+    /// The value for the tools: `--effort` of Claude and `model_reasoning_effort` of Codex.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Thinking::Low => "low",
+            Thinking::Medium => "medium",
+            Thinking::High => "high",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Thinking::Low => "Low",
+            Thinking::Medium => "Medium",
+            Thinking::High => "High",
+        }
+    }
+
+    fn is_low(&self) -> bool {
+        *self == Thinking::Low
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProviderKind {
@@ -289,6 +326,8 @@ pub enum ProviderKind {
         /// The folder that holds the login of the tool (`CLAUDE_CONFIG_DIR`). None uses the tool's own default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         config_dir: Option<String>,
+        #[serde(default, skip_serializing_if = "Thinking::is_low")]
+        thinking: Thinking,
     },
     CodexCli {
         #[serde(default)]
@@ -298,9 +337,23 @@ pub enum ProviderKind {
         /// The folder that holds the login of the tool (`CODEX_HOME`). None uses the tool's own default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         config_dir: Option<String>,
+        #[serde(default, skip_serializing_if = "Thinking::is_low")]
+        thinking: Thinking,
     },
     /// The language model of macOS, which the engine runs on this Mac.
     AppleIntelligence,
+}
+
+impl ProviderKind {
+    /// The name of the kind, as `config.toml` has it.
+    pub fn name(&self) -> &'static str {
+        match self {
+            ProviderKind::OpenAiCompatible { .. } => "open_ai_compatible",
+            ProviderKind::ClaudeCli { .. } => "claude_cli",
+            ProviderKind::CodexCli { .. } => "codex_cli",
+            ProviderKind::AppleIntelligence => "apple_intelligence",
+        }
+    }
 }
 
 fn default_claude_model() -> String {
@@ -334,6 +387,20 @@ impl Provider {
                 config_dir.as_deref().filter(|dir| !dir.trim().is_empty())
             }
             _ => None,
+        }
+    }
+
+    /// The thinking level. None for a kind that has no such setting.
+    pub fn thinking(&self) -> Option<Thinking> {
+        match &self.kind {
+            ProviderKind::ClaudeCli { thinking, .. } | ProviderKind::CodexCli { thinking, .. } => Some(*thinking),
+            _ => None,
+        }
+    }
+
+    pub fn set_thinking(&mut self, level: Thinking) {
+        if let ProviderKind::ClaudeCli { thinking, .. } | ProviderKind::CodexCli { thinking, .. } = &mut self.kind {
+            *thinking = level;
         }
     }
 
@@ -770,6 +837,32 @@ mod tests {
     }
 
     #[test]
+    fn the_thinking_level_is_low_until_the_user_changes_it() {
+        // A config from before the setting has no level.
+        let old = "[[ai.providers]]\nid = \"claude\"\nname = \"Claude CLI\"\nkind = \"claude_cli\"\nmodel = \"haiku\"\n";
+        let read = Config::parse(old);
+        assert!(read.issues.is_empty(), "{:?}", read.issues);
+        assert_eq!(read.config.ai.providers[0].thinking(), Some(Thinking::Low));
+        assert!(!read.config.to_toml().contains("thinking"), "the default level is not written");
+
+        let mut c = read.config;
+        c.ai.providers[0].set_thinking(Thinking::High);
+        assert!(c.to_toml().contains("thinking = \"high\""));
+        let back = Config::parse(&c.to_toml());
+        assert!(back.issues.is_empty(), "{:?}", back.issues);
+        assert_eq!(back.config.ai.providers[0].thinking(), Some(Thinking::High));
+
+        // A kind without the setting ignores it.
+        let mut http = Provider {
+            id: "o".into(),
+            name: "O".into(),
+            kind: ProviderKind::OpenAiCompatible { base_url: "http://x".into(), model: "m".into(), api_key_account: None, zero_data_retention: false },
+        };
+        http.set_thinking(Thinking::High);
+        assert_eq!(http.thinking(), None);
+    }
+
+    #[test]
     fn a_provider_without_a_model_needs_one() {
         let text = "[ai]\nexperimental_codex = true\n[[ai.providers]]\nid = \"or\"\nname = \"OpenRouter\"\nkind = \"open_ai_compatible\"\nbase_url = \"https://openrouter.ai/api/v1\"\n";
         let loaded = Config::parse(text);
@@ -784,12 +877,12 @@ mod tests {
 
     #[test]
     fn cli_providers_never_need_a_model() {
-        let mut codex = Provider { id: "c".into(), name: "Codex CLI".into(), kind: ProviderKind::CodexCli { path: None, model: None, config_dir: None } };
+        let mut codex = Provider { id: "c".into(), name: "Codex CLI".into(), kind: ProviderKind::CodexCli { path: None, model: None, config_dir: None, thinking: Default::default() } };
         assert_eq!(codex.model(), None);
         assert!(!codex.needs_model(), "Codex uses its own default");
         codex.set_model("gpt-6.1-sol".into());
         assert_eq!(codex.model(), Some("gpt-6.1-sol"));
-        let claude = Provider { id: "k".into(), name: "Claude CLI".into(), kind: ProviderKind::ClaudeCli { path: None, model: "haiku".into(), config_dir: None } };
+        let claude = Provider { id: "k".into(), name: "Claude CLI".into(), kind: ProviderKind::ClaudeCli { path: None, model: "haiku".into(), config_dir: None, thinking: Default::default() } };
         assert_eq!(claude.model(), Some("haiku"));
         assert!(!claude.needs_model());
     }
@@ -803,7 +896,7 @@ mod tests {
         let provider = parsed.config.ai.providers.iter().find(|p| p.id == "k").unwrap();
         assert_eq!(provider.config_dir(), None);
 
-        let mut claude = Provider { id: "k".into(), name: "Claude CLI".into(), kind: ProviderKind::ClaudeCli { path: None, model: "haiku".into(), config_dir: None } };
+        let mut claude = Provider { id: "k".into(), name: "Claude CLI".into(), kind: ProviderKind::ClaudeCli { path: None, model: "haiku".into(), config_dir: None, thinking: Default::default() } };
         let unset = toml::to_string(&claude).unwrap();
         assert!(!unset.contains("config_dir"), "{unset}");
 
@@ -817,7 +910,7 @@ mod tests {
         let ProviderKind::ClaudeCli { config_dir, .. } = &mut claude.kind else { unreachable!() };
         *config_dir = Some("  ".into());
         assert_eq!(claude.config_dir(), None, "a blank folder counts as unset");
-        let codex = Provider { id: "c".into(), name: "C".into(), kind: ProviderKind::CodexCli { path: None, model: None, config_dir: Some("/x".into()) } };
+        let codex = Provider { id: "c".into(), name: "C".into(), kind: ProviderKind::CodexCli { path: None, model: None, config_dir: Some("/x".into()), thinking: Default::default() } };
         assert_eq!(codex.config_dir(), Some("/x"));
         let apple = Provider { id: "a".into(), name: "A".into(), kind: ProviderKind::AppleIntelligence };
         assert_eq!(apple.config_dir(), None);

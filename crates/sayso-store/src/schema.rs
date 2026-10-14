@@ -67,6 +67,11 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE history ADD COLUMN import_id TEXT;
     CREATE UNIQUE INDEX history_import_id ON history(import_id) WHERE import_id IS NOT NULL;
     "#,
+    // Version 3: how the dictation ran (JSON Diagnostics). NULL for the
+    // entries from before and for an import.
+    r#"
+    ALTER TABLE history ADD COLUMN diagnostics TEXT;
+    "#,
 ];
 
 /// The newest schema version this build knows.

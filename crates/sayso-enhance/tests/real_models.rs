@@ -31,6 +31,7 @@ fn claude_lists_models() {
             path: None,
             model: "haiku".into(),
             config_dir: None,
+            thinking: Default::default(),
         },
     );
     assert!(!ids.is_empty());
@@ -51,6 +52,7 @@ fn codex_lists_models() {
             path: None,
             model: None,
             config_dir: None,
+            thinking: Default::default(),
         },
     );
     assert!(!ids.is_empty());

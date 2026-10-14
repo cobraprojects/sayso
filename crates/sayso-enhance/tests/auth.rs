@@ -20,6 +20,7 @@ fn claude(path: PathBuf, config_dir: Option<&Path>) -> Provider {
             path: Some(path.display().to_string()),
             model: "haiku".into(),
             config_dir: config_dir.map(|d| d.display().to_string()),
+            thinking: Default::default(),
         },
     }
 }
@@ -32,6 +33,7 @@ fn codex(path: PathBuf, config_dir: Option<&Path>) -> Provider {
             path: Some(path.display().to_string()),
             model: None,
             config_dir: config_dir.map(|d| d.display().to_string()),
+            thinking: Default::default(),
         },
     }
 }

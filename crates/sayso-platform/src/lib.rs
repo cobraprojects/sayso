@@ -138,6 +138,11 @@ pub enum InsertError {
 pub trait TextInserter: Send + Sync {
     fn insert(&self, text: &str, method: InsertMethod) -> Result<InsertResult, InsertError>;
     fn copy_to_clipboard(&self, text: &str);
+    /// The parts of the system that do the insertion, for the diagnostics of
+    /// a dictation. None on a system that has one way only.
+    fn backend(&self) -> Option<String> {
+        None
+    }
 }
 
 pub trait ContextProvider: Send + Sync {

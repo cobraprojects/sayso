@@ -671,8 +671,8 @@ impl HistoryPage {
                 cx.notify();
             })));
             if self.actions_menu {
-                let mut items = vec![kit::MenuAction::new(Icon::Copy, "Copy")];
-                let mut picks: Vec<&'static str> = vec!["copy"];
+                let mut items = vec![kit::MenuAction::new(Icon::Copy, "Copy"), kit::MenuAction::new(Icon::Code, "Copy metadata")];
+                let mut picks: Vec<&'static str> = vec!["copy", "metadata"];
                 if can_enhance && self.busy.is_none() {
                     // Says what a pick does: a second pass if a style already ran.
                     let again = matches!(e.enhance, EnhanceOutcome::Applied { .. });
@@ -699,6 +699,7 @@ impl HistoryPage {
                             this.actions_menu = false;
                             match pick {
                                 Some("copy") => this.copy_text(&entry.final_text, cx),
+                                Some("metadata") => this.copy_text(&entry.metadata_json(), cx),
                                 Some("enhance") => {
                                     this.busy = Some("enhance");
                                     this.model.update(cx, |m, cx| m.enhance_entry(entry, cx));

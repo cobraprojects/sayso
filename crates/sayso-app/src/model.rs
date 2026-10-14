@@ -955,6 +955,15 @@ impl AppModel {
         self.check_provider_login(id, cx);
     }
 
+    pub fn set_provider_thinking(&mut self, id: &str, level: sayso_core::config::Thinking, cx: &mut Context<Self>) {
+        let key = id.to_string();
+        self.edit_config(cx, move |c| {
+            if let Some(p) = c.ai.providers.iter_mut().find(|p| p.id == key) {
+                p.set_thinking(level);
+            }
+        });
+    }
+
     /// Ask the tool of a CLI provider if it is signed in. Does nothing for
     /// other providers, and while a check or a sign-in runs.
     pub fn check_provider_login(&mut self, id: &str, cx: &mut Context<Self>) {

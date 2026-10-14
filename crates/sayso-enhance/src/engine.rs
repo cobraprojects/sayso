@@ -48,6 +48,7 @@ impl Enhancer for EngineModel {
             model: reply.model,
             elapsed_ms: started.elapsed().as_millis() as u64,
             mode: "guided_generation".into(),
+            report: None,
         })
     }
 }

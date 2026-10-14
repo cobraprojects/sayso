@@ -78,6 +78,9 @@ A word that the speaker spells after a cue: "Dana Cats, that's K A T Z". Before 
 **Enhancer**
 The trait that sends a transcript and a style prompt to an AI provider and returns schema-checked JSON. The implementations are the OpenAI-compatible endpoint, the Claude CLI, the Codex CLI, and the language model of the engine.
 
+**Thinking level**
+How much the model of a CLI provider thinks before it answers: low, medium, or high. Low is the default. A higher level is slower. The user sets it for each provider in Settings. It goes to the tool as `--effort` (Claude) or `model_reasoning_effort` (Codex). A provider with an OpenAI-compatible endpoint has no thinking level.
+
 **Apple Intelligence**
 The provider of a style that runs the language model of macOS (macOS 26 and later) in the engine. The transcript stays on the Mac. macOS chooses the model and owns its files, so there is no download and no model choice. It is not a model in the sense of this file, because it does not transcribe speech.
 
@@ -106,7 +109,10 @@ The main window. Its sections are Home, History, Dictionary, Styles, Models, and
 The themed panel that opens from the menu bar icon (the taskbar icon on Windows, the tray icon on Linux). It is not a native menu.
 
 **History entry**
-A stored dictation. It holds the transcript, the final text, the style, the target app (with the host of the page, when the app showed a web page), the model, the time, the duration, and (until it expires) the audio. When history is off, Sayso stores no history entry for a new dictation. Entries from before stay until the user clears them.
+A stored dictation. It holds the transcript, the final text, the style, the target app (with the host of the page, when the app showed a web page), the model, the time, the duration, the diagnostics, and (until it expires) the audio. When history is off, Sayso stores no history entry for a new dictation. Entries from before stay until the user clears them.
+
+**Diagnostics**
+How a dictation ran, for a bug report: the version of Sayso, the system, and the time of each step from the stop of the recording to the end of the insertion. They hold no dictated text. "Copy metadata" in the menu of a history entry copies them as JSON, with the other data of the entry and without the text and the site.
 
 **Incognito**
 A mode in which Sayso stores no history entry for a dictation. It stays on until the user turns it off or quits Sayso. It changes only what Sayso stores: a cloud model or the provider of a style still gets the audio or the transcript.

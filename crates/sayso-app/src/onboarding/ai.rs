@@ -236,7 +236,7 @@ impl OnboardingView {
                     Provider {
                         id: "claude-cli".into(),
                         name: "Claude CLI".into(),
-                        kind: ProviderKind::ClaudeCli { path: Some(path.display().to_string()), model: "haiku".into(), config_dir: None },
+                        kind: ProviderKind::ClaudeCli { path: Some(path.display().to_string()), model: "haiku".into(), config_dir: None, thinking: Default::default() },
                     },
                     None,
                 ))

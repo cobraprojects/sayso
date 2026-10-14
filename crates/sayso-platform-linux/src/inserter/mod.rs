@@ -362,15 +362,7 @@ impl LinuxInserter {
         self.clipboard
             .get_or_init(|| {
                 let s = self.session;
-                let forced = std::env::var("SAYSO_CLIPBOARD").ok().and_then(|v| ClipboardKind::parse(&v));
-                let kind = forced.or_else(|| {
-                    choose_clipboard(
-                        s.kind,
-                        s.has_global("ext_data_control_manager_v1"),
-                        s.has_global("zwlr_data_control_manager_v1"),
-                        s.x11_display.is_some(),
-                    )
-                })?;
+                let kind = self.clipboard_kind()?;
                 log::info!("clipboard backend: {kind:?}");
                 let started: Result<Box<dyn Clipboard>, String> = match kind {
                     ClipboardKind::X11 => clipboard_x11::X11Clipboard::start(s).map(|c| Box::new(c) as _),
@@ -380,6 +372,20 @@ impl LinuxInserter {
                 started.inspect_err(|e| log::warn!("cannot start the {kind:?} clipboard: {e}")).ok()
             })
             .as_deref()
+    }
+
+    /// The clipboard backend that the session gets.
+    fn clipboard_kind(&self) -> Option<ClipboardKind> {
+        let s = self.session;
+        let forced = std::env::var("SAYSO_CLIPBOARD").ok().and_then(|v| ClipboardKind::parse(&v));
+        forced.or_else(|| {
+            choose_clipboard(
+                s.kind,
+                s.has_global("ext_data_control_manager_v1"),
+                s.has_global("zwlr_data_control_manager_v1"),
+                s.x11_display.is_some(),
+            )
+        })
     }
 
     /// Run `f` with the key injection backend of the session.
@@ -439,6 +445,13 @@ impl TextInserter for LinuxInserter {
             }
             None => log::warn!("no clipboard backend; the text is not copied"),
         }
+    }
+
+    fn backend(&self) -> Option<String> {
+        let name = |part: Option<String>| part.unwrap_or_else(|| "none".into());
+        let clipboard = name(self.clipboard_kind().map(|kind| format!("{kind:?}")));
+        let keys = name(choose_injection(self.session.kind, caps(self.session)).map(|kind| format!("{kind:?}")));
+        Some(format!("clipboard {clipboard}, keys {keys}"))
     }
 }
 

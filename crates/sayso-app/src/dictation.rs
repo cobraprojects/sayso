@@ -8,7 +8,9 @@ use gpui_kit::*;
 use parking_lot::Mutex;
 use sayso_core::dictation::{Effect, Event, SessionId, Sound, State};
 use sayso_core::dictionary::AppliedReplacement;
-use sayso_core::history::{EnhanceOutcome, HistoryEntry, InsertOutcome, TargetApp, waveform_summary};
+use sayso_core::history::{
+    Diagnostics, EnhanceOutcome, HistoryEntry, InsertOutcome, InsertTimings, TargetApp, TranscribeTimings, waveform_summary,
+};
 use sayso_core::models::ModelInfo;
 use sayso_core::pipeline::TextPipeline;
 use sayso_core::speech::{SpeechProvider, SpeechRequest, split_model_id};
@@ -40,6 +42,8 @@ pub struct Session {
     /// capture, when the model of the preview loads during the dictation.
     pub streaming: Arc<AtomicBool>,
     pub started: Option<Instant>,
+    /// When the recording stopped. The diagnostics count from here.
+    pub stopped: Option<Instant>,
     pub duration_ms: u64,
     pub transcript: Option<String>,
     pub transcribe_ms: u64,
@@ -51,6 +55,8 @@ pub struct Session {
     pub insert: Option<InsertOutcome>,
     /// Incognito was on when the dictation started.
     pub incognito: bool,
+    /// The time of each step so far.
+    pub diagnostics: Diagnostics,
 }
 
 pub type Sessions = HashMap<SessionId, Session>;
@@ -293,7 +299,10 @@ impl AppModel {
         if let Some(t) = s.started {
             s.duration_ms = t.elapsed().as_millis() as u64;
         }
-        if s.streaming.swap(false, Ordering::Relaxed)
+        s.stopped = Some(Instant::now());
+        let streamed = s.streaming.swap(false, Ordering::Relaxed);
+        s.diagnostics.transcribe.live_preview = streamed;
+        if streamed
             && let Some(e) = engine
         {
             e.end_stream(session);
@@ -340,22 +349,34 @@ impl AppModel {
         if matches!(pass, FinalPass::Local { .. }) && !self.status_of(&options.final_model).is_usable() {
             self.load_active_models(cx);
         }
+        let cloud = matches!(pass, FinalPass::Cloud { .. });
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    let (t, note) = pass.run(&samples, &options)?;
+                    let started = Instant::now();
+                    let Passed { transcript: t, note, model_wait_ms } = pass.run(&samples, &options)?;
                     let (replaced, applied) = replacer.apply(t.text.trim());
                     let replaced = if spoken_punctuation { sayso_core::spoken_punctuation::apply(&replaced) } else { replaced };
-                    Ok::<_, String>((t, replaced, applied, note))
+                    let timings = TranscribeTimings {
+                        step_ms: started.elapsed().as_millis() as u64,
+                        model_wait_ms,
+                        cloud,
+                        // The note says that a local model took over.
+                        fallback: note.is_some(),
+                        language: options.language,
+                        live_preview: false,
+                    };
+                    Ok::<_, String>((t, replaced, applied, note, timings))
                 })
                 .await;
             let _ = this.update(cx, |m, cx| match result {
-                Ok((t, replaced, applied, note)) => {
+                Ok((t, replaced, applied, note, timings)) => {
                     let s = m.session(session);
                     s.transcript = Some(t.text.clone());
                     s.transcribe_ms = t.elapsed_ms;
                     s.model = Some(t.model.clone());
                     s.replacements = applied;
+                    s.diagnostics.transcribe = TranscribeTimings { live_preview: s.diagnostics.transcribe.live_preview, ..timings };
                     if let Some(note) = note {
                         m.notice(note, cx);
                     }
@@ -403,15 +424,25 @@ impl AppModel {
         cx.spawn(async move |this, cx| {
             let out = cx
                 .background_spawn(async move {
+                    let started = Instant::now();
                     let enhancer = sayso_enhance::build_enhancer(&provider, secrets.as_ref(), &ai, engine);
+                    let setup_ms = started.elapsed().as_millis() as u64;
                     let replacer = sayso_core::dictionary::Replacer::new(&[]);
                     let p = TextPipeline { replacer: &replacer, style: &style, base_prompt: &base_prompt, vocabulary: &vocabulary, enhancer: Some(enhancer.as_ref()), timeout };
-                    p.run_style(text, replacements)
+                    let mut out = p.run_style(text, replacements);
+                    if let Some(timings) = &mut out.timings {
+                        timings.step_ms = started.elapsed().as_millis() as u64;
+                        timings.setup_ms = setup_ms;
+                        timings.provider_kind = provider.kind.name().into();
+                        timings.thinking = provider.thinking().map(|level| level.as_str().into());
+                    }
+                    out
                 })
                 .await;
             let _ = this.update(cx, |m, cx| {
                 let applied = matches!(out.enhance, EnhanceOutcome::Applied { .. });
                 m.session(session).enhance = Some(out.enhance.clone());
+                m.session(session).diagnostics.enhance = out.timings.clone();
                 let name = provider_display(m, out.enhance_error.as_deref());
                 m.dispatch(
                     Event::ReadyToInsert {
@@ -451,16 +482,35 @@ impl AppModel {
         );
         cx.spawn(async move |this, cx| {
             let t = to_insert;
-            let result = cx.background_spawn(async move { inserter.insert(&t, method) }).await;
+            let (result, timings) = cx
+                .background_spawn(async move {
+                    let started = Instant::now();
+                    let result = inserter.insert(&t, method);
+                    let timings = InsertTimings {
+                        elapsed_ms: started.elapsed().as_millis() as u64,
+                        method: if typed { "type" } else { "paste" }.into(),
+                        restore_delay_ms: match method {
+                            InsertMethod::Paste { restore_clipboard: true, restore_delay } => Some(restore_delay.as_millis() as u64),
+                            _ => None,
+                        },
+                        backend: inserter.backend(),
+                    };
+                    (result, timings)
+                })
+                .await;
             let _ = this.update(cx, |m, cx| match result {
                 Ok(r) => {
-                    m.session(session).insert = Some(match r {
+                    let s = m.session(session);
+                    s.insert = Some(match r {
                         InsertResult::Pasted { clipboard_restored } => InsertOutcome::Pasted { clipboard_restored },
                         InsertResult::Typed => InsertOutcome::Typed,
                     });
+                    s.diagnostics.insert = Some(timings);
+                    s.diagnostics.stop_to_insert_ms = s.stopped.map(|t| t.elapsed().as_millis() as u64);
                     m.dispatch(Event::Inserted { session }, cx);
                 }
                 Err(e) => {
+                    m.session(session).diagnostics.insert = Some(timings);
                     let reason = match e {
                         InsertError::NoFocusedField => "No text field is focused".to_string(),
                         other => other.to_string(),
@@ -526,10 +576,14 @@ impl AppModel {
             insert: s.insert.unwrap_or(InsertOutcome::NotInserted),
             audio_file: None,
             waveform: waveform_summary(&samples, 96),
+            diagnostics: Some(Diagnostics { app_version: env!("CARGO_PKG_VERSION").into(), ..s.diagnostics }),
         };
         cx.spawn(async move |this, cx| {
             cx.background_spawn(async move {
                 let mut entry = entry;
+                if let Some(diagnostics) = &mut entry.diagnostics {
+                    diagnostics.system = crate::diagnostics::system();
+                }
                 if save_audio {
                     match store.save_audio(&samples) {
                         Ok(name) => entry.audio_file = Some(name),
@@ -571,7 +625,7 @@ impl AppModel {
         cx.spawn(async move |this, cx| {
             cx.background_spawn(async move {
                 let samples = store.load_audio(&file).ok()?;
-                let (t, _) = pass.run(&samples, &options).inspect_err(|e| log::warn!("transcribe again: {e}")).ok()?;
+                let t = pass.run(&samples, &options).inspect_err(|e| log::warn!("transcribe again: {e}")).ok()?.transcript;
                 let (text, applied) = replacer.apply(t.text.trim());
                 let text = if spoken_punctuation { sayso_core::spoken_punctuation::apply(&text) } else { text };
                 let mut e = entry;
@@ -581,6 +635,9 @@ impl AppModel {
                 e.model = t.model;
                 e.transcribe_ms = t.elapsed_ms;
                 e.enhance = EnhanceOutcome::NotUsed;
+                if let Some(diagnostics) = &mut e.diagnostics {
+                    diagnostics.changed_later = true;
+                }
                 store.update_entry(&e).ok()
             })
             .await;
@@ -622,6 +679,9 @@ impl AppModel {
                     e.final_text = out.text;
                     e.enhance = out.enhance;
                     e.style_id = style.id.clone();
+                    if let Some(diagnostics) = &mut e.diagnostics {
+                        diagnostics.changed_later = true;
+                    }
                     let _ = store.update_entry(&e);
                     ok
                 })
@@ -740,14 +800,23 @@ enum FinalPass {
     },
 }
 
+/// The result of a final pass.
+struct Passed {
+    transcript: Transcript,
+    /// A notice for the user, set when a local model replaced a cloud provider that failed.
+    note: Option<String>,
+    /// The wait until the local model was in memory.
+    model_wait_ms: u64,
+}
+
 impl FinalPass {
-    /// Run the final pass. Blocks. The second value is a notice for the user,
-    /// set when a local model replaced a cloud provider that failed.
-    fn run(&self, samples: &[f32], options: &SessionOptions) -> Result<(Transcript, Option<String>), String> {
+    /// Run the final pass. Blocks.
+    fn run(&self, samples: &[f32], options: &SessionOptions) -> Result<Passed, String> {
         match self {
             FinalPass::Local { engine, model } => {
                 // Wait for the model: the first load compiles it for the Neural Engine.
-                let deadline = Instant::now() + Duration::from_secs(300);
+                let wait_started = Instant::now();
+                let deadline = wait_started + Duration::from_secs(300);
                 loop {
                     match engine.status(model) {
                         ModelStatus::Ready => break,
@@ -756,7 +825,9 @@ impl FinalPass {
                         _ => std::thread::sleep(Duration::from_millis(150)),
                     }
                 }
-                engine.transcribe(samples, options).map(|t| (t, None)).map_err(|e| e.to_string())
+                let model_wait_ms = wait_started.elapsed().as_millis() as u64;
+                let transcript = engine.transcribe(samples, options).map_err(|e| e.to_string())?;
+                Ok(Passed { transcript, note: None, model_wait_ms })
             }
             FinalPass::Cloud { provider, model, info, secrets, timeout, fallback } => {
                 let started = Instant::now();
@@ -773,15 +844,16 @@ impl FinalPass {
                 match sayso_transcribe::transcribe(provider, key.as_deref(), &request) {
                     Ok(text) => {
                         let elapsed_ms = started.elapsed().as_millis() as u64;
-                        Ok((Transcript { text, model: info.id.clone(), elapsed_ms }, None))
+                        Ok(Passed { transcript: Transcript { text, model: info.id.clone(), elapsed_ms }, note: None, model_wait_ms: 0 })
                     }
                     Err(e) => {
                         log::warn!("cloud final pass with {} failed: {e}", provider.id);
                         let message = e.user_message(&provider.name);
                         let Some((engine, local)) = fallback else { return Err(message) };
                         let options = SessionOptions { final_model: local.id.clone(), ..options.clone() };
-                        let t = engine.transcribe(samples, &options).map_err(|_| message)?;
-                        Ok((t, Some(format!("{} did not answer. Sayso used {}.", provider.name, local.name))))
+                        let transcript = engine.transcribe(samples, &options).map_err(|_| message)?;
+                        let note = Some(format!("{} did not answer. Sayso used {}.", provider.name, local.name));
+                        Ok(Passed { transcript, note, model_wait_ms: 0 })
                     }
                 }
             }
@@ -908,7 +980,7 @@ pub fn start_background_loops(
 #[cfg(test)]
 mod tests {
     // No glob import: `gpui_kit` has a `test` attribute of its own.
-    use super::{FinalPass, Mutex, saves_history};
+    use super::{FinalPass, Mutex, Passed, saves_history};
     use sayso_core::models::{ModelId, ModelInfo};
     use sayso_core::stt::{EngineEvent, ModelStatus, SessionOptions, Transcript};
     use sayso_platform::{Result, SttBackend};
@@ -988,7 +1060,7 @@ mod tests {
         });
         let pass = FinalPass::Local { engine: engine.clone(), model: ModelId::new("final") };
         let started = Instant::now();
-        let (transcript, note) = pass.run(&[0.0; 1600], &options()).unwrap();
+        let Passed { transcript, note, model_wait_ms } = pass.run(&[0.0; 1600], &options()).unwrap();
         load.join().unwrap();
 
         assert!(started.elapsed() >= Duration::from_millis(300), "the final pass ran before the load was complete");
@@ -996,6 +1068,7 @@ mod tests {
         assert_eq!(transcript.text, "1600 samples");
         assert_eq!(transcript.model, ModelId::new("final"));
         assert_eq!(note, None);
+        assert!(model_wait_ms >= 300, "the diagnostics do not have the wait for the model");
         assert_eq!(*engine.calls.lock(), [(ModelId::new("final"), ModelStatus::Ready)]);
     }
 
@@ -1003,7 +1076,7 @@ mod tests {
     fn a_load_that_fails_ends_the_final_pass_with_the_reason() {
         let engine = LoadingEngine::new(ModelStatus::Failed { message: "the model files are broken".into() });
         let pass = FinalPass::Local { engine: engine.clone(), model: ModelId::new("final") };
-        assert_eq!(pass.run(&[0.0; 1600], &options()).unwrap_err(), "the model files are broken");
+        assert_eq!(pass.run(&[0.0; 1600], &options()).err().unwrap(), "the model files are broken");
         assert!(engine.calls.lock().is_empty());
     }
 

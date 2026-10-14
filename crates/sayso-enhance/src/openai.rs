@@ -324,6 +324,7 @@ impl Enhancer for OpenAiCompatible {
                         model,
                         elapsed_ms: started.elapsed().as_millis() as u64,
                         mode: mode.as_str().into(),
+                        report: None,
                     });
                 }
                 Err(e) if tries_next_mode(&e) => {

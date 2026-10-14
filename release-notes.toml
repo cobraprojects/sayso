@@ -33,6 +33,16 @@ icon = "styles"
 title = "A smaller Styles page"
 text = "Each style is now one row, and an example shows what Rambling does to your speech."
 
+[[release.item]]
+icon = "settings"
+title = "A thinking level for Claude and Codex"
+text = "Choose how much the model thinks before it answers: low, medium, or high. Low is the default and the fastest. The setting is on each Claude CLI and Codex CLI provider in Settings."
+
+[[release.item]]
+icon = "code"
+title = "Copy metadata from History"
+text = "Each new dictation keeps the time of each step. When a dictation is slow, choose Copy metadata in the menu of its history entry and put the result in a bug report. Your dictated text is not in it."
+
 [[release]]
 version = "0.7.1"
 title = "Styles keep your words"

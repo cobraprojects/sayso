@@ -5,9 +5,9 @@
 
 use crate::dictionary::{AppliedReplacement, Replacer};
 use crate::enhance::{EnhanceError, EnhanceRequest, Enhancer};
-use crate::history::EnhanceOutcome;
+use crate::history::{EnhanceAttempt, EnhanceOutcome, EnhanceTimings};
 use crate::style::{Style, system_prompt};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub struct TextPipeline<'a> {
     pub replacer: &'a Replacer,
@@ -27,6 +27,9 @@ pub struct PipelineOutput {
     pub enhance: EnhanceOutcome,
     /// Set when the style failed. Short form for the overlay.
     pub enhance_error: Option<String>,
+    /// The attempts, when a provider ran. The caller knows the time of the
+    /// whole step, the setup time, and the kind of the provider.
+    pub timings: Option<EnhanceTimings>,
 }
 
 impl TextPipeline<'_> {
@@ -43,7 +46,7 @@ impl TextPipeline<'_> {
     pub fn run_style(&self, replaced: String, replacements: Vec<AppliedReplacement>) -> PipelineOutput {
         // A model answers an empty transcript with a remark about it.
         let Some(enhancer) = self.enhancer.filter(|_| self.style.uses_ai() && !replaced.trim().is_empty()) else {
-            return PipelineOutput { text: replaced, replacements, enhance: EnhanceOutcome::NotUsed, enhance_error: None };
+            return PipelineOutput { text: replaced, replacements, enhance: EnhanceOutcome::NotUsed, enhance_error: None, timings: None };
         };
         // The model gets spelled words as words. A failure returns the text without this step.
         let spoken = crate::spelled::apply(&replaced);
@@ -54,18 +57,36 @@ impl TextPipeline<'_> {
             temperature: self.style.temperature,
             timeout: self.style.timeout_ms.map(Duration::from_millis).unwrap_or(self.timeout),
         };
-        let attempt = || {
-            let response = enhancer.enhance(&request)?;
-            if is_runaway(&replaced, &response.text) {
-                return Err(EnhanceError::InvalidOutput("the reply is much longer than the text".into()));
-            }
-            Ok(response)
+        let mut attempts = Vec::new();
+        let mut attempt = || {
+            let started = Instant::now();
+            let result = enhancer.enhance(&request).and_then(|response| {
+                if is_runaway(&replaced, &response.text) {
+                    return Err(EnhanceError::InvalidOutput("the reply is much longer than the text".into()));
+                }
+                Ok(response)
+            });
+            attempts.push(EnhanceAttempt {
+                elapsed_ms: started.elapsed().as_millis() as u64,
+                error: result.as_ref().err().map(|e| e.to_string()),
+                mode: result.as_ref().ok().map(|r| r.mode.clone()),
+                report: result.as_ref().ok().and_then(|r| r.report.clone()),
+            });
+            result
         };
         // One retry when the reply has the wrong shape. Timeouts are not retried.
         let mut result = attempt();
         if matches!(result, Err(EnhanceError::InvalidOutput(_))) {
             result = attempt();
         }
+        // The time the user waited: a retry counts too.
+        let elapsed_ms = attempts.iter().map(|a| a.elapsed_ms).sum();
+        let timings = Some(EnhanceTimings {
+            timeout_ms: request.timeout.as_millis() as u64,
+            prompt_chars: request.system_prompt.chars().count() + request.transcript.chars().count(),
+            attempts,
+            ..Default::default()
+        });
         match result {
             Ok(resp) => PipelineOutput {
                 text: resp.text.trim().to_string(),
@@ -73,9 +94,10 @@ impl TextPipeline<'_> {
                 enhance: EnhanceOutcome::Applied {
                     provider_id: resp.provider_id,
                     model: resp.model,
-                    elapsed_ms: resp.elapsed_ms,
+                    elapsed_ms,
                 },
                 enhance_error: None,
+                timings,
             },
             Err(err) => {
                 log::warn!("style {} failed with {}: {err}", self.style.id, enhancer.id());
@@ -84,6 +106,7 @@ impl TextPipeline<'_> {
                     replacements,
                     enhance: EnhanceOutcome::Failed { provider_id: enhancer.id().to_string(), reason: err.to_string() },
                     enhance_error: Some(format!("{} {}", enhancer.id(), err.short())),
+                    timings,
                 }
             }
         }
@@ -134,7 +157,7 @@ mod tests {
     }
 
     fn ok(text: &str) -> Result<EnhanceResponse, EnhanceError> {
-        Ok(EnhanceResponse { text: text.into(), provider_id: "fake".into(), model: "m".into(), elapsed_ms: 5, mode: "json_schema".into() })
+        Ok(EnhanceResponse { text: text.into(), provider_id: "fake".into(), model: "m".into(), elapsed_ms: 5, mode: "json_schema".into(), report: None })
     }
 
     fn style(id: &str) -> Style {
@@ -185,8 +208,15 @@ mod tests {
         let replacer = Replacer::new(&[]);
         let clean = style("clean");
         let p = TextPipeline { replacer: &replacer, style: &clean, base_prompt: "", vocabulary: &[], enhancer: Some(&fake), timeout: Duration::from_secs(4) };
-        assert_eq!(p.run("fixed").text, "Fixed.");
+        let out = p.run("fixed");
+        assert_eq!(out.text, "Fixed.");
         assert_eq!(fake.seen.lock().unwrap().len(), 2);
+        // The diagnostics keep both attempts, with the reason for the retry.
+        let timings = out.timings.unwrap();
+        assert_eq!(timings.timeout_ms, 4000);
+        assert_eq!(timings.attempts.len(), 2);
+        assert!(timings.attempts[0].error.as_deref().is_some_and(|e| e.contains("schema")));
+        assert_eq!((timings.attempts[1].error.as_deref(), timings.attempts[1].mode.as_deref()), (None, Some("json_schema")));
     }
 
     #[test]

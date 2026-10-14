@@ -7,6 +7,7 @@ mod app;
 mod caption;
 mod chrome;
 mod dev;
+mod diagnostics;
 mod dictation;
 mod hub;
 mod icons;

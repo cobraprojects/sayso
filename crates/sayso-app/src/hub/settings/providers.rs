@@ -13,7 +13,7 @@ use crate::model_picker;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use sayso_core::config::{Provider, ProviderKind, is_local_url};
+use sayso_core::config::{Provider, ProviderKind, Thinking, is_local_url};
 use sayso_enhance::AuthStatus;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
@@ -398,6 +398,19 @@ impl ProviderSettings {
         if p.kind != ProviderKind::AppleIntelligence {
             col = col.child(kit::row("Model", "A style can name another model.", self.model_picker(p, cx), cx));
         }
+        if let Some(level) = p.thinking() {
+            let model = self.model.clone();
+            let id = p.id.clone();
+            let selected = Thinking::ALL.iter().position(|l| *l == level).unwrap_or(0);
+            let choice = Segmented::new(SharedString::from(format!("thinking-{}", p.id)), Thinking::ALL.map(Thinking::label), selected)
+                .on_select(move |i, _, cx| model.update(cx, |m, cx| m.set_provider_thinking(&id, Thinking::ALL[i], cx)));
+            col = col.child(kit::row(
+                "Thinking",
+                "How much the model thinks before it answers. A higher level is slower, and it changes short text very little.",
+                choice,
+                cx,
+            ));
+        }
 
         let path = match &p.kind {
             ProviderKind::ClaudeCli { path, .. } | ProviderKind::CodexCli { path, .. } => path.clone(),
@@ -642,13 +655,13 @@ impl ProviderSettings {
         }
         let has_claude = providers.iter().any(|p| matches!(p.kind, ProviderKind::ClaudeCli { .. }));
         if let (Some(path), false) = (&detected.claude_cli, has_claude) {
-            let kind = ProviderKind::ClaudeCli { path: Some(path.display().to_string()), model: "haiku".into(), config_dir: None };
+            let kind = ProviderKind::ClaudeCli { path: Some(path.display().to_string()), model: "haiku".into(), config_dir: None, thinking: Default::default() };
             let detail = format!("Found on this {} · Cloud", crate::shell::COMPUTER);
             found.push(("suggest-claude", "Claude CLI", detail, Provider { id: new_id("claude"), name: "Claude CLI".into(), kind }));
         }
         let has_codex = providers.iter().any(|p| matches!(p.kind, ProviderKind::CodexCli { .. }));
         if let (Some(path), false) = (&detected.codex_cli, has_codex) {
-            let kind = ProviderKind::CodexCli { path: Some(path.display().to_string()), model: None, config_dir: None };
+            let kind = ProviderKind::CodexCli { path: Some(path.display().to_string()), model: None, config_dir: None, thinking: Default::default() };
             let detail = format!("Found on this {} · Cloud · about 5 s", crate::shell::COMPUTER);
             found.push(("suggest-codex", "Codex CLI", detail, Provider { id: new_id("codex"), name: "Codex CLI".into(), kind }));
         }
@@ -735,8 +748,8 @@ impl ProviderSettings {
                 model: String::new(),
             },
             // Haiku is the fast choice for cleanup; the picker offers the rest.
-            (AddKind::Claude, _) => ProviderKind::ClaudeCli { path: detected.claude_cli.map(|p| p.display().to_string()), model: "haiku".into(), config_dir: None },
-            _ => ProviderKind::CodexCli { path: detected.codex_cli.map(|p| p.display().to_string()), model: None, config_dir: None },
+            (AddKind::Claude, _) => ProviderKind::ClaudeCli { path: detected.claude_cli.map(|p| p.display().to_string()), model: "haiku".into(), config_dir: None, thinking: Default::default() },
+            _ => ProviderKind::CodexCli { path: detected.codex_cli.map(|p| p.display().to_string()), model: None, config_dir: None, thinking: Default::default() },
         };
         let provider = Provider { id, name, kind };
         self.add = None;

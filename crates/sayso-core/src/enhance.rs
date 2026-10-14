@@ -21,6 +21,37 @@ pub struct EnhanceResponse {
     pub elapsed_ms: u64,
     /// How the schema was enforced, for example "json_schema" or "tool_call".
     pub mode: String,
+    /// What the provider said about its own run. None when it says nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<ProviderReport>,
+}
+
+/// The numbers a provider gives about one run. `elapsed_ms` of the response
+/// minus `run_ms` is the time the tool needed to start and to stop.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProviderReport {
+    /// The length of the run, as the tool measured it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_ms: Option<u64>,
+    /// The API time, as the tool counts it. It can be more than `run_ms`,
+    /// because the tool adds the times of calls that ran together.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_ms: Option<u64>,
+    /// The number of model turns. The Claude tool gives 2 for a usual run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turns: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+    /// The part of the output tokens that the model used to think.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]

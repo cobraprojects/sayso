@@ -108,6 +108,7 @@ pub fn seed_demo(store: &sayso_store::Store) {
             insert: InsertOutcome::Pasted { clipboard_restored: true },
             audio_file: None,
             waveform: peaks,
+            diagnostics: None,
         };
         let _ = store.insert_entry(&entry);
     }

@@ -111,6 +111,7 @@ pub(crate) mod test_util {
             insert: InsertOutcome::Typed,
             audio_file: None,
             waveform: vec![1, 2, 3],
+            diagnostics: None,
         }
     }
 

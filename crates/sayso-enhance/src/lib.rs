@@ -69,13 +69,15 @@ pub fn build_enhancer(
             }
             Box::new(enhancer)
         }
-        ProviderKind::ClaudeCli { path, model, .. } => Box::new(
+        ProviderKind::ClaudeCli { path, model, thinking, .. } => Box::new(
             ClaudeCli::new(&provider.id, path.as_ref().map(PathBuf::from), model)
+                .with_thinking(*thinking)
                 .with_config_dir(provider.config_dir().map(PathBuf::from))
                 .with_default_timeout(cli_timeout),
         ),
-        ProviderKind::CodexCli { path, model, .. } => Box::new(
+        ProviderKind::CodexCli { path, model, thinking, .. } => Box::new(
             CodexCli::new(&provider.id, path.as_ref().map(PathBuf::from), model.clone())
+                .with_thinking(*thinking)
                 .with_config_dir(provider.config_dir().map(PathBuf::from))
                 .with_default_timeout(cli_timeout),
         ),
@@ -122,9 +124,9 @@ mod tests {
             zero_data_retention: false,
         });
         assert!(build_enhancer(&cloud, &secrets, &cfg, None).is_cloud());
-        let claude = provider(ProviderKind::ClaudeCli { path: Some("/nowhere/claude".into()), model: "haiku".into(), config_dir: None });
+        let claude = provider(ProviderKind::ClaudeCli { path: Some("/nowhere/claude".into()), model: "haiku".into(), config_dir: None, thinking: Default::default() });
         assert!(build_enhancer(&claude, &secrets, &cfg, None).is_cloud());
-        let codex = provider(ProviderKind::CodexCli { path: Some("/nowhere/codex".into()), model: None, config_dir: None });
+        let codex = provider(ProviderKind::CodexCli { path: Some("/nowhere/codex".into()), model: None, config_dir: None, thinking: Default::default() });
         assert!(build_enhancer(&codex, &secrets, &cfg, None).is_cloud());
     }
 
@@ -175,7 +177,7 @@ mod tests {
 
     #[test]
     fn missing_cli_binary_gives_not_configured() {
-        let p = provider(ProviderKind::ClaudeCli { path: Some("/nowhere/claude".into()), model: "haiku".into(), config_dir: None });
+        let p = provider(ProviderKind::ClaudeCli { path: Some("/nowhere/claude".into()), model: "haiku".into(), config_dir: None, thinking: Default::default() });
         let e = build_enhancer(&p, &MemoryStore::new(), &Ai::default(), None);
         assert!(matches!(e.enhance(&request()), Err(EnhanceError::NotConfigured(_))));
     }

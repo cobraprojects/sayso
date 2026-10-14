@@ -261,6 +261,7 @@ fn history_entry(d: &PindropDictation) -> HistoryEntry {
         insert: InsertOutcome::Pasted { clipboard_restored: true },
         audio_file: None,
         waveform: Vec::new(),
+        diagnostics: None,
     }
 }
 

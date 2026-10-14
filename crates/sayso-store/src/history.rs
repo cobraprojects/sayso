@@ -10,7 +10,7 @@ use sayso_core::models::ModelId;
 
 /// Columns of `history` in the order [`entry_from_row`] reads them.
 pub(crate) const COLUMNS: &str = "id, created_at, duration_ms, app, transcript, final_text, style_id, model, \
-                       transcribe_ms, replacements, enhance, insert_result, audio_file, waveform";
+                       transcribe_ms, replacements, enhance, insert_result, audio_file, waveform, diagnostics";
 
 /// Filters for [`Store::list`] and [`Store::count`]. All filters combine with AND.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -110,6 +110,8 @@ fn entry_from_row(row: &Row) -> rusqlite::Result<HistoryEntry> {
         insert: json_column(row, 11)?,
         audio_file: row.get(12)?,
         waveform: row.get(13)?,
+        // Diagnostics that this version cannot read do not hide the entry.
+        diagnostics: row.get::<_, Option<String>>(14)?.and_then(|text| serde_json::from_str(&text).ok()),
     })
 }
 
@@ -133,6 +135,10 @@ pub(crate) fn entry_values(e: &HistoryEntry) -> Result<Vec<Value>> {
         Value::Text(serde_json::to_string(&e.insert)?),
         e.audio_file.clone().map_or(Value::Null, Value::Text),
         Value::Blob(e.waveform.clone()),
+        match &e.diagnostics {
+            Some(diagnostics) => Value::Text(serde_json::to_string(diagnostics)?),
+            None => Value::Null,
+        },
     ])
 }
 
@@ -283,7 +289,7 @@ mod tests {
     use crate::test_util::*;
     use chrono::Duration;
     use sayso_core::dictionary::AppliedReplacement;
-    use sayso_core::history::{EnhanceOutcome, InsertOutcome};
+    use sayso_core::history::{Diagnostics, EnhanceOutcome, InsertOutcome, InsertTimings};
 
     #[test]
     fn insert_get_round_trips_every_field() {
@@ -295,10 +301,25 @@ mod tests {
         e.insert = InsertOutcome::Pasted { clipboard_restored: true };
         e.audio_file = Some("a.flac".into());
         e.waveform = (0..=255).collect();
+        e.diagnostics = Some(Diagnostics {
+            app_version: "0.8.0".into(),
+            stop_to_insert_ms: Some(900),
+            insert: Some(InsertTimings { elapsed_ms: 70, method: "paste".into(), restore_delay_ms: Some(300), backend: None }),
+            ..Default::default()
+        });
         let id = store.insert_entry(&e).unwrap();
         e.id = id;
         assert_eq!(store.get(id).unwrap(), Some(e));
         assert_eq!(store.get(id + 1).unwrap(), None);
+    }
+
+    #[test]
+    fn an_entry_with_unreadable_diagnostics_still_loads() {
+        let (_dir, store) = temp_store();
+        let id = store.insert_entry(&entry("hello", Duration::hours(1))).unwrap();
+        store.conn.lock().execute("UPDATE history SET diagnostics = 'not json' WHERE id = ?", params![id]).unwrap();
+        let found = store.get(id).unwrap().unwrap();
+        assert_eq!((found.final_text.as_str(), found.diagnostics), ("hello", None));
     }
 
     #[test]

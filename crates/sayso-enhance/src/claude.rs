@@ -1,7 +1,14 @@
 //! Claude Code CLI provider: `claude -p` with a JSON schema.
 //!
 //! Measured on this Mac (research §9): 1.6 to 1.9 s for one sentence with
-//! `--effort low` and `MAX_THINKING_TOKENS=0`. Without `--strict-mcp-config`
+//! `--effort low`. The thinking level of the provider sets `--effort`. With
+//! Haiku 5.5 (6 runs of two sentences for each level, tool 2.1.296) the model
+//! thought in 0 runs at `low`, 2 at `medium`, and 5 at `high`, and a run with
+//! thinking wrote 200 to 450 tokens more and took about 0.5 to 1 s longer.
+//! `MAX_THINKING_TOKENS=0` changed nothing there: `medium` thought in 4 of 6
+//! runs with it. Sayso sets it at `low` only, for a model that still reads
+//! it. No setting stops all thinking: `low` thought in about 1 run of 10 with
+//! other prompts. Without `--strict-mcp-config`
 //! the CLI loads the user's MCP servers and plugins: one run read 160K tokens
 //! of tool definitions, took three turns and 5.7 s, and answered in prose. The CLI uses the user's own
 //! login. Sayso never reads Claude credentials, and it never passes any.
@@ -14,7 +21,10 @@
 use crate::auth::{Tool, config_env, push_config_env};
 use crate::cli::{self, Invocation, looks_like_login_problem, tail};
 use crate::detect::detect_claude_cli;
-use sayso_core::enhance::{EnhanceError, EnhanceRequest, EnhanceResponse, Enhancer, output_schema, parse_value, user_message};
+use sayso_core::config::Thinking;
+use sayso_core::enhance::{
+    EnhanceError, EnhanceRequest, EnhanceResponse, Enhancer, ProviderReport, output_schema, parse_value, user_message,
+};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -25,13 +35,21 @@ pub struct ClaudeCli {
     model: String,
     default_timeout: Duration,
     config_dir: Option<PathBuf>,
+    thinking: Thinking,
 }
 
 impl ClaudeCli {
     /// `path` is the binary from the provider config. None searches for it.
     pub fn new(id: impl Into<String>, path: Option<PathBuf>, model: impl Into<String>) -> Self {
         let program = path.or_else(detect_claude_cli);
-        Self { id: id.into(), program, model: model.into(), default_timeout: Duration::from_secs(8), config_dir: None }
+        Self {
+            id: id.into(),
+            program,
+            model: model.into(),
+            default_timeout: Duration::from_secs(8),
+            config_dir: None,
+            thinking: Thinking::default(),
+        }
     }
 
     /// The timeout used when a request has a zero timeout.
@@ -46,6 +64,11 @@ impl ClaudeCli {
         self
     }
 
+    pub fn with_thinking(mut self, level: Thinking) -> Self {
+        self.thinking = level;
+        self
+    }
+
     /// The command line arguments, without the transcript.
     fn args(&self, model: &str, system_prompt: &str) -> Vec<std::ffi::OsString> {
         let schema = output_schema().to_string();
@@ -54,7 +77,7 @@ impl ClaudeCli {
             "--model",
             model,
             "--effort",
-            "low",
+            self.thinking.as_str(),
             "--output-format",
             "json",
             "--json-schema",
@@ -95,7 +118,11 @@ impl Enhancer for ClaudeCli {
         let workdir = cli::workdir()?;
         let started = Instant::now();
         let dir_env = config_env(Tool::Claude, self.config_dir.as_deref().and_then(|d| d.to_str()));
-        let mut envs = vec![("MAX_THINKING_TOKENS", "0")];
+        // A limit of 0 at a higher level would work against the choice of the user.
+        let mut envs = Vec::new();
+        if self.thinking == Thinking::Low {
+            envs.push(("MAX_THINKING_TOKENS", "0"));
+        }
         push_config_env(&mut envs, &dir_env);
         let output = cli::run(&Invocation {
             program,
@@ -105,7 +132,7 @@ impl Enhancer for ClaudeCli {
             stdin: Some(user_message(&request.transcript)),
             timeout,
         })?;
-        let text = parse_envelope(&output.stdout).map_err(|e| match e {
+        let (text, report) = parse_envelope(&output.stdout).map_err(|e| match e {
             // No usable envelope: the tool failed before it could write one.
             EnhanceError::InvalidOutput(_) if !output.status.success() => {
                 EnhanceError::Cli(format!("claude exited with {}: {}", output.status, tail(&output.stderr)))
@@ -118,15 +145,17 @@ impl Enhancer for ClaudeCli {
             model,
             elapsed_ms: started.elapsed().as_millis() as u64,
             mode: "claude_cli".into(),
+            report: Some(report),
         })
     }
 }
 
-/// Read the `--output-format json` result and return the validated text.
+/// Read the `--output-format json` result and return the validated text, with
+/// the numbers of the run.
 ///
 /// Fails on `is_error`, on a `subtype` other than `success`, and on a missing
 /// or invalid `structured_output`.
-pub(crate) fn parse_envelope(stdout: &str) -> Result<String, EnhanceError> {
+pub(crate) fn parse_envelope(stdout: &str) -> Result<(String, ProviderReport), EnhanceError> {
     let value: serde_json::Value = serde_json::from_str(stdout.trim())
         .map_err(|e| EnhanceError::InvalidOutput(format!("claude output is not JSON: {e}")))?;
     // Some versions print the whole message list. The result is the last "result" item.
@@ -151,7 +180,23 @@ pub(crate) fn parse_envelope(stdout: &str) -> Result<String, EnhanceError> {
         .get("structured_output")
         .filter(|v| !v.is_null())
         .ok_or_else(|| EnhanceError::InvalidOutput("claude returned no structured_output".into()))?;
-    parse_value(structured)
+    Ok((parse_value(structured)?, report(envelope)))
+}
+
+/// The numbers of the run in the result. A version of the tool that leaves
+/// one out gives None for it.
+fn report(envelope: &serde_json::Value) -> ProviderReport {
+    let usage = &envelope["usage"];
+    ProviderReport {
+        run_ms: envelope["duration_ms"].as_u64(),
+        api_ms: envelope["duration_api_ms"].as_u64(),
+        turns: envelope["num_turns"].as_u64(),
+        input_tokens: usage["input_tokens"].as_u64(),
+        output_tokens: usage["output_tokens"].as_u64(),
+        thinking_tokens: usage["output_tokens_details"]["thinking_tokens"].as_u64(),
+        cache_read_tokens: usage["cache_read_input_tokens"].as_u64(),
+        cache_write_tokens: usage["cache_creation_input_tokens"].as_u64(),
+    }
 }
 
 #[cfg(test)]
@@ -161,13 +206,24 @@ mod tests {
     #[test]
     fn reads_structured_output() {
         let out = r#"{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"text":"Hello."}}"#;
-        assert_eq!(parse_envelope(out).unwrap(), "Hello.");
+        assert_eq!(parse_envelope(out).unwrap(), ("Hello.".to_string(), ProviderReport::default()));
+    }
+
+    #[test]
+    fn reads_the_numbers_of_the_run() {
+        let out = r#"{"type":"result","subtype":"success","is_error":false,"duration_ms":5210,"duration_api_ms":4870,"num_turns":3,
+            "usage":{"input_tokens":12,"cache_creation_input_tokens":160000,"cache_read_input_tokens":0,"output_tokens":41,"output_tokens_details":{"thinking_tokens":30}},
+            "structured_output":{"text":"Hello."}}"#;
+        let (_, report) = parse_envelope(out).unwrap();
+        assert_eq!((report.run_ms, report.api_ms, report.turns), (Some(5210), Some(4870), Some(3)));
+        assert_eq!((report.input_tokens, report.output_tokens, report.thinking_tokens), (Some(12), Some(41), Some(30)));
+        assert_eq!((report.cache_read_tokens, report.cache_write_tokens), (Some(0), Some(160_000)));
     }
 
     #[test]
     fn reads_the_result_item_of_a_message_list() {
         let out = r#"[{"type":"system"},{"type":"result","subtype":"success","structured_output":{"text":"Hi"}}]"#;
-        assert_eq!(parse_envelope(out).unwrap(), "Hi");
+        assert_eq!(parse_envelope(out).unwrap().0, "Hi");
     }
 
     #[test]
@@ -192,6 +248,8 @@ mod tests {
         let has_pair = |a: &str, b: &str| args.windows(2).any(|w| w[0] == a && w[1] == b);
         assert!(has_pair("--model", "haiku"));
         assert!(has_pair("--effort", "low"));
+        let high = cli.with_thinking(Thinking::High).args("haiku", "SYSTEM");
+        assert!(high.windows(2).any(|w| w[0] == "--effort" && w[1] == "high"));
         assert!(has_pair("--output-format", "json"));
         assert!(has_pair("--tools", ""));
         assert!(has_pair("--setting-sources", ""));
