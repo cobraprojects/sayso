@@ -17,6 +17,7 @@ pub mod input;
 pub mod inserter;
 pub mod keymap;
 pub mod login_item;
+pub mod media;
 pub mod paste_receipt;
 pub mod permissions;
 pub mod prefs;
@@ -49,6 +50,7 @@ impl WinPlatform {
             sounds: Arc::new(sounds::WinSounds::new(sounds_dir)),
             login_item: Arc::new(login_item::WinLoginItem),
             prefs: Arc::new(prefs::WinPrefs),
+            media: Arc::new(media::WinMedia::default()),
         }
     }
 }

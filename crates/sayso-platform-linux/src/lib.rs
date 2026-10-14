@@ -14,6 +14,7 @@ pub mod inserter;
 pub mod ipc;
 pub mod launch;
 pub mod login_item;
+pub mod media;
 pub mod permissions;
 pub mod prefs;
 pub mod session;
@@ -48,6 +49,7 @@ impl LinuxPlatform {
             sounds: Arc::new(sounds::RodioSounds::new(sounds_dir)),
             login_item: Arc::new(login_item::LinuxLoginItem),
             prefs: Arc::new(prefs::LinuxPrefs),
+            media: Arc::new(media::LinuxMedia::default()),
         }
     }
 }

@@ -248,6 +248,8 @@ impl OverlaySize {
 pub struct Audio {
     /// Device name. None uses the system default input.
     pub input_device: Option<String>,
+    /// Pause the media that plays while Sayso records, and play it again after.
+    pub pause_media: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

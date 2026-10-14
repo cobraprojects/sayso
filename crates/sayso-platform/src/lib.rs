@@ -299,6 +299,22 @@ pub trait LoginItem: Send + Sync {
     fn set_enabled(&self, enabled: bool) -> Result<LoginItemState>;
 }
 
+/// A media player that [`MediaControl::pause_playing`] paused. The value
+/// names the player for [`MediaControl::resume`] only.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PausedPlayer(pub String);
+
+/// The media players of other apps: music, video, and podcasts.
+///
+/// Both methods can wait on other processes, so do not call them on the main thread.
+pub trait MediaControl: Send + Sync {
+    /// Pause each player that plays now, and return the players that it paused.
+    /// A player that does not play stays as it is.
+    fn pause_playing(&self) -> Vec<PausedPlayer>;
+    /// Play the players again. A player that closed in the meantime is skipped.
+    fn resume(&self, players: &[PausedPlayer]);
+}
+
 /// System appearance and accessibility settings the UI follows.
 pub trait SystemPrefs: Send + Sync {
     fn dark_mode(&self) -> bool;
@@ -318,4 +334,5 @@ pub struct Platform {
     pub sounds: std::sync::Arc<dyn SoundPlayer>,
     pub login_item: std::sync::Arc<dyn LoginItem>,
     pub prefs: std::sync::Arc<dyn SystemPrefs>,
+    pub media: std::sync::Arc<dyn MediaControl>,
 }

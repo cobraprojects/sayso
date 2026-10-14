@@ -14,6 +14,7 @@ mod hub;
 mod icons;
 mod layout;
 mod live;
+mod media;
 mod memory;
 mod model;
 mod model_picker;

@@ -84,6 +84,7 @@ impl Render for AudioSettings {
         let current_id = m.resolve_input_device(current.as_deref());
         let mic = m.permission(Permission::Microphone);
         let live_preview = m.config.dictation.live_preview;
+        let pause_media = m.config.audio.pause_media;
         let max_s = m.config.dictation.max_duration_s;
         // With the setting off, ask what the preview would use if it were on.
         let has_preview_model = m.active_model().live_preview || m.preview_candidate().is_some();
@@ -191,9 +192,12 @@ impl Render for AudioSettings {
                 .into_any_element()
         };
 
-        let (m1, m2) = (self.model.clone(), self.model.clone());
+        let (m1, m2, m3) = (self.model.clone(), self.model.clone(), self.model.clone());
         let preview = Switch::new("live-preview", live_preview).on_toggle(move |on, _, cx| {
             m1.update(cx, |m, cx| m.edit_config(cx, |c| c.dictation.live_preview = on));
+        });
+        let pause = Switch::new("pause-media", pause_media).on_toggle(move |on, _, cx| {
+            m3.update(cx, |m, cx| m.edit_config(cx, |c| c.audio.pause_media = on));
         });
         let index = LENGTHS.iter().position(|l| *l >= max_s).unwrap_or(LENGTHS.len() - 1);
         let length = kit::stepper("max-length", format_length(max_s), move |d, _, cx| {
@@ -209,6 +213,7 @@ impl Render for AudioSettings {
         let input = group(&t!("settings.audio.input"), cx).child(list).child(meter);
         let rec = group(&t!("settings.audio.recording"), cx)
             .child(row(&t!("settings.audio.live_preview"), &preview_desc, preview, cx))
+            .child(row(&t!("settings.audio.pause_media"), &t!("settings.audio.pause_media_detail"), pause, cx))
             .child(row(&t!("settings.audio.max_length"), &t!("settings.audio.max_length_detail"), length, cx));
         kit::page("audio-page", &t!("settings.audio.title"), &t!("settings.audio.subtitle"), kit::body().child(input).child(rec), cx)
     }

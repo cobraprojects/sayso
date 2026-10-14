@@ -13,6 +13,7 @@ pub mod hotkeys;
 pub mod inserter;
 pub mod keymap;
 pub mod login_item;
+pub mod media;
 pub mod permissions;
 pub mod prefs;
 pub mod secure_input;
@@ -45,6 +46,7 @@ impl MacPlatform {
             sounds: Arc::new(sounds::RodioSounds::new(sounds_dir)),
             login_item: Arc::new(login_item::MacLoginItem),
             prefs: Arc::new(prefs::MacPrefs),
+            media: Arc::new(media::MacMedia::new()),
         }
     }
 }

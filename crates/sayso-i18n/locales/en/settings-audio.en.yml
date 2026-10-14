@@ -20,6 +20,8 @@ settings:
     live_preview: "Live preview"
     live_preview_detail: "Streams your words to the overlay while you speak. Uses a little more power."
     live_preview_unavailable: "Your model has no live preview in this language. Download a model that has one in Models, for example Parakeet EOU for English."
+    pause_media: "Pause media"
+    pause_media_detail: "Pauses music and videos while you dictate, and plays them again when you stop."
     max_length: "Maximum length"
     max_length_detail: "Recording stops by itself after this long."
     length_seconds: "%{seconds} s"

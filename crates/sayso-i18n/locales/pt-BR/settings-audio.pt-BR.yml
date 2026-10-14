@@ -20,6 +20,8 @@ settings:
     live_preview: "Prévia ao vivo"
     live_preview_detail: "Mostra suas palavras no indicador enquanto você fala. Usa um pouco mais de energia."
     live_preview_unavailable: "Seu modelo não tem prévia ao vivo neste idioma. Baixe em Modelos um modelo que tenha, por exemplo Parakeet EOU para inglês."
+    pause_media: "Pausar mídia"
+    pause_media_detail: "Pausa músicas e vídeos enquanto você dita e os retoma quando você para."
     max_length: "Duração máxima"
     max_length_detail: "A gravação para sozinha depois deste tempo."
     length_seconds: "%{seconds} s"

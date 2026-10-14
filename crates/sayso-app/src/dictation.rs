@@ -80,6 +80,13 @@ impl AppModel {
         let recording = self.machine.is_recording();
         if recording != was_recording {
             self.services.platform.hotkeys.set_recording(recording);
+            // The resume runs also when the setting went off during the
+            // recording: it plays only what the pause stopped.
+            if !recording {
+                self.media.resume();
+            } else if self.config.audio.pause_media {
+                self.media.pause();
+            }
         }
         cx.notify();
     }

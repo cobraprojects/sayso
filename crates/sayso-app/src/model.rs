@@ -133,6 +133,8 @@ pub struct AppModel {
     pub history_revision: u64,
 
     pub(crate) sessions: crate::dictation::Sessions,
+    /// Pauses the media of other apps while a dictation records.
+    pub(crate) media: crate::media::MediaPause,
     pub(crate) started: Instant,
     pub(crate) config_mtime: Option<std::time::SystemTime>,
     /// The macOS appearance last applied, for "Auto" theme mode.
@@ -211,6 +213,7 @@ impl AppModel {
         };
         let config_mtime = std::fs::metadata(paths.config_file()).and_then(|m| m.modified()).ok();
         let icons = crate::icons::AppIcons::new(paths.cache_dir.join("icons"), services.platform.context.clone());
+        let media = crate::media::MediaPause::new(services.platform.media.clone());
         let (site_icons, fetched_icons) = crate::site_icons::SiteIcons::new(paths.cache_dir.join("site-icons"));
         cx.spawn(async move |this, cx| {
             while let Ok((host, png)) = fetched_icons.recv().await {
@@ -253,6 +256,7 @@ impl AppModel {
             incognito: false,
             history_revision: 0,
             sessions: Default::default(),
+            media,
             started: Instant::now(),
             config_mtime,
             system_dark: false,
