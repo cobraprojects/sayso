@@ -1,0 +1,27 @@
+_version: 1
+
+settings:
+  overlay:
+    title: "悬浮指示器"
+    subtitle: "胶囊，以及听写时它显示的内容。"
+    pill: "胶囊"
+    size: "大小"
+    size_small: "小"
+    size_medium: "中"
+    size_large: "大"
+    size_detail: "胶囊及听写时其显示的所有内容的大小。"
+    idle_pill: "显示空闲胶囊"
+    idle_pill_detail: "屏幕底部的小胶囊。点按它即可开始听写。"
+    hide_fullscreen: "在全屏 App 上方隐藏"
+    hide_fullscreen_detail: "胶囊不会遮挡视频和演示文稿。"
+    follow: "跟随正在使用的显示器"
+    follow_detail_placed: "胶囊会移到鼠标所在或你正在使用的窗口所在的显示器，以最后变化者为准。"
+    follow_detail: "每次开始听写时，胶囊都会移到你正在使用的显示器。"
+    position: "胶囊位置"
+    position_detail: "将胶囊放回底部中央。如需立即执行，请右键点按胶囊并选择“重置位置”。"
+    reset_position: "重置位置"
+    reset_done: "Sayso 已清除保存的位置。下次 Sayso 启动时，胶囊会移到底部中央。"
+    reset_failed: "Sayso 无法重置位置：%{error}。请确认数据文件夹可写入。"
+    while_dictating: "听写时"
+    live_preview: "显示实时预览"
+    live_preview_detail: "在你说话时于胶囊上方显示文字。只有最终文本会进入 App。"
