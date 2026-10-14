@@ -20,7 +20,7 @@ models:
     word_error_rate: "词错误率"
     cloud: "云端"
     audio_goes_to: "音频发送至 %{vendor}"
-    stores_files: "存储文件"
+    stores_files: "文件由系统保存"
     parts_on_disk:
       other: "磁盘上有 %{count} 个部分"
     to_download: "待下载"
