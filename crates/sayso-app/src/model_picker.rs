@@ -1,10 +1,16 @@
 //! The model picker: a trigger that shows the chosen model, and a list of the
-//! provider's models with a filter and a refresh row.
+//! provider's models with a filter. The design is in the Paper file, page
+//! "Model picker · Thinking".
 //!
 //! The list opens in its own borderless window, so it can reach past the edge
 //! of the Hub or the onboarding window. It opens under its trigger, or above
 //! it when the screen has no room below, and it takes the height of its
 //! content. A pick, Escape, or a click anywhere else closes it.
+//!
+//! For a provider, the list also has the thinking level of the chosen model,
+//! under the models: a pen line that gets heavier with the level. The ink
+//! follows the pointer while the user holds the line, and it runs to the
+//! nearest level when the user lets go. The list stays open.
 //!
 //! The models themselves live in [`AppModel::model_lists`], so every view that
 //! shows the same provider shares one fetch, and an open list updates when a
@@ -17,16 +23,17 @@ use gpui_kit::*;
 use crate::shell::{self as mac, native as ns_window};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
-use sayso_ui::paper::PaperStyled;
 use sayso_ui::{ActivePaper, text};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-/// A list longer than this gets a filter field.
-const FILTER_FROM: usize = 8;
 const SHEET_W: f32 = 340.;
+/// The space at the left and the right of the thinking level.
+const THINKING_PAD: f32 = 18.;
+/// How long the ink takes to run to a level after the user lets go.
+const SETTLE: Duration = Duration::from_millis(180);
 /// Room around the sheet inside the window for its shadow, which is kept
 /// small: the margin is part of the window and takes clicks.
 const SIDE: f32 = 12.;
@@ -34,8 +41,8 @@ const TOP: f32 = 6.;
 const BOTTOM: f32 = 16.;
 /// Space between the trigger and the sheet.
 const GAP: f64 = 4.;
-/// The tallest the sheet gets: filter, 300 px of rows, footer.
-const MAX_SHEET_H: f32 = 400.;
+/// The tallest the sheet gets: filter, 280 px of rows, the thinking level.
+const MAX_SHEET_H: f32 = 430.;
 /// A click on the trigger first closes the open list (the list loses focus).
 /// That click means "close", so it must not open the list again.
 const REOPEN_GUARD: Duration = Duration::from_millis(400);
@@ -79,6 +86,9 @@ pub struct Request {
     pub list_key: String,
     pub selected: Option<String>,
     pub extra: Option<Extra>,
+    /// The id of the provider whose thinking level the list sets. None for a
+    /// list without the thinking level.
+    pub thinking_for: Option<String>,
     pub on_pick: OnPick,
     pub on_refresh: Box<dyn Fn(&mut App)>,
 }
@@ -257,7 +267,22 @@ struct PickerWindow {
     height: f32,
     measured: Rc<Cell<f32>>,
     was_active: bool,
+    /// Where the ink of the thinking level ends while the user holds the line.
+    held: Option<f32>,
+    /// The run of the ink to a level after the user let go: from, to, start.
+    settle: Option<(f32, f32, Instant)>,
+    /// The place of the pen line, from its last paint.
+    line: Rc<Cell<Bounds<Pixels>>>,
     _subs: Vec<Subscription>,
+}
+
+/// The thinking level that a list sets.
+struct Thinking {
+    provider: String,
+    /// From the least thinking to the most.
+    levels: Vec<String>,
+    /// The level that goes to the provider. None when the model uses its own default.
+    chosen: Option<usize>,
 }
 
 impl PickerWindow {
@@ -277,7 +302,103 @@ impl PickerWindow {
             }),
         ];
         let ns = ns_window(window);
-        Self { model, req, place, filter, ns, height: 0., measured: Rc::default(), was_active: false, _subs: subs }
+        Self {
+            model,
+            req,
+            place,
+            filter,
+            ns,
+            height: 0.,
+            measured: Rc::default(),
+            was_active: false,
+            held: None,
+            settle: None,
+            line: Rc::default(),
+            _subs: subs,
+        }
+    }
+
+    /// The thinking level of the chosen model. None for a list without it,
+    /// and for a model without levels.
+    fn thinking(&self, cx: &App) -> Option<Thinking> {
+        let id = self.req.thinking_for.as_ref()?;
+        let m = self.model.read(cx);
+        let provider = m.config.ai.providers.iter().find(|p| &p.id == id)?;
+        let levels = m.thinking_choices(provider);
+        let chosen = provider.thinking_sent().and_then(|sent| levels.iter().position(|level| level == sent));
+        (!levels.is_empty()).then(|| Thinking { provider: id.clone(), levels, chosen })
+    }
+
+    /// Move the ink to the pointer.
+    fn hold(&mut self, x: Pixels, cx: &mut Context<Self>) {
+        let line = self.line.get();
+        self.held = Some(value_at((x - line.origin.x).as_f32(), line.size.width.as_f32()));
+        self.settle = None;
+        cx.notify();
+    }
+
+    /// Let go of the line: the nearest level becomes the thinking level.
+    fn let_go(&mut self, cx: &mut Context<Self>) {
+        let Some(value) = self.held.take() else { return };
+        let Some(thinking) = self.thinking(cx) else { return };
+        let stop = nearest_stop(value, thinking.levels.len());
+        self.settle = Some((value, stop_value(stop, thinking.levels.len()), Instant::now()));
+        let level = thinking.levels[stop].clone();
+        self.model.update(cx, |m, cx| m.set_provider_thinking(&thinking.provider, level, cx));
+        cx.notify();
+    }
+
+    /// The part of the sheet with the thinking level.
+    fn thinking_panel(&mut self, thinking: &Thinking, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        let c = cx.paper().colors;
+        let count = thinking.levels.len();
+        let rest = thinking.chosen.map_or(0., |stop| stop_value(stop, count));
+        let value = match (self.held, self.settle) {
+            (Some(held), _) => held,
+            (None, Some((from, to, start))) if start.elapsed() < SETTLE => {
+                // Fast at first, then slow, as ink that runs out.
+                let t = start.elapsed().as_secs_f32() / SETTLE.as_secs_f32();
+                window.request_animation_frame();
+                from + (to - from) * (1. - (1. - t).powi(3))
+            }
+            _ => {
+                self.settle = None;
+                rest
+            }
+        };
+        // While the user holds the line, the name is that of the nearest level.
+        let marked = if self.held.is_some() { Some(nearest_stop(value, count)) } else { thinking.chosen };
+        let name = marked.map_or("Default".to_string(), |stop| sayso_core::config::thinking_label(&thinking.levels[stop]));
+        let line = self.line.clone();
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .pt(px(12.))
+            .pb(px(10.))
+            .px(px(THINKING_PAD))
+            .bg(c.sheet)
+            .border_t_1()
+            .border_color(c.rule)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(crate::hub::pages::kit::caps("Thinking", 10., c.graphite).font_weight(FontWeight::SEMIBOLD))
+                    .child(crate::hub::pages::kit::fraunces(name, 21., 24., c.ink).italic()),
+            )
+            .child(
+                div()
+                    .id("thinking-line")
+                    .relative()
+                    .w_full()
+                    .h(px(pen_line_height(SHEET_W - THINKING_PAD * 2.)))
+                    .cursor_pointer()
+                    .child(canvas(move |bounds, _, _| line.set(bounds), |_, _, _, _| {}).absolute().inset_0())
+                    .child(pen_line(value, count, marked.unwrap_or(usize::MAX), self.held.is_some(), &c).size_full())
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, _, cx| this.hold(ev.position.x, cx))),
+            )
     }
 
     fn pick(&mut self, pick: Option<String>, cx: &mut Context<Self>) {
@@ -313,7 +434,7 @@ impl PickerWindow {
 }
 
 impl Render for PickerWindow {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The size measured in the last frame; the first frame only measures.
         self.fit(cx);
         let c = cx.paper().colors;
@@ -321,39 +442,54 @@ impl Render for PickerWindow {
         let query = self.filter.read(cx).value().trim().to_lowercase();
         let selected = self.req.selected.clone();
 
-        let mut rows = div().id("model-rows").flex().flex_col().max_h(px(300.)).overflow_y_scroll().p(px(4.));
-        let row = |id: ElementId, name: String, note: Option<String>, is_selected: bool| {
-            div()
-                .id(id)
-                .flex()
-                .items_start()
-                .gap(px(8.))
-                .py(px(6.))
-                .px(px(8.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .hover(|s| s.bg(c.deboss))
-                .child(div().flex_none().w(px(14.)).pt(px(2.)).when(is_selected, |d| d.child(icon(Icon::Check, 12., c.ink))))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w_0()
-                        .gap(px(1.))
-                        .child(text::ui(name, 13., if is_selected { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }, c.ink).truncate())
-                        .when_some(note, |d, n| d.child(text::ui(n, 11., FontWeight::NORMAL, c.graphite).truncate())),
-                )
+        let mut rows = div().id("model-rows").flex().flex_col().max_h(px(280.)).overflow_y_scroll().py(px(4.)).px(px(4.));
+        // A row: the name in the display serif, the id at the right, and a
+        // note below. An ink dot marks the chosen model.
+        let row = |id: ElementId, name: String, model_id: Option<String>, note: Option<String>, is_selected: bool| {
+            let mark = div().flex().flex_none().items_center().w(px(8.)).h(px(20.));
+            let mut row = div().id(id).flex().items_start().gap(px(8.)).py(px(6.)).px(px(10.)).rounded(px(8.)).cursor_pointer();
+            row = if is_selected {
+                row.bg(c.sheet).shadow(vec![
+                    BoxShadow::new(px(0.), px(1.), c.shadow(0.14)).blur_radius(px(2.)).inset(),
+                    BoxShadow::new(px(0.), px(-1.), c.highlight(0.8)).inset(),
+                ])
+            } else {
+                row.hover(|s| s.bg(c.sheet))
+            };
+            row.child(mark.when(is_selected, |d| d.child(div().size(px(7.)).rounded_full().bg(c.ink)))).child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(1.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap(px(12.))
+                            .child(
+                                crate::hub::pages::kit::fraunces(name, 15., 20., c.ink)
+                                    .font_weight(if is_selected { FontWeight::SEMIBOLD } else { FontWeight::NORMAL })
+                                    .min_w_0()
+                                    .truncate(),
+                            )
+                            .when_some(model_id, |d, id| {
+                                d.child(text::mono(id, 10., if is_selected { c.graphite } else { c.pencil }).font_weight(FontWeight::NORMAL).flex_none())
+                            }),
+                    )
+                    .when_some(note, |d, n| d.child(text::ui(n, 11., FontWeight::NORMAL, c.graphite).line_height(px(15.)).truncate())),
+            )
         };
         if let Some(extra) = &self.req.extra {
             rows = rows.child(
-                row("model-extra".into(), extra.label.to_string(), None, extra.selected)
+                row("model-extra".into(), extra.label.to_string(), None, None, extra.selected)
                     .on_click(cx.listener(|this, _, _, cx| this.pick(None, cx))),
             );
         }
-        let message = |s: String, color: Hsla| div().px(px(8.)).py(px(8.)).child(text::ui(s, 13., FontWeight::NORMAL, color));
+        let message = |s: String, color: Hsla| div().px(px(10.)).py(px(8.)).child(text::ui(s, 13., FontWeight::NORMAL, color).line_height(px(18.)));
         let mut count = None;
-        let mut show_filter = false;
         match &list {
             None | Some(ModelList::Loading) => rows = rows.child(message("Loading models…".into(), c.graphite)),
             Some(ModelList::Failed(e)) => {
@@ -361,7 +497,6 @@ impl Render for PickerWindow {
             }
             Some(ModelList::Ready(models)) => {
                 count = Some(models.len());
-                show_filter = models.len() > FILTER_FROM;
                 let shown: Vec<_> = models
                     .iter()
                     .filter(|m| query.is_empty() || m.name.to_lowercase().contains(&query) || m.id.to_lowercase().contains(&query))
@@ -372,37 +507,32 @@ impl Render for PickerWindow {
                     rows = rows.child(message("No model matches the filter.".into(), c.graphite));
                 }
                 for (i, m) in shown.into_iter().enumerate() {
-                    // The CLIs give a description; HTTP lists give only ids, so show the id when it differs.
-                    let note = m.description.clone().or_else(|| (m.name != m.id).then(|| m.id.clone()));
+                    // HTTP lists give only ids: the name is then the id, and it shows one time.
+                    let model_id = (m.name != m.id).then(|| m.id.clone());
                     let id = m.id.clone();
                     rows = rows.child(
-                        row(ElementId::from(("model", i)), m.name.clone(), note, selected.as_deref() == Some(m.id.as_str()))
+                        row(ElementId::from(("model", i)), m.name.clone(), model_id, m.description.clone(), selected.as_deref() == Some(m.id.as_str()))
                             .on_click(cx.listener(move |this, _, _, cx| this.pick(Some(id.clone()), cx))),
                     );
                 }
             }
         }
 
-        let footer = div()
+        let head = div()
             .flex()
             .items_center()
-            .justify_between()
             .gap(px(8.))
             .py(px(6.))
-            .pl(px(12.))
+            .pl(px(14.))
             .pr(px(6.))
-            .border_t_1()
+            .border_b_1()
             .border_color(c.rule)
-            .child(text::ui(
-                match count {
-                    Some(1) => "1 model".to_string(),
-                    Some(n) => format!("{n} models"),
-                    None => String::new(),
-                },
-                12.,
-                FontWeight::NORMAL,
-                c.graphite,
-            ))
+            .child(icon(Icon::Search, 12., c.pencil))
+            .child(crate::hub::pages::kit::bare_input(&self.filter, 13.).flex_1())
+            .children(count.map(|n| {
+                let models = if n == 1 { "1 model".to_string() } else { format!("{n} models") };
+                crate::hub::pages::kit::caps(models, 10., c.pencil).font_weight(FontWeight::SEMIBOLD).flex_none()
+            }))
             .child(
                 Button::new("refresh-models", "Refresh")
                     .small()
@@ -410,6 +540,8 @@ impl Render for PickerWindow {
                     .disabled(matches!(list, Some(ModelList::Loading)))
                     .on_click(cx.listener(|this, _, _, cx| (this.req.on_refresh)(cx))),
             );
+
+        let thinking = self.thinking(cx).map(|thinking| self.thinking_panel(&thinking, window, cx));
 
         let measured = self.measured.clone();
         let sheet = div()
@@ -420,6 +552,7 @@ impl Render for PickerWindow {
             .flex_none()
             .w(px(SHEET_W))
             .rounded(px(12.))
+            .overflow_hidden()
             .bg(c.sheet_raised)
             // Tighter than `paper::floating`, so the margin that holds it stays small.
             .shadow(vec![
@@ -428,24 +561,9 @@ impl Render for PickerWindow {
                 BoxShadow::new(px(0.), px(1.), c.shadow(0.14)).blur_radius(px(2.)),
                 BoxShadow::new(px(0.), px(4.), c.shadow(0.14)).blur_radius(px(12.)),
             ])
-            .when(show_filter, |d| {
-                d.child(
-                    div().p(px(8.)).pb(px(4.)).child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.))
-                            .h(px(32.))
-                            .px(px(10.))
-                            .rounded(px(8.))
-                            .debossed(&c)
-                            .child(icon(Icon::Search, 12., c.graphite))
-                            .child(crate::hub::pages::kit::bare_input(&self.filter, 13.).flex_1()),
-                    ),
-                )
-            })
+            .child(head)
             .child(rows)
-            .child(footer)
+            .children(thinking)
             // Measure the sheet, so the window can take its height.
             .child(
                 canvas(
@@ -477,6 +595,17 @@ impl Render for PickerWindow {
                     let _ = close_open(cx);
                 }
             }))
+            // The whole window: the pointer can leave the line while the user holds it.
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
+                if this.held.is_some() {
+                    if ev.pressed_button == Some(MouseButton::Left) {
+                        this.hold(ev.position.x, cx);
+                    } else {
+                        this.let_go(cx);
+                    }
+                }
+            }))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, cx| this.let_go(cx)))
             .child(sheet)
     }
 }

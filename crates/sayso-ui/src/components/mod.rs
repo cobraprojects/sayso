@@ -2,10 +2,12 @@
 
 mod basics;
 mod controls;
+mod pen_line;
 mod waveform;
 
 pub use basics::*;
 pub use controls::*;
+pub use pen_line::*;
 pub use waveform::*;
 
 use gpui_kit::{App, ClickEvent, Window};

@@ -116,6 +116,7 @@ impl OnboardingView {
                     list_key: DRAFT.into(),
                     selected: this.ai.model.clone(),
                     extra: None,
+                    thinking_for: None,
                     on_pick: Box::new(move |pick, cx| {
                         let _ = view.update(cx, |v, cx| {
                             if pick.is_some() {

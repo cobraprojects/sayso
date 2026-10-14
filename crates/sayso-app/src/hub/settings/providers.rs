@@ -13,7 +13,7 @@ use crate::model_picker;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use sayso_core::config::{DEFAULT_CLI_THINKING, Provider, ProviderKind, is_local_url, thinking_label};
+use sayso_core::config::{Provider, ProviderKind, is_local_url, thinking_label};
 use sayso_enhance::AuthStatus;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
@@ -400,25 +400,8 @@ impl ProviderSettings {
         }
 
         if p.kind != ProviderKind::AppleIntelligence {
-            col = col.child(kit::row("Model", "A style can name another model.", self.model_picker(p, cx), cx));
+            col = col.child(kit::row("Model", "The list also has the thinking level of the model. A style can name another model.", self.model_picker(p, cx), cx));
         }
-        let levels = self.thinking_levels(p, cx);
-        if !levels.is_empty() {
-            let model = self.model.clone();
-            let id = p.id.clone();
-            let selected = p.thinking_sent().and_then(|sent| levels.iter().position(|level| level == sent));
-            let labels: Vec<String> = levels.iter().map(|level| thinking_label(level)).collect();
-            // No segment is on when the model uses its own default.
-            let choice = Segmented::new(SharedString::from(format!("thinking-{}", p.id)), labels, selected.unwrap_or(usize::MAX))
-                .on_select(move |i, _, cx| model.update(cx, |m, cx| m.set_provider_thinking(&id, levels[i].clone(), cx)));
-            col = col.child(kit::row(
-                "Thinking",
-                "How much the model thinks before it answers. A higher level is slower, and it changes short text very little.",
-                choice,
-                cx,
-            ));
-        }
-
         let path = match &p.kind {
             ProviderKind::ClaudeCli { path, .. } | ProviderKind::CodexCli { path, .. } => path.clone(),
             _ => None,
@@ -570,24 +553,11 @@ impl ProviderSettings {
         div().w_full().min_w_0().pb(px(6.)).child(panel)
     }
 
-    /// The thinking levels to offer for the model of a provider. They come
-    /// from the model list of the provider. Until the list is here, a CLI
-    /// provider offers the levels that all its models with levels take.
-    /// Empty for a model without levels: the row does not show then.
-    fn thinking_levels(&self, p: &Provider, cx: &App) -> Vec<String> {
-        let mut levels = self.model.read(cx).thinking_levels(p).unwrap_or_else(|| {
-            if is_cli(p) { [DEFAULT_CLI_THINKING, "medium", "high"].map(String::from).to_vec() } else { Vec::new() }
-        });
-        // A level from the config file that the list does not have still shows.
-        if let Some(chosen) = p.thinking().filter(|chosen| !levels.iter().any(|level| level == chosen)) {
-            levels.push(chosen.to_string());
-        }
-        levels
-    }
-
-    /// The model of a provider. A click opens the provider's list.
+    /// The model of a provider, with its thinking level: "Haiku 5.5 · Low".
+    /// A click opens the provider's list.
     fn model_picker(&self, p: &Provider, cx: &mut Context<Self>) -> AnyElement {
         let m = self.model.read(cx);
+        let level = p.thinking_sent().filter(|sent| m.thinking_choices(p).iter().any(|level| level == sent)).map(thinking_label);
         let label = match p.model() {
             Some(id) => m.model_label(&p.id, id),
             None if p.needs_model() => "Choose a model".into(),
@@ -597,6 +567,10 @@ impl ProviderSettings {
                 _ => "Default model".into(),
             },
             None => "Default model".into(),
+        };
+        let label = match level {
+            Some(level) => format!("{label} · {level}"),
+            None => label,
         };
         let pid = p.id.clone();
         model_picker::trigger(&format!("provider:{}", p.id), label, !p.needs_model(), cx)
@@ -616,6 +590,7 @@ impl ProviderSettings {
             list_key: p.id.clone(),
             selected: p.model().map(str::to_string),
             extra: None,
+            thinking_for: Some(p.id.clone()),
             on_pick: Box::new(move |pick, cx| {
                 let Some(choice) = pick else { return };
                 let id = pick_id.clone();

@@ -964,12 +964,24 @@ impl AppModel {
         });
     }
 
-    /// The thinking levels of the model of a provider, from the least
-    /// thinking to the most. None until the model list of the provider is
-    /// here, and for a model that is not in it.
-    pub fn thinking_levels(&self, provider: &Provider) -> Option<Vec<String>> {
-        let Some(ModelList::Ready(list)) = self.model_lists.get(&provider.id) else { return None };
-        list.iter().find(|m| Some(m.id.as_str()) == provider.model()).map(|m| m.thinking.clone())
+    /// The thinking levels to offer for the model of a provider, from the
+    /// least thinking to the most. They come from the model list of the
+    /// provider. Until the list is here, a CLI provider offers the levels
+    /// that all its models with levels take. Empty for a model without levels.
+    pub fn thinking_choices(&self, provider: &Provider) -> Vec<String> {
+        let listed = match self.model_lists.get(&provider.id) {
+            Some(ModelList::Ready(list)) => list.iter().find(|m| Some(m.id.as_str()) == provider.model()).map(|m| m.thinking.clone()),
+            _ => None,
+        };
+        let cli = matches!(provider.kind, ProviderKind::ClaudeCli { .. } | ProviderKind::CodexCli { .. });
+        let mut levels = listed.unwrap_or_else(|| {
+            if cli { [sayso_core::config::DEFAULT_CLI_THINKING, "medium", "high"].map(String::from).to_vec() } else { Vec::new() }
+        });
+        // A level from the config file that the list does not have still shows.
+        if let Some(chosen) = provider.thinking().filter(|chosen| !levels.iter().any(|level| level == chosen)) {
+            levels.push(chosen.to_string());
+        }
+        levels
     }
 
     /// Ask the tool of a CLI provider if it is signed in. Does nothing for

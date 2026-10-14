@@ -451,6 +451,7 @@ impl StylesPage {
                             key: "style-model".into(),
                             list_key: pid.clone(),
                             extra: Some(Extra { label: "Provider's model".into(), selected: selected.is_none() }),
+                            thinking_for: None,
                             selected,
                             on_pick: Box::new(move |pick, cx| {
                                 let _ = page.update(cx, |this, cx| {
