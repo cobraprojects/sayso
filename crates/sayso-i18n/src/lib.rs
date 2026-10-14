@@ -31,11 +31,21 @@ pub struct Locale {
     pub code: &'static str,
     /// The name of the language in that language: "Español", "日本語".
     pub name: &'static str,
+    /// A first translation that no native speaker has reviewed yet. Only a
+    /// debug build offers it (see [`available`]).
+    pub draft: bool,
 }
 
-/// The locales with a complete catalog. Add a locale here when its catalog
-/// has every key of `en.yml`; the catalog tests check that.
-pub const LOCALES: &[Locale] = &[Locale { code: "en", name: "English" }];
+/// The locales with a catalog folder. The catalog tests check that each one
+/// has every key of English. Set `draft` to false when a native speaker has
+/// reviewed the catalog.
+pub const LOCALES: &[Locale] = &[Locale { code: "en", name: "English", draft: false }];
+
+/// The locales that the Language menu offers and that "system" can select:
+/// all in a debug build, the reviewed ones in a release.
+pub fn available() -> impl Iterator<Item = &'static Locale> {
+    LOCALES.iter().filter(|l| !l.draft || cfg!(debug_assertions))
+}
 
 /// The value of `general.language` that follows the system.
 pub const SYSTEM: &str = "system";
@@ -58,7 +68,7 @@ pub fn language_name(code: &str) -> String {
 /// and in brackets, so text that is not in a catalog stands out.
 pub const PSEUDO: &str = "en-XA";
 
-/// The locale of a code, if it is in [`LOCALES`].
+/// The locale of a code, if it is in [`LOCALES`] (also a draft).
 pub fn find(code: &str) -> Option<&'static Locale> {
     LOCALES.iter().find(|l| l.code.eq_ignore_ascii_case(code))
 }

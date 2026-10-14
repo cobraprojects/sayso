@@ -13,7 +13,33 @@ fn placeholders(text: &str) -> BTreeSet<String> {
     re.captures_iter(text).map(|c| c[1].to_string()).collect()
 }
 
-/// Each locale in `LOCALES` has the keys of English, no others, and the same
+/// The locale folders under `locales/`, without English.
+fn translated_locales() -> Vec<String> {
+    let locales = Path::new(env!("CARGO_MANIFEST_DIR")).join("locales");
+    let mut out: Vec<String> = std::fs::read_dir(&locales)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|l| l != "en")
+        .collect();
+    out.sort();
+    out
+}
+
+/// Each locale in `LOCALES` has a catalog folder, and each folder is a locale
+/// in `LOCALES`.
+#[test]
+fn locales_and_folders_match() {
+    let mut folders = translated_locales();
+    folders.push("en".into());
+    folders.sort();
+    let mut codes: Vec<String> = sayso_i18n::LOCALES.iter().map(|l| l.code.to_string()).collect();
+    codes.sort();
+    assert_eq!(folders, codes, "the folders in locales/ and LOCALES differ");
+}
+
+/// Each translated catalog has the keys of English, no others, and the same
 /// arguments in each text. A plural can have other categories than English
 /// ("many" in Spanish, only "other" in Japanese), so plurals compare by their
 /// base key, and each needs "other".
@@ -23,7 +49,8 @@ fn every_locale_matches_english() {
     let plural = Regex::new(r"^(.+)\.(zero|one|two|few|many|other)$").unwrap();
     let base = |key: &str| plural.captures(key).map_or(key.to_string(), |c| c[1].to_string());
     let en_plurals: BTreeSet<String> = en.keys().filter(|k| plural.is_match(k)).map(|k| base(k)).collect();
-    for locale in sayso_i18n::LOCALES.iter().map(|l| l.code).filter(|c| *c != "en") {
+    for locale in translated_locales() {
+        let locale = locale.as_str();
         let other = catalog(locale);
         let mut problems = Vec::new();
         let keys = |c: &BTreeMap<String, String>| c.keys().map(|k| base(k)).collect::<BTreeSet<_>>();

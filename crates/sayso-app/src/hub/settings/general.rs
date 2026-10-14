@@ -72,7 +72,7 @@ impl GeneralSettings {
     /// debug build, which also has the pseudo-locale.
     fn language(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let debug = cfg!(debug_assertions);
-        if sayso_i18n::LOCALES.len() < 2 && !debug {
+        if sayso_i18n::available().count() < 2 && !debug {
             return None;
         }
         let setting = self.model.read(cx).config.general.language.clone();
@@ -81,7 +81,7 @@ impl GeneralSettings {
         // Each line: the setting, the name in its own language, and the name in
         // the interface language when that is another text.
         let mut choices: Vec<(String, String, Option<String>)> = vec![(sayso_i18n::SYSTEM.into(), t!("settings.general.language_system"), Some(system_name.into()))];
-        choices.extend(sayso_i18n::LOCALES.iter().map(|l| {
+        choices.extend(sayso_i18n::available().map(|l| {
             let here = sayso_i18n::language_name(l.code);
             (l.code.to_string(), l.name.to_string(), (here != l.name).then_some(here))
         }));

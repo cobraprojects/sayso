@@ -1,12 +1,12 @@
 //! Which locale to use, from the setting and the languages of the system.
 
-use crate::{LOCALES, PSEUDO, SYSTEM};
+use crate::{PSEUDO, SYSTEM, available};
 
 /// The locale for the setting `general.language`. "system", and a value that
-/// is not a known locale, take the first system language that has a catalog.
+/// is not an available locale, take the first system language that has one.
 /// The last choice is English.
 pub fn resolve(setting: &str, system: &[String]) -> &'static str {
-    let codes: Vec<&'static str> = LOCALES.iter().map(|l| l.code).collect();
+    let codes: Vec<&'static str> = available().map(|l| l.code).collect();
     resolve_in(setting, system, &codes)
 }
 
