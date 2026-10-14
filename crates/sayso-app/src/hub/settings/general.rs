@@ -83,7 +83,7 @@ impl GeneralSettings {
         let mut choices: Vec<(String, String, Option<String>)> = vec![(sayso_i18n::SYSTEM.into(), t!("settings.general.language_system"), Some(system_name.into()))];
         choices.extend(sayso_i18n::available().map(|l| {
             let here = sayso_i18n::language_name(l.code);
-            (l.code.to_string(), l.name.to_string(), (here != l.name).then_some(here))
+            (l.code.to_string(), l.name.to_string(), (here.to_lowercase() != l.name.to_lowercase()).then_some(here))
         }));
         if debug {
             choices.push((sayso_i18n::PSEUDO.into(), "Pseudo".into(), Some(sayso_i18n::PSEUDO.into())));
