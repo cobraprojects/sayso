@@ -4,9 +4,8 @@ _version: 1
 app:
   hotkeys_not_built: "このシステムではショートカットにまだ対応していません。"
   insertion_not_built: "このシステムではテキストの挿入にまだ対応していません。"
-  update:
-    busy: "このアプリから別の Sayso が実行されています。そちらを終了してから、もう一度お試しください。"
   sign_in:
+    start_failed: "Sayso はサインインを開始できませんでした：%{error}"
     not_finished: "サインインが完了しませんでした。もう一度お試しになる場合は、「サインイン」を選択してください。"
     code_failed: "Sayso はコードを送信できませんでした：%{error}"
   # The status line at the foot of the Hub sidebar.

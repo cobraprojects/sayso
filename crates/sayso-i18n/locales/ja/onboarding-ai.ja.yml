@@ -25,6 +25,7 @@ onboarding:
     test_failed: "テストに失敗しました：%{error}"
     error_choose: "オプションを選択するか、このステップをスキップしてください。"
     error_apple: "この Mac では Apple Intelligence を使用できません。システム設定でオンにするか、別のオプションを選択してください。"
+    error_apple_reason: "%{reason}または、別のオプションを選択してください。"
     error_ollama: "Ollama にモデルがありません。「ollama pull qwen3:4b」を実行してから、もう一度 Ollama を選択してください。"
     error_base_url: "API のベース URL を入力してください。例：https://openrouter.ai/api/v1"
     error_api_key: "API キーを入力してください。Sayso はキーを%{store}に保存します。"

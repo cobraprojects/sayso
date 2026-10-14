@@ -18,6 +18,7 @@ onboarding:
     minutes_left: "残り約%{minutes}分"
     downloading: "%{name} をダウンロード中"
     download_failed: "%{name} のダウンロードが停止しました：%{error}。インターネット接続を確認してから、もう一度お試しください。"
+    download_failed_reason: "%{name} の準備ができていません。%{reason}もう一度お試しください。"
     try_again: "再試行"
     not_downloaded: "%{name} はまだダウンロードされていません"
     download_size: "ダウンロード（%{size}）"
