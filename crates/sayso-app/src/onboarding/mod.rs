@@ -20,6 +20,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::stt::ModelStatus;
 use sayso_platform::{CaptureHandle, Permission, PermissionState};
+use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::ActivePaper;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
@@ -430,6 +431,7 @@ impl Render for OnboardingView {
             .pt(px(crate::caption::top_margin(10.)))
             .bg(c.ground)
             .font_family(sayso_ui::fonts::UI)
+            .locale_fonts(Face::Sans)
             .text_color(c.ink)
             .track_focus(&self.recorder.focus)
             .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {

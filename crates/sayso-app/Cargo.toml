@@ -11,6 +11,7 @@ name = "sayso"
 path = "src/main.rs"
 
 [dependencies]
+sayso-i18n.workspace = true
 sayso-core.workspace = true
 sayso-platform.workspace = true
 sayso-engine-client.workspace = true

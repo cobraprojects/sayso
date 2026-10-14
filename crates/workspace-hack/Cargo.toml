@@ -15,30 +15,49 @@ publish = false
 
 ### BEGIN HAKARI SECTION
 [dependencies]
+aho-corasick = { version = "1" }
+anstyle = { version = "1" }
 base64 = { version = "0.23" }
 bytemuck = { version = "1", default-features = false, features = ["extern_crate_alloc"] }
 crc32fast = { version = "1" }
+hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
 image = { version = "0.25", default-features = false, features = ["gif", "ico", "jpeg", "webp"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 num-traits = { version = "0.2", features = ["i128"] }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
+regex-syntax = { version = "0.8" }
+rust-i18n-support = { version = "4", default-features = false, features = ["codegen"] }
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
-serde_core = { version = "1", default-features = false, features = ["alloc", "result", "std"] }
-serde_json = { version = "1" }
+serde_core = { version = "1", features = ["alloc"] }
 simd-adler32 = { version = "0.3" }
 smallvec = { version = "1", default-features = false, features = ["const_generics"] }
 subtle = { version = "2", default-features = false, features = ["const-generics"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 ureq = { version = "3", features = ["json"] }
+winnow-ca01ad9e24f5d932 = { package = "winnow", version = "0.7" }
 
 [build-dependencies]
-proc-macro2 = { version = "1" }
+aho-corasick = { version = "1" }
+anstyle = { version = "1" }
+base64 = { version = "0.23" }
+hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
+log = { version = "0.4", default-features = false, features = ["std"] }
+memchr = { version = "2" }
+num-traits = { version = "0.2", features = ["i128"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = { version = "1" }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
+regex-syntax = { version = "0.8" }
+rust-i18n-support = { version = "4", default-features = false, features = ["codegen"] }
 semver = { version = "1", features = ["serde"] }
-serde_core = { version = "1", default-features = false, features = ["alloc", "result", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_core = { version = "1", features = ["alloc"] }
+smallvec = { version = "1", default-features = false, features = ["const_generics"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "fold", "visit"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
+winnow-ca01ad9e24f5d932 = { package = "winnow", version = "0.7" }
 
 [target.aarch64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
@@ -61,19 +80,19 @@ digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["m
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
 futures-util = { version = "0.3", features = ["io"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
-hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 linux-raw-sys = { version = "0.12", default-features = false, features = ["auxvec", "elf", "errno", "general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "system", "xdp"] }
 num-rational = { version = "0.4", features = ["num-bigint-std"] }
 once_cell = { version = "1" }
 percent-encoding = { version = "2" }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "system", "time"] }
 smallvec = { version = "1", default-features = false, features = ["const_new", "union"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 toml_parser = { version = "1" }
 uuid = { version = "1", features = ["serde", "v4"] }
-winnow = { version = "1" }
+winnow-dff4ba8e3ae991db = { package = "winnow", version = "1" }
 zbus = { version = "5" }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
@@ -82,14 +101,12 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 byteorder = { version = "1" }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 crc32fast = { version = "1" }
+crossbeam-utils = { version = "0.8", default-features = false, features = ["std"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
-hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 linux-raw-sys = { version = "0.12", default-features = false, features = ["auxvec", "elf", "errno", "general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "system", "xdp"] }
-log = { version = "0.4", default-features = false, features = ["std"] }
-memchr = { version = "2" }
 once_cell = { version = "1" }
 percent-encoding = { version = "2" }
 rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "system", "time"] }
@@ -100,7 +117,7 @@ syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", default-features = fals
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "full", "visit", "visit-mut"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 toml_parser = { version = "1" }
-winnow = { version = "1" }
+winnow-dff4ba8e3ae991db = { package = "winnow", version = "1" }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
@@ -111,19 +128,19 @@ digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["m
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
 futures-util = { version = "0.3", features = ["io"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
-hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 linux-raw-sys = { version = "0.12", default-features = false, features = ["auxvec", "elf", "errno", "general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "system", "xdp"] }
 num-rational = { version = "0.4", features = ["num-bigint-std"] }
 once_cell = { version = "1" }
 percent-encoding = { version = "2" }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "system", "time"] }
 smallvec = { version = "1", default-features = false, features = ["const_new", "union"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 toml_parser = { version = "1" }
 uuid = { version = "1", features = ["serde", "v4"] }
-winnow = { version = "1" }
+winnow-dff4ba8e3ae991db = { package = "winnow", version = "1" }
 zbus = { version = "5" }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
@@ -132,14 +149,12 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 byteorder = { version = "1" }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 crc32fast = { version = "1" }
+crossbeam-utils = { version = "0.8", default-features = false, features = ["std"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
-hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 linux-raw-sys = { version = "0.12", default-features = false, features = ["auxvec", "elf", "errno", "general", "if_ether", "ioctl", "net", "netlink", "no_std", "prctl", "system", "xdp"] }
-log = { version = "0.4", default-features = false, features = ["std"] }
-memchr = { version = "2" }
 once_cell = { version = "1" }
 percent-encoding = { version = "2" }
 rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "system", "time"] }
@@ -150,7 +165,7 @@ syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", default-features = fals
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "full", "visit", "visit-mut"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 toml_parser = { version = "1" }
-winnow = { version = "1" }
+winnow-dff4ba8e3ae991db = { package = "winnow", version = "1" }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.x86_64-pc-windows-msvc.dependencies]
@@ -159,7 +174,6 @@ byteorder = { version = "1" }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std"] }
-hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
 once_cell = { version = "1" }
 percent-encoding = { version = "2" }
 time = { version = "0.3", features = ["formatting", "parsing"] }
@@ -175,13 +189,9 @@ crc32fast = { version = "1" }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std"] }
-hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
-log = { version = "0.4", default-features = false, features = ["std"] }
-memchr = { version = "2" }
 once_cell = { version = "1" }
 percent-encoding = { version = "2" }
 simd-adler32 = { version = "0.3" }
-smallvec = { version = "1", default-features = false, features = ["const_generics"] }
 subtle = { version = "2", default-features = false, features = ["const-generics"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "full", "visit"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }

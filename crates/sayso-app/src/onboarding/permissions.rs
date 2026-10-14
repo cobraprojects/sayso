@@ -76,7 +76,7 @@ impl OnboardingView {
                 }))),
             ),
             PermissionState::Denied => mic_card.child(
-                div().flex().pt(px(6.)).child(Button::new("open-mic", crate::shell::OPEN_PERMISSION_SETTINGS).primary().on_click(cx.listener(|this, _, _, cx| {
+                div().flex().pt(px(6.)).child(Button::new("open-mic", crate::shell::open_permission_settings()).primary().on_click(cx.listener(|this, _, _, cx| {
                     this.model.update(cx, |m, _| m.open_permission_settings(Permission::Microphone));
                 }))),
             ),
@@ -86,7 +86,7 @@ impl OnboardingView {
         let mut ax_card = card(&c)
             .when(focus_ax, |d| d.shadow(ring(&c)))
             // macOS has no "denied" for Accessibility; until it is on, Sayso waits.
-            .child(card_head(crate::shell::permission_name(Permission::Accessibility), if ax == PermissionState::Granted { ax } else { PermissionState::NotDetermined }, &c))
+            .child(card_head(&crate::shell::permission_name(Permission::Accessibility), if ax == PermissionState::Granted { ax } else { PermissionState::NotDetermined }, &c))
             .child(text::ui(
                 if ax == PermissionState::Granted {
                     "Sayso can paste text into the app you are using."

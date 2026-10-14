@@ -21,6 +21,7 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use crate::shell::{self as mac, native as ns_window};
+use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::{ActivePaper, text};
@@ -588,6 +589,7 @@ impl Render for PickerWindow {
             .px(px(SIDE))
             .pb(px(BOTTOM))
             .font_family(sayso_ui::fonts::UI)
+            .locale_fonts(Face::Sans)
             .text_color(c.ink)
             .capture_key_down(cx.listener(|_, ev: &KeyDownEvent, _, cx| {
                 if ev.keystroke.key == "escape" {

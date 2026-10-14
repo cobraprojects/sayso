@@ -64,6 +64,7 @@ pub fn run() {
         cx.bind_keys([KeyBinding::new("shift-insert", gpui_kit::base::input::Paste, Some("Input"))]);
         crate::shell::become_accessory();
 
+        apply_language(&loaded.config);
         let services = start_services(&paths, &loaded.config, updates);
         apply_theme(&loaded.config, &services, cx);
         cx.set_global(Windows::default());
@@ -76,6 +77,7 @@ pub fn run() {
         cx.subscribe(&model, |model, event, cx| match event {
             AppEvent::OpenHub(route) => open_hub(&model, *route, cx),
             AppEvent::ThemeChanged => {}
+            AppEvent::LanguageChanged => cx.refresh_windows(),
         })
         .detach();
 
@@ -175,6 +177,15 @@ fn start_services(paths: &Paths, config: &Config, updates: Option<(sayso_update:
     };
 
     Services { platform, engine, language_model, store, secrets: Arc::new(sayso_enhance::KeychainStore), updates }
+}
+
+/// Set the interface language from config and the languages of the system.
+/// `--pseudo` turns on the pseudo-locale (see `docs/i18n.md`).
+pub fn apply_language(config: &Config) {
+    let setting = if crate::dev::flag("pseudo") { sayso_i18n::PSEUDO } else { config.general.language.as_str() };
+    let locale = sayso_i18n::resolve(setting, &sayso_i18n::system_locales());
+    sayso_i18n::set_locale(locale);
+    log::info!("interface language: {locale}");
 }
 
 /// Build the paper theme from config and the system appearance.

@@ -12,7 +12,7 @@ use sayso_core::dictation::State;
 use sayso_ui::ActivePaper;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
-use sayso_ui::fonts::UI;
+use sayso_ui::fonts::{Face, LocaleFonts as _, UI};
 use sayso_ui::paper::PaperStyled;
 use sayso_ui::text;
 use sayso_ui::texture::{Grain, grain};
@@ -443,6 +443,7 @@ impl PopoverView {
             .bg(c.sheet_raised)
             .shadow(sayso_ui::paper::floating(&c))
             .font_family(UI)
+            .locale_fonts(Face::Sans)
             .occlude()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
                 this.submenu = None;
@@ -540,6 +541,7 @@ impl Render for PopoverView {
             .bg(c.sheet)
             .shadow(sayso_ui::paper::floating(&c))
             .font_family(UI)
+            .locale_fonts(Face::Sans)
             // A click on the sheet must not reach the clear part of the window.
             .occlude()
             .on_key_down(cx.listener(|_, e: &KeyDownEvent, _, cx| {

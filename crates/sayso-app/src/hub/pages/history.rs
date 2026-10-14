@@ -15,7 +15,7 @@ use sayso_core::history::{EnhanceOutcome, HistoryEntry, InsertOutcome, TargetApp
 use sayso_store::{AppCount, HistoryQuery};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
-use sayso_ui::fonts::DISPLAY;
+use sayso_ui::fonts::{DISPLAY, Face, LocaleFonts as _};
 use sayso_ui::paper;
 use sayso_ui::{ActivePaper, Colors};
 use std::cell::Cell;
@@ -821,7 +821,7 @@ impl HistoryPage {
                     .min_h_0()
                     .overflow_y_scroll()
                     .track_scroll(&self.text_scroll)
-                    .font_family(DISPLAY)
+                    .font_family(DISPLAY).locale_fonts(Face::Serif)
                     .text_size(px(DETAIL_SIZE))
                     .line_height(px(DETAIL_LINE))
                     .font_weight(FontWeight::MEDIUM)

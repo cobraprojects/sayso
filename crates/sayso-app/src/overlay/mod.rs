@@ -7,7 +7,7 @@
 
 mod placement;
 
-use crate::model::AppModel;
+use crate::model::{AppModel, NoticeIcon};
 use gpui_kit::*;
 use placement::{Anchor, Follow, Placement};
 use sayso_core::dictation::{Notice, Stage, State};
@@ -16,7 +16,7 @@ use sayso_core::config::OverlaySize;
 use sayso_ui::ActivePaper;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
-use sayso_ui::fonts::{SERIF, UI};
+use sayso_ui::fonts::{Face, LocaleFonts as _, SERIF, UI};
 use sayso_ui::paper::{self, PaperStyled};
 use sayso_ui::text;
 use std::cell::Cell;
@@ -365,7 +365,7 @@ impl Render for OverlayView {
         let reduce = cx.paper().reduce_motion;
         let t = if reduce { 0.0 } else { self.start.elapsed().as_secs_f32() };
 
-        let blocked = m.blocked_notice.as_ref().map(|(s, _)| s.clone());
+        let blocked = m.blocked_notice.clone();
         let incognito = m.incognito;
         let recording_style = m.recording_style().map(|s| s.name);
         let preview = m.preview.clone();
@@ -386,24 +386,15 @@ impl Render for OverlayView {
             canvas(move |b, _, _| card.set(b), |_, _, _, _| {}).absolute().top_0().left_0().size_full()
         };
 
-        let body: AnyElement = if let Some(text) = blocked.filter(|_| matches!(state, State::Idle)) {
-            let incognito_detail = match text.as_str() {
-                crate::model::INCOGNITO_ON => Some("Sayso does not save dictations to history."),
-                crate::model::INCOGNITO_OFF => Some("Sayso saves dictations to history again."),
-                _ => None,
+        let body: AnyElement = if let Some(notice) = blocked.filter(|_| matches!(state, State::Idle)) {
+            let ic = match notice.icon {
+                NoticeIcon::Info => Icon::Info,
+                NoticeIcon::Microphone => Icon::Mic,
+                NoticeIcon::Lock => Icon::Lock,
+                NoticeIcon::Style => Icon::Styles,
+                NoticeIcon::Incognito => Icon::Wordmark,
             };
-            let ic = if incognito_detail.is_some() {
-                Icon::Wordmark
-            } else if text.starts_with("Style:") {
-                Icon::Styles
-            } else if text.contains("microphone") {
-                Icon::Mic
-            } else if text.contains("password") {
-                Icon::Lock
-            } else {
-                Icon::Info
-            };
-            notice_pill(ic, &text, incognito_detail, size, &c).child(capture()).into_any_element()
+            notice_pill(ic, &notice.title, notice.detail.as_deref(), size, &c).child(capture()).into_any_element()
         } else {
             match &state {
                 State::Idle => idle_pill(self.hovered, &toggle_caps, size, &c).child(capture()).into_any_element(),
@@ -486,7 +477,7 @@ impl Render for OverlayView {
                         .rounded_full()
                         .floating(&c)
                         .child(div().w(z(150.)).h(z(36.)).child(ink_line(p, c.ink, c.pencil).size_full()))
-                        .child(div().font_family(SERIF).italic().text_size(px(16. * tk)).text_color(c.graphite).child(label))
+                        .child(div().font_family(SERIF).locale_fonts(Face::Serif).italic().text_size(px(16. * tk)).text_color(c.graphite).child(label))
                         .child(capture())
                         .into_any_element()
                 }
@@ -595,6 +586,7 @@ impl Render for OverlayView {
                 Anchor::Top => d.justify_start().pt(px(MARGIN)),
             })
             .font_family(UI)
+            .locale_fonts(Face::Sans)
             .child(
                 div()
                     .id("overlay-card")
@@ -707,7 +699,7 @@ fn preview_slip(committed: &str, tentative: &str, size: OverlaySize, c: &sayso_u
         .rounded(px(12. * k))
         .bg(c.sheet)
         .shadow(paper::raised(c))
-        .font_family(SERIF)
+        .font_family(SERIF).locale_fonts(Face::Serif)
         .text_size(px(17. * tk))
         .line_height(px(24. * tk))
         .text_color(c.ink)

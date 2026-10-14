@@ -2,6 +2,7 @@
 
 use super::OnboardingView;
 use gpui_kit::*;
+use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::ActivePaper;
 use sayso_ui::components::ink_waveform;
 use sayso_ui::text;
@@ -30,7 +31,7 @@ impl OnboardingView {
         let title = "Welcome to Sayso";
         let display = |color: Hsla| {
             div()
-                .font_family(sayso_ui::fonts::DISPLAY)
+                .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
                 .text_size(px(56.))
                 .line_height(px(59.))
                 .font_weight(FontWeight::SEMIBOLD)

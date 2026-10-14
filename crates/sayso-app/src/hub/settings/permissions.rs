@@ -20,7 +20,7 @@ impl Render for PermissionSettings {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let m = self.model.read(cx);
         let mut rows = vec![
-            (Permission::Microphone, "Microphone", "Lets Sayso hear you while you dictate. Required."),
+            (Permission::Microphone, crate::shell::permission_name(Permission::Microphone), "Lets Sayso hear you while you dictate. Required."),
             (Permission::Accessibility, crate::shell::permission_name(Permission::Accessibility), "Lets Sayso paste text into the app you are using. Required."),
             (
                 Permission::InputMonitoring,
@@ -44,12 +44,12 @@ impl Render for PermissionSettings {
                     this.model.update(cx, |m, _| m.request_permission(perm2));
                 })));
             }
-            controls = controls.child(Button::new(("perm-open", i), crate::shell::OPEN_PERMISSION_SETTINGS).small().on_click(cx.listener(
+            controls = controls.child(Button::new(("perm-open", i), crate::shell::open_permission_settings()).small().on_click(cx.listener(
                 move |this, _, _, cx| {
                     this.model.update(cx, |m, _| m.open_permission_settings(perm));
                 },
             )));
-            g = g.child(kit::row(title, desc, controls, cx));
+            g = g.child(kit::row(&title, desc, controls, cx));
         }
         g = g.child(kit::banner(
             BannerKind::Info,

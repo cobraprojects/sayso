@@ -395,7 +395,7 @@ impl ProviderSettings {
                 ));
             }
         } else if let ProviderKind::OpenAiCompatible { base_url, .. } = &p.kind {
-            let place = if is_local_url(base_url) { format!("A server on this {}.", crate::shell::COMPUTER) } else { "A cloud server. You use your own key.".to_string() };
+            let place = if is_local_url(base_url) { format!("A server on this {}.", crate::shell::computer()) } else { "A cloud server. You use your own key.".to_string() };
             col = col.child(kit::row_s("Address".into(), place, text::mono(base_url.clone(), 12., c.graphite).font_weight(FontWeight::NORMAL), cx));
         }
 
@@ -644,22 +644,22 @@ impl ProviderSettings {
             let first = models.first().cloned().unwrap_or_default();
             let kind = ProviderKind::OpenAiCompatible { base_url: "http://localhost:11434/v1".into(), model: first, api_key_account: None, zero_data_retention: false, thinking: None };
             let detail = if models.is_empty() {
-                format!("Running on this {} · no models pulled yet", crate::shell::COMPUTER)
+                format!("Running on this {} · no models pulled yet", crate::shell::computer())
             } else {
-                format!("Running on this {} · {}", crate::shell::COMPUTER, pkit::plural(models.len(), "model", "models"))
+                format!("Running on this {} · {}", crate::shell::computer(), pkit::plural(models.len(), "model", "models"))
             };
             found.push(("suggest-ollama", "Ollama", detail, Provider { id: new_id("ollama"), name: "Ollama".into(), kind }));
         }
         let has_claude = providers.iter().any(|p| matches!(p.kind, ProviderKind::ClaudeCli { .. }));
         if let (Some(path), false) = (&detected.claude_cli, has_claude) {
             let kind = ProviderKind::ClaudeCli { path: Some(path.display().to_string()), model: "haiku".into(), config_dir: None, thinking: Default::default() };
-            let detail = format!("Found on this {} · Cloud", crate::shell::COMPUTER);
+            let detail = format!("Found on this {} · Cloud", crate::shell::computer());
             found.push(("suggest-claude", "Claude CLI", detail, Provider { id: new_id("claude"), name: "Claude CLI".into(), kind }));
         }
         let has_codex = providers.iter().any(|p| matches!(p.kind, ProviderKind::CodexCli { .. }));
         if let (Some(path), false) = (&detected.codex_cli, has_codex) {
             let kind = ProviderKind::CodexCli { path: Some(path.display().to_string()), model: None, config_dir: None, thinking: Default::default() };
-            let detail = format!("Found on this {} · Cloud · about 5 s", crate::shell::COMPUTER);
+            let detail = format!("Found on this {} · Cloud · about 5 s", crate::shell::computer());
             found.push(("suggest-codex", "Codex CLI", detail, Provider { id: new_id("codex"), name: "Codex CLI".into(), kind }));
         }
         let has_apple = providers.iter().any(|p| matches!(p.kind, ProviderKind::AppleIntelligence));
@@ -914,7 +914,7 @@ impl Render for ProviderSettings {
         let mut list = group("Your providers", cx);
         if providers.is_empty() {
             let line = if searching {
-                format!("Looking for AI providers on this {}.", crate::shell::COMPUTER)
+                format!("Looking for AI providers on this {}.", crate::shell::computer())
             } else {
                 "No provider is set up. Add one to use styles with AI.".to_string()
             };

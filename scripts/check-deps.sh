@@ -12,7 +12,8 @@ check() { # crate, forbidden-regex, reason
     echo "FAIL: $1 depends on $(deps_of "$1" | grep -E "$2" | tr '\n' ' ') ($3)"; fail=1
   fi
 }
-check sayso-core '^(sayso-|gpui)' "core must not import other Sayso crates or GPUI"
+check sayso-i18n '^(sayso-|gpui)' "the catalogs are data: no Sayso crates, no GPUI"
+check sayso-core '^(sayso-(platform|engine|store|enhance|transcribe|ui|update|app)|gpui)' "core imports no Sayso crate except sayso-i18n, and no GPUI"
 check sayso-platform '^(sayso-(platform-|engine|store|enhance|ui|app)|gpui)' "traits only"
 for c in sayso-store sayso-enhance sayso-engine-client sayso-ui; do
   check "$c" '^sayso-platform-' "only sayso-app may use a platform implementation"

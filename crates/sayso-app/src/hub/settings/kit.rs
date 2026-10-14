@@ -18,7 +18,7 @@ use std::rc::Rc;
 type OnDelta = Rc<dyn Fn(i32, &mut Window, &mut App)>;
 
 /// A settings page: title, subtitle, then the body, in a scrolling column.
-pub fn page(id: &'static str, title: &str, subtitle: &str, body: impl IntoElement, cx: &App) -> impl IntoElement {
+pub fn page(id: &'static str, title: &str, subtitle: &str, body: impl IntoElement, cx: &App) -> Div {
     // The page sits in an absolute layer, so long text never widens the sheet.
     div().relative().size_full().child(
         div().absolute().top_0().left_0().right_0().bottom_0().child(

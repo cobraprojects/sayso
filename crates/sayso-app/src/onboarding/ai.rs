@@ -214,7 +214,7 @@ impl OnboardingView {
                     return Err("Enter the base URL of the API, for example https://openrouter.ai/api/v1.".into());
                 }
                 if key.is_empty() && !is_local_url(&url) {
-                    return Err(format!("Enter your API key. Sayso keeps it in {}.", crate::shell::SECRET_STORE));
+                    return Err(format!("Enter your API key. Sayso keeps it in {}.", crate::shell::secret_store()));
                 }
                 let model = self.ai.model.clone().ok_or("Choose a model from the provider's list.")?;
                 let (label, id, preset_url) = PRESETS[self.ai.preset];
@@ -325,7 +325,7 @@ impl OnboardingView {
 
         let mut rows = div().flex().flex_col().gap(px(8.));
         if !d.done {
-            rows = rows.child(text::ui(format!("Looking for AI tools on this {}…", crate::shell::COMPUTER), 13., FontWeight::NORMAL, c.graphite).px(px(4.)));
+            rows = rows.child(text::ui(format!("Looking for AI tools on this {}…", crate::shell::computer()), 13., FontWeight::NORMAL, c.graphite).px(px(4.)));
         }
         if let Some(model) = &d.apple_intelligence {
             rows = rows.child(self.ai_row(
@@ -344,7 +344,7 @@ impl OnboardingView {
                 AiChoice::Local,
                 choice,
                 "Ollama",
-                format!("Ollama is running on this {}, but it has no models. Run \"ollama pull qwen3:4b\", then select this again.", crate::shell::COMPUTER),
+                format!("Ollama is running on this {}, but it has no models. Run \"ollama pull qwen3:4b\", then select this again.", crate::shell::computer()),
                 None,
                 None,
                 &c,
@@ -405,7 +405,7 @@ impl OnboardingView {
                 AiChoice::Local,
                 choice,
                 "Ollama",
-                format!("Ollama is running on this {0}. Text stays on this {0}.", crate::shell::COMPUTER),
+                format!("Ollama is running on this {0}. Text stays on this {0}.", crate::shell::computer()),
                 Some(picker.into_any_element()),
                 extra,
                 &c,
@@ -417,7 +417,7 @@ impl OnboardingView {
             AiChoice::Cloud,
             choice,
             "Cloud API",
-            format!("OpenRouter, OpenAI, or any OpenAI-compatible URL. Your key is stored in {}.", crate::shell::SECRET_STORE),
+            format!("OpenRouter, OpenAI, or any OpenAI-compatible URL. Your key is stored in {}.", crate::shell::secret_store()),
             Some(Badge::new("Cloud", BadgeTone::Accent).into_any_element()),
             cloud_extra,
             &c,

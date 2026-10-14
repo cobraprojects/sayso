@@ -240,6 +240,7 @@ Settings shows the active path for each kind.
 sayso/
 ├── crates/
 │   ├── sayso-core/            # Domain logic, no platform or UI imports
+│   ├── sayso-i18n/            # Interface text of each language (docs/i18n.md)
 │   ├── sayso-platform/        # Traits only
 │   ├── sayso-platform-macos/  # macOS implementations of the traits
 │   ├── sayso-engine-client/   # Rust side of the NDJSON engine protocol (SttBackend impl)
@@ -263,7 +264,8 @@ Contents of `sayso-core`:
 
 ### Dependency rules
 
-- `sayso-core` depends on no other Sayso crate, and on no GPUI or platform crate.
+- `sayso-core` depends on no other Sayso crate except `sayso-i18n`, and on no GPUI or platform crate.
+- `sayso-i18n` depends on no Sayso crate and on no GPUI crate.
 - Only `sayso-app` depends on `sayso-platform-*` crates. All other crates use the traits in `sayso-platform`.
 - `sayso-ui` depends on GPUI and gpui-kit, and does not depend on the platform crates.
 - A CI check enforces these rules (`cargo metadata` or `cargo-deny` bans).

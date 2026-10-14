@@ -1,5 +1,5 @@
-//! Settings › General: your name, launch at login, the Dock icon, updates,
-//! config problems, About.
+//! Settings › General: the interface language, your name, launch at login,
+//! the Dock icon, updates, config problems, About.
 
 use super::kit::{self, group, row};
 use crate::model::AppModel;
@@ -10,6 +10,9 @@ use sayso_ui::ActivePaper;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
 use sayso_ui::text;
+use sayso_i18n::t;
+use sayso_ui::assets::Icon;
+use crate::hub::pages::kit::MenuItem;
 
 pub struct GeneralSettings {
     model: Entity<AppModel>,
@@ -19,6 +22,10 @@ pub struct GeneralSettings {
     /// A login item error from the last toggle.
     login_error: Option<String>,
     name: Entity<InputState>,
+    /// The Language list is open.
+    language_menu: bool,
+    /// The locale of the text in `name`'s placeholder.
+    locale: String,
     _name_sub: Subscription,
     _activation: Subscription,
 }
@@ -27,7 +34,7 @@ impl GeneralSettings {
     pub fn new(model: Entity<AppModel>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let current = model.read(cx).config.general.name().unwrap_or_default().to_string();
         // The placeholder shows what Home uses when the field is empty.
-        let placeholder = super::super::pages::kit::first_name().unwrap_or_else(|| "Your name".into());
+        let placeholder = super::super::pages::kit::first_name().unwrap_or_else(|| t!("settings.general.name_placeholder"));
         let name = crate::widgets::input_state(&placeholder, &current, window, cx);
         let sub = cx.subscribe_in(&name, window, |this, state, ev: &InputEvent, _, cx| {
             if !matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
@@ -46,7 +53,7 @@ impl GeneralSettings {
             }
         });
         let login_state = model.read(cx).login_item_state();
-        Self { model, login_state, login_error: None, name, _name_sub: sub, _activation: activation }
+        Self { model, login_state, login_error: None, name, language_menu: false, locale: sayso_i18n::locale(), _name_sub: sub, _activation: activation }
     }
 
     fn refresh_login_state(&mut self, cx: &mut Context<Self>) {
@@ -59,15 +66,90 @@ impl GeneralSettings {
 }
 
 impl GeneralSettings {
+    /// The Language group. Each language shows its name in that language, so
+    /// a user who cannot read the current language still finds their own.
+    /// It shows only when there is more than English to choose, and in a
+    /// debug build, which also has the pseudo-locale.
+    fn language(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+        let debug = cfg!(debug_assertions);
+        if sayso_i18n::LOCALES.len() < 2 && !debug {
+            return None;
+        }
+        let setting = self.model.read(cx).config.general.language.clone();
+        let system = sayso_i18n::resolve(sayso_i18n::SYSTEM, &sayso_i18n::system_locales());
+        let system_name = sayso_i18n::find(system).map_or("English", |l| l.name);
+        // Each line: the setting, the name in its own language, and the name in
+        // the interface language when that is another text.
+        let mut choices: Vec<(String, String, Option<String>)> = vec![(sayso_i18n::SYSTEM.into(), t!("settings.general.language_system"), Some(system_name.into()))];
+        choices.extend(sayso_i18n::LOCALES.iter().map(|l| {
+            let here = sayso_i18n::language_name(l.code);
+            (l.code.to_string(), l.name.to_string(), (here != l.name).then_some(here))
+        }));
+        if debug {
+            choices.push((sayso_i18n::PSEUDO.into(), "Pseudo".into(), Some(sayso_i18n::PSEUDO.into())));
+        }
+        // An unknown setting acts as "system" (see `resolve`), so it shows so.
+        let current = choices.iter().position(|(code, _, _)| *code == setting).unwrap_or(0);
+        let items: Vec<MenuItem> = choices
+            .iter()
+            .enumerate()
+            .map(|(i, (code, name, here))| {
+                let mut item = MenuItem::new(name.clone()).selected(i == current);
+                if let Some(here) = here {
+                    item = item.detail(here.clone());
+                }
+                if let Some(locale) = sayso_i18n::find(code) {
+                    item = item.locale(locale.code);
+                }
+                if i == 0 { item.rule_after() } else { item }
+            })
+            .collect();
+        let (_, name, _) = &choices[current];
+        let mut button = Button::new("interface-language", name.clone());
+        if current == 0 {
+            button = button.detail(system_name);
+        }
+
+        let mut control = div().relative().flex_none().child(
+            button.trailing_icon(Icon::ChevronDown).on_click(cx.listener(|this, _, _, cx| {
+                this.language_menu = !this.language_menu;
+                cx.notify();
+            })),
+        );
+        if self.language_menu {
+            let (pick, close) = (cx.entity(), cx.entity());
+            control = control.child(div().absolute().top_full().right_0().w(px(280.)).child(crate::hub::pages::kit::menu_items(
+                "interface-language-menu",
+                items,
+                move |i, _, cx| {
+                    let Some((code, _, _)) = choices.get(i).cloned() else { return };
+                    pick.update(cx, |this, cx| {
+                        this.language_menu = false;
+                        this.model.update(cx, |m, cx| m.edit_config(cx, |c| c.general.language = code));
+                        cx.notify();
+                    });
+                },
+                move |_, cx| {
+                    close.update(cx, |this, cx| {
+                        this.language_menu = false;
+                        cx.notify();
+                    })
+                },
+                cx,
+            )));
+        }
+        Some(group(&t!("settings.general.language"), cx).child(row(&t!("settings.general.interface_language"), &t!("settings.general.interface_language_detail"), control, cx)))
+    }
+
     /// The Updates group: the status row and the two switches.
     fn updates(&self, cx: &mut Context<Self>) -> Div {
         use crate::update_ui::{Action, Tone};
         let c = cx.paper().colors;
         let m = self.model.read(cx);
         if !m.updates_enabled() {
-            return group("Updates", cx).child(row(
-                "This build does not update itself",
-                &format!("Version {}, built from source.", sayso_update::VERSION),
+            return group(&t!("settings.general.updates"), cx).child(row(
+                &t!("settings.general.no_self_update"),
+                &t!("settings.general.no_self_update_detail", version = sayso_update::VERSION),
                 div(),
                 cx,
             ));
@@ -86,7 +168,7 @@ impl GeneralSettings {
             control = control.child(div().w(px(180.)).child(Progress::new(progress)));
         }
         if checking {
-            control = control.child(Button::new("update-action", "Checking…").small().disabled(true));
+            control = control.child(Button::new("update-action", t!("settings.general.checking")).small().disabled(true));
         }
         if let Some((label, action)) = v.action {
             let model = self.model.clone();
@@ -99,7 +181,7 @@ impl GeneralSettings {
             });
         }
         let detail = if v.action.is_some_and(|(_, a)| a == Action::Restart) && !can_restart {
-            "Finish the dictation first. Then Sayso closes and opens again.".to_string()
+            t!("settings.general.restart_after_dictation")
         } else {
             v.detail
         };
@@ -140,7 +222,7 @@ impl GeneralSettings {
                                         .id("update-notes")
                                         .cursor_pointer()
                                         .on_click(move |_, _, _| crate::shell::open(&url))
-                                        .child(text::ui("See what is new", 13., FontWeight::SEMIBOLD, c.accent).line_height(px(16.))),
+                                        .child(text::ui(t!("settings.general.whats_new"), 13., FontWeight::SEMIBOLD, c.accent).line_height(px(16.))),
                                 )
                             })
                             // The notes of this version, when no newer version has the link.
@@ -151,7 +233,7 @@ impl GeneralSettings {
                                         .id("update-whats-new")
                                         .cursor_pointer()
                                         .on_click(move |_, _, cx| crate::whats_new::open(&model, cx))
-                                        .child(text::ui("See what is new", 13., FontWeight::SEMIBOLD, c.accent).line_height(px(16.))),
+                                        .child(text::ui(t!("settings.general.whats_new"), 13., FontWeight::SEMIBOLD, c.accent).line_height(px(16.))),
                                 )
                             }),
                     ),
@@ -163,19 +245,19 @@ impl GeneralSettings {
         let model = self.model.clone();
         let automatic_switch = Switch::new("update-automatic-switch", automatic)
             .on_toggle(move |on, _, cx| model.update(cx, |m, cx| m.edit_config(cx, |c| c.updates.automatic = on)));
-        group("Updates", cx)
+        group(&t!("settings.general.updates"), cx)
             .child(status_row)
             .child(row(
-                "Check for updates",
-                "When Sayso starts, and one time each day. The check sends no data about you.",
+                &t!("settings.general.check_updates"),
+                &t!("settings.general.check_updates_detail"),
                 check_switch,
                 cx,
             ))
             // Only macOS installs an update by itself now.
             .when(cfg!(target_os = "macos"), |g| {
                 g.child(row(
-                    "Install updates automatically",
-                    "Sayso downloads each new version and installs it the next time Sayso starts.",
+                    &t!("settings.general.install_automatically"),
+                    &t!("settings.general.install_automatically_detail"),
                     automatic_switch,
                     cx,
                 ))
@@ -184,7 +266,13 @@ impl GeneralSettings {
 }
 
 impl Render for GeneralSettings {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The input keeps its placeholder, so it changes with the language.
+        if self.locale != sayso_i18n::locale() {
+            self.locale = sayso_i18n::locale();
+            let placeholder = super::super::pages::kit::first_name().unwrap_or_else(|| t!("settings.general.name_placeholder"));
+            self.name.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
+        }
         let c = cx.paper().colors;
         let m = self.model.read(cx);
         let launch = m.config.general.launch_at_login;
@@ -199,7 +287,7 @@ impl Render for GeneralSettings {
             .items_center()
             .gap(px(12.))
             .when(launch && state == LoginItemState::RequiresApproval, |d| {
-                d.child(Button::new("approve-login", "Approve in System Settings").small().on_click(|_, _, _| {
+                d.child(Button::new("approve-login", t!("settings.general.approve_login_item")).small().on_click(|_, _, _| {
                     crate::shell::open("x-apple.systempreferences:com.apple.LoginItems-Settings.extension");
                 }))
             })
@@ -211,10 +299,10 @@ impl Render for GeneralSettings {
                 this.refresh_login_state(cx);
                 this.login_error = match (on, this.login_state) {
                     (true, LoginItemState::Disabled) if cfg!(target_os = "macos") => {
-                        Some("macOS did not add Sayso to the login items. Move Sayso to the Applications folder, then try again.".into())
+                        Some(t!("settings.general.login_item_failed_macos"))
                     }
                     (true, LoginItemState::Disabled) => {
-                        Some("Windows did not add Sayso to the startup apps. Check Settings › Apps › Startup.".into())
+                        Some(t!("settings.general.login_item_failed_windows"))
                     }
                     _ => None,
                 };
@@ -222,8 +310,8 @@ impl Render for GeneralSettings {
                 });
             }}));
         let launch_desc = match (launch, state) {
-            (true, LoginItemState::RequiresApproval) => "macOS needs your approval in Login Items before Sayso can start at login.",
-            _ => crate::shell::os_text!("Start Sayso in the menu bar when you log in.", "Start Sayso in the taskbar when you sign in.", "Start Sayso in the background when you log in."),
+            (true, LoginItemState::RequiresApproval) => t!("settings.general.launch_needs_approval"),
+            _ => t!(crate::shell::os_text!("settings.general.launch_detail_mac", "settings.general.launch_detail_windows", "settings.general.launch_detail_other")),
         };
 
         let model = self.model.clone();
@@ -243,24 +331,24 @@ impl Render for GeneralSettings {
             .debossed(&c)
             .text_size(px(14.))
             .child(Input::new(&self.name).appearance(false).w_full());
-        let you = group("You", cx).child(row(
-            "Your name",
-            crate::shell::os_text!("Home greets you with it. Leave it empty to use the first name of your Mac account.", "Home greets you with it. Leave it empty to use the first name of your Windows account.", "Home greets you with it. Leave it empty to use the name of your user account."),
+        let you = group(&t!("settings.general.you"), cx).child(row(
+            &t!("settings.general.name"),
+            &t!(crate::shell::os_text!("settings.general.name_detail_mac", "settings.general.name_detail_windows", "settings.general.name_detail_other")),
             name_field,
             cx,
         ));
 
-        let mut startup = group("Startup", cx)
-            .child(row("Launch at login", launch_desc, launch_control, cx))
+        let mut startup = group(&t!("settings.general.startup"), cx)
+            .child(row(&t!("settings.general.launch_at_login"), &launch_desc, launch_control, cx))
             // Only macOS has a Dock.
             .when(cfg!(target_os = "macos"), |g| {
-                g.child(row("Show the Dock icon while the Hub is open", "At other times Sayso lives in the menu bar only.", dock_switch, cx))
+                g.child(row(&t!("settings.general.dock_icon"), &t!("settings.general.dock_icon_detail"), dock_switch, cx))
             });
         if let Some(e) = &self.login_error {
             startup = startup.child(kit::banner(BannerKind::Warning, e.clone(), cx));
         }
 
-        let mut body = kit::body().child(you).child(startup);
+        let mut body = kit::body().children(self.language(cx)).child(you).child(startup);
 
         if !issues.is_empty() {
             let mut list = div().flex().flex_col().gap(px(6.));
@@ -275,7 +363,7 @@ impl Render for GeneralSettings {
             }
             let model = self.model.clone();
             body = body.child(
-                group("Config file", cx).child(
+                group(&t!("settings.general.config_file"), cx).child(
                     div()
                         .flex()
                         .flex_col()
@@ -283,14 +371,10 @@ impl Render for GeneralSettings {
                         .py(px(8.))
                         .child(super::kit::notice(
                             BannerKind::Warning,
-                            format!(
-                                "config.toml has {} {}. Sayso uses the default for each value below until you fix the file.",
-                                issues.len(),
-                                if issues.len() == 1 { "problem" } else { "problems" }
-                            ), cx))
+                            t!("settings.general.config_problems", count = issues.len()), cx))
                         .child(list.px(px(4.)))
                         .child(
-                            div().flex().child(Button::new("open-config-issues", "Open config file").small().on_click(move |_, _, cx| {
+                            div().flex().child(Button::new("open-config-issues", t!("settings.general.open_config_file")).small().on_click(move |_, _, cx| {
                                 model.read(cx).reveal_config_file();
                             })),
                         ),
@@ -300,15 +384,15 @@ impl Render for GeneralSettings {
 
         body = body.child(self.updates(cx));
 
-        let about = group("About", cx)
+        let about = group(&t!("settings.general.about"), cx)
             .child(row(
                 "Sayso",
-                &format!("Version {}", env!("CARGO_PKG_VERSION")),
-                text::ui(format!("Local dictation for {}", crate::shell::OS_NAME), 13., FontWeight::NORMAL, c.graphite),
+                &t!("settings.general.version", version = env!("CARGO_PKG_VERSION")),
+                text::ui(t!("settings.general.tagline", os = crate::shell::OS_NAME), 13., FontWeight::NORMAL, c.graphite),
                 cx,
             ))
             .child(row(
-                "Speech engine",
+                &t!("settings.general.speech_engine"),
                 &engine_detail,
                 div()
                     .flex()
@@ -318,16 +402,12 @@ impl Render for GeneralSettings {
                     .child(text::ui(engine_title, 13., FontWeight::SEMIBOLD, c.ink)),
                 cx,
             ))
-            .child(row("Config file", &path, div(), cx));
+            .child(row(&t!("settings.general.config_file"), &path, div(), cx));
         body = body.child(about);
 
-        kit::page(
-            "general-page",
-            "General",
-            crate::shell::os_text!("Your name, startup, the Dock icon, updates, and the config file.", "Your name, startup, updates, and the config file."),
-            body,
-            cx,
-        )
+        let title = t!("settings.general.title");
+        let subtitle = t!(crate::shell::os_text!("settings.general.subtitle_mac", "settings.general.subtitle_other"));
+        kit::page("general-page", &title, &subtitle, body, cx)
     }
 }
 

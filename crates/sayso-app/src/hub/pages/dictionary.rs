@@ -11,7 +11,7 @@ use gpui_kit::*;
 use sayso_core::dictionary::Replacement;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
-use sayso_ui::fonts::{DISPLAY, UI};
+use sayso_ui::fonts::{DISPLAY, Face, LocaleFonts as _, UI};
 use sayso_ui::paper::{self, PaperStyled};
 use sayso_ui::{ActivePaper, Colors};
 
@@ -247,7 +247,7 @@ impl DictionaryPage {
                     .pr(px(6.))
                     .rounded(px(6.))
                     .debossed(&c)
-                    .font_family(DISPLAY)
+                    .font_family(DISPLAY).locale_fonts(Face::Serif)
                     .text_size(px(15.))
                     // Capture, so Escape closes the field before the input sees it.
                     .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -326,7 +326,7 @@ impl DictionaryPage {
             )
             .child(
                 div()
-                    .font_family(DISPLAY)
+                    .font_family(DISPLAY).locale_fonts(Face::Serif)
                     .text_size(px(15.))
                     .italic()
                     .text_color(c.graphite)
@@ -507,7 +507,7 @@ fn small_input(state: &Entity<InputState>, italic: bool, cx: &App) -> Div {
         .rounded(px(7.))
         .bg(c.deboss)
         .shadow(paper::debossed(&c))
-        .font_family(if italic { DISPLAY } else { UI })
+        .font_family(if italic { DISPLAY } else { UI }).locale_fonts(if italic { Face::Serif } else { Face::Sans })
         .text_size(px(14.))
         .when(italic, |d| d.italic())
         .child(kit::bare_input(state, 14.))

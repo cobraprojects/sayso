@@ -3,8 +3,9 @@
 //! The state machine decides what happens. This file does it: microphone,
 //! engine, pipeline, insertion, history, sounds.
 
-use crate::model::{AppEvent, AppModel};
+use crate::model::{AppEvent, AppModel, NoticeIcon, OverlayNotice};
 use gpui_kit::*;
+use sayso_i18n::t;
 use parking_lot::Mutex;
 use sayso_core::dictation::{Effect, Event, SessionId, Sound, State};
 use sayso_core::dictionary::AppliedReplacement;
@@ -85,7 +86,7 @@ impl AppModel {
     /// Check what a dictation needs. Shows a notice and returns false when something is missing.
     fn check_can_start(&mut self, cx: &mut Context<Self>) -> bool {
         if let Some(holder) = self.services.platform.hotkeys.secure_input_holder() {
-            self.notice(format!("A password field is active in {holder}"), cx);
+            self.notice(NoticeIcon::Lock, t!("overlay.notice.secure_input", app = holder), cx);
             return false;
         }
         match self.permission(Permission::Microphone) {
@@ -93,38 +94,38 @@ impl AppModel {
             PermissionState::Granted => {}
             PermissionState::NotDetermined => {
                 self.request_permission(Permission::Microphone);
-                self.notice("Allow microphone access, then try again".into(), cx);
+                self.notice(NoticeIcon::Microphone, t!("overlay.notice.allow_microphone"), cx);
                 return false;
             }
             PermissionState::Denied => {
                 self.open_permission_settings(Permission::Microphone);
-                self.notice("Sayso needs microphone access".into(), cx);
+                self.notice(NoticeIcon::Microphone, t!("overlay.notice.needs_microphone"), cx);
                 return false;
             }
         }
         let model = self.active_model();
         if model.is_remote() {
             if !self.status_of(&model.id).is_usable() {
-                self.notice("Set up the cloud provider of your model first".into(), cx);
+                self.notice(NoticeIcon::Info, t!("overlay.notice.set_up_cloud_provider"), cx);
                 cx.emit(AppEvent::OpenHub(crate::hub::Route::Models));
                 return false;
             }
             return true;
         }
         if self.services.engine.is_none() {
-            self.notice("The speech engine is not installed".into(), cx);
+            self.notice(NoticeIcon::Info, t!("overlay.notice.no_engine"), cx);
             return false;
         }
         if !self.status_of(&model.id).is_on_disk() {
-            self.notice("Download a speech model first".into(), cx);
+            self.notice(NoticeIcon::Info, t!("overlay.notice.download_model"), cx);
             cx.emit(AppEvent::OpenHub(crate::hub::Route::Models));
             return false;
         }
         true
     }
 
-    fn notice(&mut self, text: String, cx: &mut Context<Self>) {
-        self.blocked_notice = Some((text, Instant::now()));
+    fn notice(&mut self, icon: NoticeIcon, title: String, cx: &mut Context<Self>) {
+        self.blocked_notice = Some(OverlayNotice::new(icon, title));
         cx.notify();
     }
 
@@ -216,7 +217,7 @@ impl AppModel {
             Ok(c) => Some(c),
             Err(e) => {
                 log::error!("microphone: {e}");
-                self.notice("The microphone could not start".into(), cx);
+                self.notice(NoticeIcon::Microphone, t!("overlay.notice.microphone_failed"), cx);
                 // Leave recording; the audio buffer is empty so it ends as "No speech".
                 cx.spawn(async move |this, cx| {
                     let _ = this.update(cx, |m, cx| m.dispatch(Event::Cancel, cx));
@@ -378,7 +379,7 @@ impl AppModel {
                     s.replacements = applied;
                     s.diagnostics.transcribe = TranscribeTimings { live_preview: s.diagnostics.transcribe.live_preview, ..timings };
                     if let Some(note) = note {
-                        m.notice(note, cx);
+                        m.notice(NoticeIcon::Info, note, cx);
                     }
                     m.dispatch(Event::Transcribed { session, text: replaced }, cx);
                 }
@@ -544,7 +545,7 @@ impl AppModel {
             cx.background_executor().timer(Duration::from_millis(150)).await;
             let result = cx.background_spawn(async move { inserter.insert(&text, method) }).await;
             if let Err(e) = result {
-                let _ = this.update(cx, |m, cx| m.notice(e.to_string(), cx));
+                let _ = this.update(cx, |m, cx| m.notice(NoticeIcon::Info, e.to_string(), cx));
             }
         })
         .detach();
@@ -613,7 +614,7 @@ impl AppModel {
         let pass = match self.final_pass() {
             Ok(pass) => pass,
             Err(message) => {
-                self.notice(message, cx);
+                self.notice(NoticeIcon::Info, message, cx);
                 return;
             }
         };
@@ -653,11 +654,11 @@ impl AppModel {
     pub fn enhance_entry(&mut self, entry: HistoryEntry, cx: &mut Context<Self>) {
         let style = self.active_style();
         let Some(provider) = self.provider_for(&style).cloned() else {
-            self.notice("Set up an AI provider in Settings first".into(), cx);
+            self.notice(NoticeIcon::Info, t!("overlay.notice.set_up_ai_provider"), cx);
             return;
         };
         if provider.needs_model() {
-            self.notice(format!("Choose a model for {} in Settings first", provider.name), cx);
+            self.notice(NoticeIcon::Info, t!("overlay.notice.choose_ai_model", provider = provider.name), cx);
             return;
         }
         let Some(store) = self.services.store.clone() else { return };
@@ -688,7 +689,7 @@ impl AppModel {
                 .await;
             let _ = this.update(cx, |m, cx| {
                 if !ok {
-                    m.notice("The style could not run. The text did not change.".into(), cx);
+                    m.notice(NoticeIcon::Style, t!("overlay.notice.style_failed"), cx);
                 }
                 m.reload_history();
                 cx.notify();
@@ -923,7 +924,7 @@ pub fn start_background_loops(
         loop {
             let active = this
                 .update(cx, |m, cx| {
-                    if m.blocked_notice.as_ref().is_some_and(|(_, t)| t.elapsed() > Duration::from_secs(3)) {
+                    if m.blocked_notice.as_ref().is_some_and(|n| n.shown.elapsed() > Duration::from_secs(3)) {
                         m.blocked_notice = None;
                         cx.notify();
                     }

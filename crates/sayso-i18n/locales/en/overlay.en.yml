@@ -1,0 +1,20 @@
+_version: 1
+
+overlay:
+  notice:
+    secure_input: "A password field is active in %{app}"
+    allow_microphone: "Allow microphone access, then try again"
+    needs_microphone: "Sayso needs microphone access"
+    microphone_failed: "The microphone could not start"
+    set_up_cloud_provider: "Set up the cloud provider of your model first"
+    no_engine: "The speech engine is not installed"
+    download_model: "Download a speech model first"
+    set_up_ai_provider: "Set up an AI provider in Settings first"
+    choose_ai_model: "Choose a model for %{provider} in Settings first"
+    style: "Style: %{name}"
+    style_failed: "The style could not run. The text did not change."
+    incognito_on: "Incognito is on"
+    incognito_on_detail: "Sayso does not save dictations to history."
+    incognito_off: "Incognito is off"
+    incognito_off_detail: "Sayso saves dictations to history again."
+

@@ -10,6 +10,7 @@ mod sidebar;
 use crate::model::AppModel;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::ActivePaper;
 use sayso_ui::texture::{Grain, grain};
 
@@ -105,6 +106,7 @@ impl Render for HubView {
             .flex_row()
             .bg(c.ground)
             .font_family(sayso_ui::fonts::UI)
+            .locale_fonts(Face::Sans)
             .text_color(c.ink)
             .child(grain(Grain::Board, px(0.), cx))
             .child(side)

@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 sayso-core.workspace = true
+sayso-i18n.workspace = true
 gpui-kit.workspace = true
 anyhow.workspace = true
 log.workspace = true

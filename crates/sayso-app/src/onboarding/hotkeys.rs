@@ -162,7 +162,7 @@ impl OnboardingView {
                 .items_center()
                 .gap(px(10.))
                 .child(text::ui(crate::shell::os_text!("Turn on Sayso in Input Monitoring to use this key.", "This key needs keyboard access. See the setup guide."), 13., FontWeight::NORMAL, c.danger).flex_1().min_w_0())
-                .child(Button::new("open-im", crate::shell::OPEN_PERMISSION_SETTINGS).small().on_click(cx.listener(|this, _, _, cx| {
+                .child(Button::new("open-im", crate::shell::open_permission_settings()).small().on_click(cx.listener(|this, _, _, cx| {
                     this.model.update(cx, |m, _| m.open_permission_settings(Permission::InputMonitoring));
                 })))
                 .into_any_element(),

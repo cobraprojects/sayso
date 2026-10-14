@@ -8,6 +8,7 @@ use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::*;
 use sayso_core::history::{EnhanceOutcome, HistoryEntry, InsertOutcome};
 use sayso_core::stt::ModelStatus;
+use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::{ActivePaper, Colors, text};
@@ -187,7 +188,7 @@ impl OnboardingView {
             }))
             .child(
                 div()
-                    .font_family(sayso_ui::fonts::DISPLAY)
+                    .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
                     .text_size(px(20.))
                     .line_height(px(28.))
                     .text_color(c.ink)
@@ -212,7 +213,7 @@ impl OnboardingView {
                     .child(text::caps("Read this", &c))
                     .child(
                         div()
-                            .font_family(sayso_ui::fonts::DISPLAY)
+                            .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
                             .italic()
                             .text_size(px(22.))
                             .line_height(px(30.))

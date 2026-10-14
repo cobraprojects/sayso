@@ -11,6 +11,7 @@ use crate::model::AppModel;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::*;
 use sayso_core::paths::Paths;
+use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
@@ -321,6 +322,7 @@ impl Render for WhatsNewView {
             .pt(px(crate::caption::top_margin(10.)))
             .bg(c.ground)
             .font_family(sayso_ui::fonts::UI)
+            .locale_fonts(Face::Sans)
             .text_color(c.ink)
             .child(grain(Grain::Board, px(0.), cx))
             .child(

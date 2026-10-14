@@ -132,7 +132,7 @@ impl Render for AudioSettings {
             );
         }
         if devices.is_empty() {
-            list = list.child(kit::banner(BannerKind::Warning, format!("Sayso found no microphone. Connect one, or check {}.", crate::shell::SOUND_SETTINGS), cx));
+            list = list.child(kit::banner(BannerKind::Warning, format!("Sayso found no microphone. Connect one, or check {}.", crate::shell::sound_settings()), cx));
         }
 
         // Level meter.
@@ -143,7 +143,7 @@ impl Render for AudioSettings {
                 .gap(px(12.))
                 .py(px(8.))
                 .child(div().flex_1().child(super::kit::notice(BannerKind::Info, "Allow microphone access to test your microphone here.", cx)))
-                .child(Button::new("allow-mic", if mic == PermissionState::Denied { crate::shell::OPEN_PERMISSION_SETTINGS } else { "Allow microphone" }).small().on_click(
+                .child(Button::new("allow-mic", if mic == PermissionState::Denied { crate::shell::open_permission_settings() } else { "Allow microphone".to_string() }).small().on_click(
                     cx.listener(move |this, _, _, cx| {
                         this.model.update(cx, |m, _| {
                             if mic == PermissionState::Denied {
@@ -156,7 +156,7 @@ impl Render for AudioSettings {
                 ))
                 .into_any_element()
         } else if let Some(e) = &self.meter_error {
-            kit::banner(BannerKind::Warning, format!("The microphone did not start: {e}. Choose another input, or check {}.", crate::shell::SOUND_SETTINGS), cx).into_any_element()
+            kit::banner(BannerKind::Warning, format!("The microphone did not start: {e}. Choose another input, or check {}.", crate::shell::sound_settings()), cx).into_any_element()
         } else if recording {
             kit::banner(BannerKind::Info, "The test pauses while you dictate.", cx).into_any_element()
         } else {

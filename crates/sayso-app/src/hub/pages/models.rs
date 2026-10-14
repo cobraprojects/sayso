@@ -88,7 +88,7 @@ impl ModelsPage {
             // The idle time unloaded the model. The next dictation loads it.
             ModelStatus::Downloaded if m.model_idle => (c.success, "In use, not in memory".to_string()),
             ModelStatus::Downloaded => (c.accent, "Loading".to_string()),
-            ModelStatus::Optimizing => (c.accent, crate::shell::OPTIMIZING.to_string()),
+            ModelStatus::Optimizing => (c.accent, crate::shell::optimizing().to_string()),
             ModelStatus::Downloading { fraction, .. } => (c.accent, format!("Downloading {:.0}%", fraction * 100.)),
             ModelStatus::NotDownloaded => (c.danger, "Not downloaded".to_string()),
             ModelStatus::Failed { .. } => (c.danger, "Model error".to_string()),
@@ -561,7 +561,7 @@ impl ModelsPage {
                         ),
                 )
                 .child(kit::field("Model", kit::input_well(&add.model_id, cx), None, cx))
-                .child(kit::field("API key", kit::input_well(&add.key, cx), Some(&format!("Not needed for a server on this {}.", crate::shell::COMPUTER)), cx));
+                .child(kit::field("API key", kit::input_well(&add.key, cx), Some(&format!("Not needed for a server on this {}.", crate::shell::computer())), cx));
         } else {
             let names: Vec<&str> = add.kind.known_models().iter().map(|m| m.name).collect();
             let key_link = add.kind.key_url().map(|url| {
@@ -576,7 +576,7 @@ impl ModelsPage {
         if cloud {
             body = body.child(Banner::new(
                 BannerKind::Info,
-                format!("This is a cloud provider. When you use one of its models, Sayso sends the audio of each dictation and your dictionary words to it. The live preview still runs on your {}.", crate::shell::COMPUTER),
+                format!("This is a cloud provider. When you use one of its models, Sayso sends the audio of each dictation and your dictionary words to it. The live preview still runs on your {}.", crate::shell::computer()),
             ));
         }
         let panel = div()
@@ -607,7 +607,7 @@ impl ModelsPage {
     fn cloud(&mut self, active: &sayso_core::models::ModelId, cx: &mut Context<Self>) -> Div {
         let c = cx.paper().colors;
         let providers = self.model.read(cx).config.speech.providers.clone();
-        let note = ui(format!("Opt-in. Your audio leaves this {}.", crate::shell::COMPUTER), 13., 16., FontWeight::NORMAL, c.graphite).into_any_element();
+        let note = ui(format!("Opt-in. Your audio leaves this {}.", crate::shell::computer()), 13., 16., FontWeight::NORMAL, c.graphite).into_any_element();
         let mut col = div().flex().flex_col().child(kit::section_head("Cloud models", Some(note), cx));
         if providers.is_empty() && self.add.is_none() {
             col = col.child(

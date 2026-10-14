@@ -43,6 +43,15 @@ Text from a streaming model while the user speaks. It shows only in the overlay 
 **Dictation language**
 The language the user speaks: a language code, or "auto" to let the model detect it. Each model gets the nearest value that it supports.
 
+**Interface language**
+The language of the text that Sayso shows. It is not the dictation language. The setting `general.language` is "system" or a locale. "system" takes the first language of the system that has a catalog, else English.
+
+**Catalog**
+The file with the interface text of one locale, keyed by name: `crates/sayso-i18n/locales/<locale>.yml`. English is the source catalog.
+
+**Locale**
+A code such as `en`, `pt-BR`, or `zh-CN` that names one catalog.
+
 **Dictionary**
 The user's list of words and replacements.
 - A **word** is a name or term that biases recognition (vocabulary boosting or prompt).

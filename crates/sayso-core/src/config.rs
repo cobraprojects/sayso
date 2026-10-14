@@ -42,11 +42,14 @@ pub struct General {
     /// The name in the Home greeting. None uses the first name of the
     /// macOS account.
     pub name: Option<String>,
+    /// The interface language: "system" or a locale code such as "es" or
+    /// "zh-CN". See `docs/i18n.md`.
+    pub language: String,
 }
 
 impl Default for General {
     fn default() -> Self {
-        Self { launch_at_login: false, dock_icon_with_hub: true, name: None }
+        Self { launch_at_login: false, dock_icon_with_hub: true, name: None, language: sayso_i18n::SYSTEM.into() }
     }
 }
 
@@ -693,6 +696,9 @@ impl Config {
             }
         if crate::models::find_with(&self.speech, &self.dictation.model).is_none() {
             issue("dictation.model", format!("\"{}\" is not a known model", self.dictation.model));
+        }
+        if !sayso_i18n::is_valid_setting(&self.general.language) {
+            issue("general.language", format!("\"{}\" is not an interface language Sayso has. Sayso uses the language of the system", self.general.language));
         }
         if !crate::languages::is_valid(&self.dictation.language) {
             issue("dictation.language", format!("\"{}\" is not a language code Sayso knows. Use \"auto\" or a code such as \"en\"", self.dictation.language));

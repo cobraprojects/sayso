@@ -6,6 +6,7 @@ use crate::model::AppModel;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::config::ThemeMode;
+use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::ActivePaper;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
@@ -73,7 +74,7 @@ fn wordmark(rail: bool, cx: &App) -> impl IntoElement {
     }
     mark.child(
             div()
-                .font_family(sayso_ui::fonts::DISPLAY)
+                .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
                 .text_size(px(24.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Sayso"),
@@ -210,7 +211,7 @@ fn back_button(model: &Entity<AppModel>, rail: bool, cx: &App) -> impl IntoEleme
     }
     back.child(
             div()
-                .font_family(sayso_ui::fonts::DISPLAY)
+                .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
                 .text_size(px(22.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Settings"),

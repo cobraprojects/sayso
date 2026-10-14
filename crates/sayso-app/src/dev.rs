@@ -8,6 +8,7 @@
 //! - `--size=WxH` opens the Hub or onboarding at this size and drops the
 //!   minimum size, as a tiling window manager does.
 //! - `--seed-demo` fills an empty database with the sample content from the design.
+//! - `--pseudo` shows the interface in the pseudo-locale (see `docs/i18n.md`).
 //!
 //! Use temporary `XDG_CONFIG_HOME` and `XDG_DATA_HOME` with `--seed-demo` so
 //! your real history stays untouched.

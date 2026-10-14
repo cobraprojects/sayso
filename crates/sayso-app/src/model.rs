@@ -8,6 +8,7 @@ use crate::hub::Route;
 use crate::live::LiveAudio;
 use crate::services::Services;
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_core::config::{Config, ConfigIssue, Provider, ProviderKind};
 use sayso_core::enhance::ModelChoice;
 use sayso_core::dictation::{Event, Machine, State, Timing};
@@ -97,8 +98,9 @@ pub struct AppModel {
 
     /// The engine process reported a crash and has not come back yet.
     pub engine_down: Option<String>,
-    /// A short message for the overlay when a hotkey is blocked (Secure Input).
-    pub blocked_notice: Option<(String, Instant)>,
+    /// A short message in the idle overlay, for example when a hotkey cannot
+    /// start a dictation.
+    pub blocked_notice: Option<OverlayNotice>,
     /// Incognito: Sayso saves no history entry while it is on. It is never
     /// written to disk, so it is off after each start.
     pub incognito: bool,
@@ -131,9 +133,38 @@ pub struct AppModel {
 
 impl EventEmitter<AppEvent> for AppModel {}
 
-/// The overlay notices of the incognito hotkey.
-pub const INCOGNITO_ON: &str = "Incognito is on";
-pub const INCOGNITO_OFF: &str = "Incognito is off";
+/// A short message in the idle overlay. It goes away after a few seconds.
+#[derive(Debug, Clone)]
+pub struct OverlayNotice {
+    pub icon: NoticeIcon,
+    pub title: String,
+    /// A second line under the title.
+    pub detail: Option<String>,
+    pub shown: Instant,
+}
+
+impl OverlayNotice {
+    pub fn new(icon: NoticeIcon, title: impl Into<String>) -> Self {
+        Self { icon, title: title.into(), detail: None, shown: Instant::now() }
+    }
+
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+}
+
+/// The icon of an overlay notice. The producer of the notice sets it, so it
+/// does not depend on the words of the text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoticeIcon {
+    Info,
+    Microphone,
+    /// A password field blocks the hotkeys.
+    Lock,
+    Style,
+    Incognito,
+}
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -141,6 +172,8 @@ pub enum AppEvent {
     OpenHub(Route),
     /// The theme changed; windows re-read the palette.
     ThemeChanged,
+    /// The interface language changed; windows draw their text again.
+    LanguageChanged,
 }
 
 impl AppModel {
@@ -397,6 +430,10 @@ impl AppModel {
         if before.appearance != self.config.appearance {
             crate::app::apply_theme(&self.config, &self.services, cx);
             cx.emit(AppEvent::ThemeChanged);
+        }
+        if before.general.language != self.config.general.language {
+            crate::app::apply_language(&self.config);
+            cx.emit(AppEvent::LanguageChanged);
         }
         if before.hotkeys != self.config.hotkeys {
             self.register_hotkeys();
@@ -822,7 +859,7 @@ impl AppModel {
         let next = ids[(i + 1) % ids.len()].clone();
         self.set_active_style(&next, cx);
         let name = self.active_style().name;
-        self.blocked_notice = Some((format!("Style: {name}"), Instant::now()));
+        self.blocked_notice = Some(OverlayNotice::new(NoticeIcon::Style, t!("overlay.notice.style", name = name)));
     }
 
     pub fn save_style(&mut self, style: &Style, cx: &mut Context<Self>) -> Result<(), String> {
@@ -1374,8 +1411,12 @@ impl AppModel {
             return;
         }
         self.set_incognito(!self.incognito, cx);
-        let text = if self.incognito { INCOGNITO_ON } else { INCOGNITO_OFF };
-        self.blocked_notice = Some((text.to_string(), Instant::now()));
+        let notice = if self.incognito {
+            OverlayNotice::new(NoticeIcon::Incognito, t!("overlay.notice.incognito_on")).with_detail(t!("overlay.notice.incognito_on_detail"))
+        } else {
+            OverlayNotice::new(NoticeIcon::Incognito, t!("overlay.notice.incognito_off")).with_detail(t!("overlay.notice.incognito_off_detail"))
+        };
+        self.blocked_notice = Some(notice);
     }
 
     /// History has a place in the Hub while it is on, or while entries from before remain.

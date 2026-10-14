@@ -2,6 +2,7 @@
 
 use super::OnboardingView;
 use gpui_kit::*;
+use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper;
@@ -76,7 +77,7 @@ impl OnboardingView {
 
         let title = |color: Hsla| {
             div()
-                .font_family(sayso_ui::fonts::DISPLAY)
+                .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
                 .text_size(px(48.))
                 .line_height(px(58.))
                 .font_weight(FontWeight::SEMIBOLD)

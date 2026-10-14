@@ -43,6 +43,8 @@ pub enum ButtonSize {
 pub struct Button {
     id: ElementId,
     label: SharedString,
+    /// Text after the label in graphite: "System English".
+    detail: Option<SharedString>,
     kind: ButtonKind,
     size: ButtonSize,
     leading: Option<Icon>,
@@ -57,6 +59,7 @@ impl Button {
         Self {
             id: id.into(),
             label: label.into(),
+            detail: None,
             kind: ButtonKind::Secondary,
             size: ButtonSize::Medium,
             leading: None,
@@ -66,6 +69,11 @@ impl Button {
             on_click: None,
         }
     }
+    pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
     pub fn primary(mut self) -> Self {
         self.kind = ButtonKind::Primary;
         self
@@ -146,6 +154,7 @@ impl RenderOnce for Button {
             .when(self.full_width, |b| b.w_full())
             .when_some(self.leading, |b, i| b.child(icon(i, 14., fg)))
             .child(self.label)
+            .when_some(self.detail, |b, d| b.child(div().font_weight(FontWeight::NORMAL).text_color(c.graphite).child(d)))
             .when_some(self.trailing, |b, i| b.child(icon(i, 14., fg)));
         b = match kind {
             ButtonKind::Primary => b
