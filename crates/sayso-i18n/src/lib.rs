@@ -43,6 +43,7 @@ pub const LOCALES: &[Locale] = &[
     Locale { code: "en", name: "English", draft: false },
     Locale { code: "es", name: "Español", draft: true },
     Locale { code: "pt-BR", name: "Português (Brasil)", draft: true },
+    Locale { code: "ja", name: "日本語", draft: true },
 ];
 
 /// The locales that the Language menu offers and that "system" can select:
