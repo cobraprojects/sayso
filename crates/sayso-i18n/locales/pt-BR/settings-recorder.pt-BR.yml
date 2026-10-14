@@ -1,0 +1,17 @@
+_version: 1
+
+settings:
+  recorder:
+    action_toggle: "Iniciar e parar o ditado"
+    action_push_to_talk: "Segurar para falar"
+    action_paste_last: "Colar o último texto"
+    action_cycle_style: "Próximo estilo"
+    action_incognito: "Modo anônimo"
+    solo_only_push_to_talk: "%{keys} sozinha só funciona para Segurar para falar. Escolha uma combinação de teclas, por exemplo %{example}."
+    used_by: "%{keys} já é usada por %{action}. Escolha outra tecla."
+    conflict_app: "%{name} também usa %{keys}. Os dois apps vão reagir. Escolha outra tecla ou mude o atalho em %{name}."
+    conflict_app_open_default: "%{name} está aberto e usa %{keys} por padrão. Se você não mudou isso em %{name}, os dois apps vão reagir. Escolha outra tecla ou mude o atalho em %{name}."
+    conflict_app_default: "%{name} usa %{keys} por padrão. Se você não mudou isso em %{name}, os dois apps vão reagir. Escolha outra tecla ou mude o atalho em %{name}."
+    conflict_system_mac: "O macOS usa %{keys} para %{name}. Escolha outra tecla ou desative o atalho em Ajustes do Sistema › Teclado › Atalhos do Teclado."
+    conflict_system_windows: "O Windows usa %{keys} para %{name}. Escolha outra tecla."
+    conflict_system_other: "O seu desktop usa %{keys} para %{name}. Escolha outra tecla ou desative o atalho nos ajustes de teclado do seu desktop."
