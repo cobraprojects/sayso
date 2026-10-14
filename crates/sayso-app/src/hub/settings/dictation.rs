@@ -7,6 +7,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::config::CancelMode;
 use sayso_core::hotkey::{Hotkey, SoloModifier};
+use sayso_i18n::t;
 use sayso_platform::{AppInfo, Permission, PermissionState};
 use sayso_ui::ActivePaper;
 use sayso_ui::assets::Icon;
@@ -46,9 +47,9 @@ impl DictationSettings {
         let active = m.active_model();
         let current = active.language_for(&m.config.dictation.language);
         let description = if active.is_multilingual() {
-            format!("{} understands {}. A language you choose is more reliable than detection.", active.name, active.language_label().to_lowercase())
+            t!("settings.dictation.language_detail_multi", model = active.name, languages = active.language_label().to_lowercase())
         } else {
-            format!("{} understands {} only. Choose another model in Models for more languages.", active.name, languages::display(&current))
+            t!("settings.dictation.language_detail_single", model = active.name, language = languages::display(&current))
         };
         let mut codes = active.languages.clone();
         codes.sort_by_key(|code| languages::display(code));
@@ -92,9 +93,9 @@ impl DictationSettings {
         let spoken_switch = Switch::new("spoken-punctuation", spoken).on_toggle(move |on, _, cx| {
             model.update(cx, |m, cx| m.edit_config(cx, |c| c.dictation.spoken_punctuation = on));
         });
-        group("Language", cx).child(kit::row_s("Dictation language".into(), description, control, cx)).child(row(
-            "Spoken punctuation",
-            "Writes \"comma\", \"period\", \"question mark\", \"new line\", and \"new paragraph\" as marks and line breaks. English only. Leave it off if your model writes punctuation itself.",
+        group(&t!("settings.dictation.language"), cx).child(kit::row_s(t!("settings.dictation.dictation_language"), description, control, cx)).child(row(
+            &t!("settings.dictation.spoken_punctuation"),
+            &t!("settings.dictation.spoken_punctuation_detail"),
             spoken_switch,
             cx,
         ))
@@ -119,7 +120,7 @@ impl DictationSettings {
 
         let toggle_field = kit::key_field(Slot::Toggle, toggle, &self.recorder, false, None, start, cancel, clear, cx);
         let right_option = (ptt.is_none() && !self.recorder.is_recording(Slot::PushToTalk)).then(|| {
-            Button::new("ptt-right-option", "Use Right Option")
+            Button::new("ptt-right-option", t!("settings.dictation.use_right_option"))
                 .small()
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.model.update(cx, |m, cx| Slot::PushToTalk.apply(m, Some(Hotkey::Solo(SoloModifier::RightOption)), cx));
@@ -133,14 +134,14 @@ impl DictationSettings {
 
         let cancel_index = if config.hotkeys.cancel == CancelMode::SingleEscape { 1 } else { 0 };
         let model = self.model.clone();
-        let cancel_control = Segmented::new("cancel-mode", ["Double Esc", "Single Esc"], cancel_index).on_select(move |i, _, cx| {
+        let cancel_control = Segmented::new("cancel-mode", [t!("settings.dictation.cancel_double"), t!("settings.dictation.cancel_single")], cancel_index).on_select(move |i, _, cx| {
             let mode = if i == 1 { CancelMode::SingleEscape } else { CancelMode::DoubleEscape };
             model.update(cx, |m, cx| m.edit_config(cx, |c| c.hotkeys.cancel = mode));
         });
 
-        let mut g = group("Hotkeys", cx)
-            .child(row("Start and stop dictation", "Press once to start, again to stop.", toggle_field, cx))
-            .child(row("Push to talk", "Hold to record, release to insert. A single key such as Right Option works.", ptt_field, cx));
+        let mut g = group(&t!("settings.dictation.hotkeys"), cx)
+            .child(row(&t!("settings.dictation.toggle"), &t!("settings.dictation.toggle_detail"), toggle_field, cx))
+            .child(row(&t!("settings.dictation.push_to_talk"), &t!("settings.dictation.push_to_talk_detail"), ptt_field, cx));
         for c in &conflicts {
             g = g.child(banner(BannerKind::Warning, recorder::conflict_text(c, false), cx));
         }
@@ -153,10 +154,8 @@ impl DictationSettings {
                         .gap(px(12.))
                         .child(div().flex_1().child(super::kit::notice(
                             BannerKind::Warning,
-                            crate::shell::os_text!(
-                                "Push to talk needs Input Monitoring. Turn on Sayso in Privacy and Security › Input Monitoring.",
-                                "This push-to-talk key needs keyboard access. Add yourself to the input group, then log out and log in again.",
-                            ), cx)))
+                            t!(crate::shell::os_text!("settings.dictation.input_monitoring_note_mac", "settings.dictation.input_monitoring_note_other")),
+                            cx)))
                         .child(Button::new("open-im", crate::shell::open_permission_settings()).small().on_click(cx.listener(|this, _, _, cx| {
                             this.model.update(cx, |m, _| m.open_permission_settings(Permission::InputMonitoring));
                         }))),
@@ -166,17 +165,17 @@ impl DictationSettings {
         if self.recorder.window_only && self.recorder.slot.is_some() {
             g = g.child(banner(
                 BannerKind::Info,
-                "Sayso cannot listen for keys in other apps without Input Monitoring. Press the keys while this window is in front. Single keys such as Right Option need Input Monitoring.",
+                t!("settings.dictation.window_only_note"),
                 cx,
             ));
         }
         if let Some(note) = &self.recorder.note {
-            g = g.child(banner(BannerKind::Warning, note.clone(), cx));
+            g = g.child(banner(BannerKind::Warning, note.text(), cx));
         }
-        g.child(row("Cancel", "Only while recording.", cancel_control, cx))
-            .child(row("Paste last text", "Pastes your last dictation again.", paste_field, cx))
-            .child(row("Next style", "Switches to the next style.", cycle_field, cx))
-            .child(row("Incognito", "Turns incognito on and off. While it is on, Sayso does not save dictations to history.", incognito_field, cx))
+        g.child(row(&t!("settings.dictation.cancel"), &t!("settings.dictation.cancel_detail"), cancel_control, cx))
+            .child(row(&t!("settings.dictation.paste_last"), &t!("settings.dictation.paste_last_detail"), paste_field, cx))
+            .child(row(&t!("settings.dictation.next_style"), &t!("settings.dictation.next_style_detail"), cycle_field, cx))
+            .child(row(&t!("settings.dictation.incognito"), &t!("settings.dictation.incognito_detail"), incognito_field, cx))
     }
 
     fn insertion_group(&mut self, cx: &mut Context<Self>) -> Div {
@@ -241,27 +240,17 @@ impl DictationSettings {
                 .px(px(10.))
                 .rounded(px(7.))
                 .when(open, |d| d.bg(c.deboss.opacity(0.5)))
-                .child(text::ui(if open { "Close list" } else { "Add app" }, 13., FontWeight::NORMAL, c.graphite))
+                .child(text::ui(if open { t!("settings.dictation.close_list") } else { t!("settings.dictation.add_app") }, 13., FontWeight::NORMAL, c.graphite))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.picker = if this.picker.is_some() { None } else { Some(this.model.read(cx).running_apps()) };
                     cx.notify();
                 })),
         );
 
-        let mut g = group("Inserting text", cx)
-            .child(row(
-                "Restore the clipboard after pasting",
-                "Only if you did not copy something new in the meantime.",
-                restore_switch,
-                cx,
-            ))
-            .child(row(
-                "Add a space after the text",
-                "Your next dictation starts as a new word. Text that ends with a line break gets no space.",
-                space_switch,
-                cx,
-            ))
-            .child(row("Type instead of paste in these apps", "For apps that block paste. Slower for long text.", chips, cx));
+        let mut g = group(&t!("settings.dictation.inserting"), cx)
+            .child(row(&t!("settings.dictation.restore_clipboard"), &t!("settings.dictation.restore_clipboard_detail"), restore_switch, cx))
+            .child(row(&t!("settings.dictation.trailing_space"), &t!("settings.dictation.trailing_space_detail"), space_switch, cx))
+            .child(row(&t!("settings.dictation.type_in_apps"), &t!("settings.dictation.type_in_apps_detail"), chips, cx));
         if let Some(list) = &self.picker {
             let candidates: Vec<AppInfo> = list.iter().filter(|a| !apps.contains(&a.bundle_id)).cloned().collect();
             let mut panel = div()
@@ -275,7 +264,7 @@ impl DictationSettings {
                 .debossed(&c);
             if candidates.is_empty() {
                 panel = panel.child(div().p(px(10.)).child(text::ui(
-                    "No other apps are open. Open the app, then try again.",
+                    t!("settings.dictation.no_other_apps"),
                     13.,
                     FontWeight::NORMAL,
                     c.graphite,
@@ -349,7 +338,12 @@ impl DictationSettings {
         )
         .when(!s.enabled, |d| d.opacity(0.45));
 
-        let events = [("Start", s.start), ("Stop", s.stop), ("Cancel", s.cancel), ("Insert", s.insert)];
+        let events = [
+            (t!("settings.dictation.sound_start"), s.start),
+            (t!("settings.dictation.sound_stop"), s.stop),
+            (t!("settings.dictation.sound_cancel"), s.cancel),
+            (t!("settings.dictation.sound_insert"), s.insert),
+        ];
         let mut chips = div().flex().flex_none().gap(px(6.));
         for (i, (label, on)) in events.into_iter().enumerate() {
             chips = chips.child(Chip::new(("sound-event", i), label, on).on_click(cx.listener(move |this, _, _, cx| {
@@ -363,14 +357,14 @@ impl DictationSettings {
                 });
             })));
         }
-        group("Sounds", cx)
+        group(&t!("settings.dictation.sounds"), cx)
             .child(row(
-                "Sounds",
-                "A soft pen tap when recording starts and stops.",
+                &t!("settings.dictation.sounds_row"),
+                &t!("settings.dictation.sounds_detail"),
                 div().flex().items_center().gap(px(24.)).child(slider).child(enabled),
                 cx,
             ))
-            .child(row("Play a sound for", "Choose the moments that make a sound.", chips.when(!s.enabled, |d| d.opacity(0.45)), cx))
+            .child(row(&t!("settings.dictation.sound_events"), &t!("settings.dictation.sound_events_detail"), chips.when(!s.enabled, |d| d.opacity(0.45)), cx))
     }
 
     fn styles_group(&mut self, cx: &mut Context<Self>) -> Div {
@@ -380,16 +374,16 @@ impl DictationSettings {
         let sites = self.model.read(cx).services.platform.context.reads_page_url();
         let (title, description) = if sites {
             (
-                "Choose the style by app and site",
-                "Sayso uses the style that you set for the app or site you dictate into. All other apps use your default style. Edit a style to change its apps and sites.",
+                t!("settings.dictation.styles_by_app_site"),
+                t!("settings.dictation.styles_by_app_site_detail"),
             )
         } else {
             (
-                "Choose the style by app",
-                "Sayso uses the style that you set for the app you dictate into. All other apps use your default style. Edit a style to change its apps.",
+                t!("settings.dictation.styles_by_app"),
+                t!("settings.dictation.styles_by_app_detail"),
             )
         };
-        group("Styles", cx).child(row(title, description, switch, cx))
+        group(&t!("settings.dictation.styles"), cx).child(row(&title, &description, switch, cx))
     }
 
     fn ai_group(&mut self, cx: &mut Context<Self>) -> Div {
@@ -398,17 +392,17 @@ impl DictationSettings {
         let cli_s = ai.cli_timeout_ms / 1000;
         let m1 = self.model.clone();
         let m2 = self.model.clone();
-        let http = kit::stepper("http-timeout", format!("{http_s} s"), move |d, _, cx| {
+        let http = kit::stepper("http-timeout", t!("settings.dictation.seconds", seconds = http_s), move |d, _, cx| {
             let v = (http_s as i64 + d as i64).clamp(1, 30) as u64 * 1000;
             m1.update(cx, |m, cx| m.edit_config(cx, |c| c.ai.http_timeout_ms = v));
         }, cx);
-        let cli = kit::stepper("cli-timeout", format!("{cli_s} s"), move |d, _, cx| {
+        let cli = kit::stepper("cli-timeout", t!("settings.dictation.seconds", seconds = cli_s), move |d, _, cx| {
             let v = (cli_s as i64 + d as i64).clamp(2, 60) as u64 * 1000;
             m2.update(cx, |m, cx| m.edit_config(cx, |c| c.ai.cli_timeout_ms = v));
         }, cx);
-        group("AI", cx)
-            .child(row("AI timeout", "After this, Sayso inserts the transcript without the style.", http, cx))
-            .child(row("AI timeout for command-line tools", "Claude CLI and Codex CLI are slower, so they get more time.", cli, cx))
+        group(&t!("settings.dictation.ai"), cx)
+            .child(row(&t!("settings.dictation.ai_timeout"), &t!("settings.dictation.ai_timeout_detail"), http, cx))
+            .child(row(&t!("settings.dictation.ai_timeout_cli"), &t!("settings.dictation.ai_timeout_cli_detail"), cli, cx))
     }
 }
 
@@ -430,6 +424,6 @@ impl Render for DictationSettings {
                     cx.stop_propagation();
                 }
             }))
-            .child(kit::page("dictation-page", "Dictation", "Language, hotkeys, and how text goes into your apps.", body, cx))
+            .child(kit::page("dictation-page", &t!("settings.dictation.title"), &t!("settings.dictation.subtitle"), body, cx))
     }
 }

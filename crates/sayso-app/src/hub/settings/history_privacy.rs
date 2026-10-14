@@ -7,6 +7,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::models::format_size;
 use sayso_core::stats::format_count;
+use sayso_i18n::t;
 use sayso_ui::ActivePaper;
 use sayso_ui::components::*;
 use sayso_ui::text;
@@ -54,13 +55,26 @@ impl Render for HistorySettings {
         let save_history = Switch::new("save-history", h.enabled).on_toggle(move |on, _, cx| {
             m0.update(cx, |m, cx| m.edit_config(cx, |c| c.history.enabled = on));
         });
-        let keep_text = Segmented::new("keep-text", ["Forever", "90 days", "30 days", "7 days"], text_index).on_select(move |i, _, cx| {
+        let keep_text = Segmented::new(
+            "keep-text",
+            [
+                t!("settings.history.forever"),
+                t!("settings.history.days", count = 90),
+                t!("settings.history.days", count = 30),
+                t!("settings.history.days", count = 7),
+            ],
+            text_index,
+        ).on_select(move |i, _, cx| {
             m1.update(cx, |m, cx| m.edit_config(cx, |c| c.history.keep_text_days = TEXT_DAYS[i]));
         });
         let save_audio = Switch::new("save-audio", h.save_audio).on_toggle(move |on, _, cx| {
             m2.update(cx, |m, cx| m.edit_config(cx, |c| c.history.save_audio = on));
         });
-        let keep_audio = Segmented::new("keep-audio", ["30 days", "7 days", "1 day"], audio_index)
+        let keep_audio = Segmented::new(
+            "keep-audio",
+            [t!("settings.history.days", count = 30), t!("settings.history.days", count = 7), t!("settings.history.days", count = 1)],
+            audio_index,
+        )
             .on_select(move |i, _, cx| {
                 m3.update(cx, |m, cx| m.edit_config(cx, |c| c.history.keep_audio_days = Some(AUDIO_DAYS[i])));
             });
@@ -71,45 +85,31 @@ impl Render for HistorySettings {
 
         // The limits have no effect on new dictations while history is off.
         let dim = |r: Div| r.when(!h.enabled, |d| d.opacity(0.45));
-        let keep = group("History", cx)
+        let keep = group(&t!("settings.history.history"), cx)
             .child(row(
-                "Save history",
-                if h.enabled {
-                    "Sayso keeps each dictation so you can find it again."
-                } else {
-                    "History is off. Sayso saves no text and no audio from new dictations."
-                },
+                &t!("settings.history.save"),
+                &if h.enabled { t!("settings.history.save_detail") } else { t!("settings.history.save_detail_off") },
                 save_history,
                 cx,
             ))
-            .child(dim(row("Keep text", "When text expires, Sayso deletes the whole entry.", keep_text, cx)))
-            .child(dim(row("Save audio", "Lets you play a dictation again or transcribe it again.", save_audio, cx)))
+            .child(dim(row(&t!("settings.history.keep_text"), &t!("settings.history.keep_text_detail"), keep_text, cx)))
+            .child(dim(row(&t!("settings.history.save_audio"), &t!("settings.history.save_audio_detail"), save_audio, cx)))
             .child(dim(row(
-                "Keep audio",
-                "When audio expires, only the audio file is deleted. The text stays.",
+                &t!("settings.history.keep_audio"),
+                &t!("settings.history.keep_audio_detail"),
                 div().when(h.enabled && !h.save_audio, |d| d.opacity(0.45)).child(keep_audio),
                 cx,
             )))
-            .child(row(
-                "Show site icons",
-                "For a dictation into a web page. Sayso gets the icon from the site. If the site gives none, Sayso asks DuckDuckGo, which sees the name of the site.",
-                site_icons,
-                cx,
-            ));
+            .child(row(&t!("settings.history.site_icons"), &t!("settings.history.site_icons_detail"), site_icons, cx));
 
         // A site icon is a request to the site, so the text names it.
-        let rest = if h.site_icons {
-            "For a dictation into a web page, Sayso asks the site for its icon, and DuckDuckGo if the site gives none. Nothing else is sent."
-        } else {
-            "Nothing else is sent."
-        };
         let mut leaves = div().flex().flex_col().gap(px(10.)).py(px(14.)).child(
             text::body(
-                match &speech_provider {
-                    Some(name) => format!(
-                        "Your model is a cloud model. Sayso sends the audio of each dictation and your dictionary words to {name}. When a style uses AI, Sayso sends the transcript, the style prompt, and your dictionary words to the provider of that style. {rest}"
-                    ),
-                    None => format!("Speech recognition runs on this {}. Your audio never leaves it. When a style uses AI, Sayso sends the transcript, the style prompt, and your dictionary words to the provider of that style. {rest}", crate::shell::computer()),
+                match (&speech_provider, h.site_icons) {
+                    (Some(name), true) => t!("settings.history.leaves_cloud_icons", name = name),
+                    (Some(name), false) => t!("settings.history.leaves_cloud", name = name),
+                    (None, true) => t!("settings.history.leaves_local_icons", computer = crate::shell::computer()),
+                    (None, false) => t!("settings.history.leaves_local", computer = crate::shell::computer()),
                 },
                 &c,
             )
@@ -122,7 +122,7 @@ impl Render for HistorySettings {
                     .items_center()
                     .gap(px(8.))
                     .child(kit::halo_dot(7., c.success, 3., 0.16))
-                    .child(text::ui(format!("AI is off. No text leaves this {}.", crate::shell::computer()), 13., FontWeight::MEDIUM, c.ink)),
+                    .child(text::ui(t!("settings.history.ai_off", computer = crate::shell::computer()), 13., FontWeight::MEDIUM, c.ink)),
             );
         } else {
             for (name, cloud) in providers {
@@ -132,11 +132,11 @@ impl Render for HistorySettings {
                         .items_center()
                         .gap(px(10.))
                         .child(text::ui(name, 13., FontWeight::SEMIBOLD, c.ink))
-                        .child(if cloud { Badge::new("Cloud", BadgeTone::Accent) } else { Badge::new(format!("This {}", crate::shell::computer()), BadgeTone::Muted) }),
+                        .child(if cloud { Badge::new(t!("settings.history.cloud"), BadgeTone::Accent) } else { Badge::new(t!("settings.history.this_computer", computer = crate::shell::computer()), BadgeTone::Muted) }),
                 );
             }
         }
-        let privacy = group(&format!("What leaves this {}", crate::shell::computer()), cx).child(leaves.border_b_1().border_color(c.rule));
+        let privacy = group(&t!("settings.history.leaves", computer = crate::shell::computer()), cx).child(leaves.border_b_1().border_color(c.rule));
 
         // One row of the data group: a dot in the color of its bar segment, the size, and an action.
         let data_row = |dot: Hsla, title: &str, description: String, bytes: u64, action: AnyElement| {
@@ -163,13 +163,13 @@ impl Render for HistorySettings {
                 .child(div().flex().flex_none().justify_end().w(px(172.)).child(action))
         };
         // A delete button that asks one time more before it deletes.
-        let wipe_control = |wipe: Wipe, id: &'static str, label: &'static str, confirm_label: &'static str, empty: bool| {
+        let wipe_control = |wipe: Wipe, id: &'static str, label: String, confirm_label: String, empty: bool| {
             if self.confirm == Some(wipe) {
                 div()
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(Button::new((id, 1usize), "Cancel").ghost().small().on_click(cx.listener(|this, _, _, cx| {
+                    .child(Button::new((id, 1usize), t!("settings.history.cancel")).ghost().small().on_click(cx.listener(|this, _, _, cx| {
                         this.confirm = None;
                         cx.notify();
                     })))
@@ -193,36 +193,35 @@ impl Render for HistorySettings {
                     .into_any_element()
             }
         };
-        let history_control = wipe_control(Wipe::History, "clear-history", "Clear history", "Delete all", total == 0);
-        let audio_control = wipe_control(Wipe::Audio, "delete-audio", "Delete audio", "Delete audio", storage.audio_files == 0);
+        let history_control = wipe_control(Wipe::History, "clear-history", t!("settings.history.clear_history"), t!("settings.history.delete_all"), total == 0);
+        let audio_control =
+            wipe_control(Wipe::Audio, "delete-audio", t!("settings.history.delete_audio"), t!("settings.history.delete_audio"), storage.audio_files == 0);
 
-        let entries = format!("{} {}", format_count(total), if total == 1 { "entry" } else { "entries" });
+        let entries = format_count(total);
         let history_desc = if self.confirm == Some(Wipe::History) {
-            format!("Delete all {entries} and their audio? You cannot undo this.")
+            t!("settings.history.entries_confirm", count = total, number = entries)
         } else if total == 0 {
-            "History is empty.".to_string()
+            t!("settings.history.entries_none")
         } else if h.enabled {
-            format!("{entries}.")
+            t!("settings.history.entries", count = total, number = entries)
         } else {
-            format!("{entries}. They stay until you clear them.")
+            t!("settings.history.entries_kept", count = total, number = entries)
         };
-        let recordings =
-            format!("{} {}", format_count(storage.audio_files), if storage.audio_files == 1 { "recording" } else { "recordings" });
+        let recordings = format_count(storage.audio_files);
         let audio_desc = if self.confirm == Some(Wipe::Audio) {
-            format!("Delete {recordings}? The text of each entry stays. You cannot undo this.")
+            t!("settings.history.recordings_confirm", count = storage.audio_files, number = recordings)
         } else if storage.audio_files == 0 {
-            "No audio is saved.".to_string()
+            t!("settings.history.recordings_none")
         } else {
-            format!("{recordings}. Delete audio keeps the text of each entry.")
+            t!("settings.history.recordings", count = storage.audio_files, number = recordings)
         };
         let models_desc = match models_count {
-            0 => "No local model is downloaded.".to_string(),
-            1 => "1 local model. Delete a model on the Models page.".to_string(),
-            n => format!("{n} local models. Delete a model on the Models page."),
+            0 => t!("settings.history.models_none"),
+            n => t!("settings.history.models", count = n),
         };
         let open_models = {
             let model = self.model.clone();
-            crate::hub::pages::kit::link("open-models", "Open Models", 13., cx)
+            crate::hub::pages::kit::link("open-models", t!("settings.history.open_models"), 13., cx)
                 .on_click(move |_, _, cx| model.update(cx, |m, cx| m.navigate(crate::hub::Route::Models, cx)))
         };
 
@@ -247,7 +246,7 @@ impl Render for HistorySettings {
         }
         let show = crate::hub::pages::kit::link(
             "show-data",
-            crate::shell::os_text!("Show in Finder", "Show in Explorer", "Open folder"),
+            t!(crate::shell::os_text!("settings.history.show_mac", "settings.history.show_windows", "settings.history.show_other")),
             13.,
             cx,
         )
@@ -271,28 +270,28 @@ impl Render for HistorySettings {
                     .items_baseline()
                     .gap(px(8.))
                     .child(text::display(format_size(all_bytes), 32., &c))
-                    .child(text::ui("in total", 13., FontWeight::NORMAL, c.graphite)),
+                    .child(text::ui(t!("settings.history.in_total"), 13., FontWeight::NORMAL, c.graphite)),
             )
             .child(bar)
             .child(show);
-        let data = group(&format!("Data on this {}", crate::shell::computer()), cx)
+        let data = group(&t!("settings.history.data", computer = crate::shell::computer()), cx)
             .child(summary)
-            .child(data_row(c.pencil, "History", history_desc, storage.database_bytes, history_control))
-            .child(data_row(c.accent, "Audio", audio_desc, storage.audio_bytes, audio_control))
-            .child(data_row(c.ink, "Models", models_desc, models_bytes, open_models.into_any_element()));
+            .child(data_row(c.pencil, &t!("settings.history.data_history"), history_desc, storage.database_bytes, history_control))
+            .child(data_row(c.accent, &t!("settings.history.data_audio"), audio_desc, storage.audio_bytes, audio_control))
+            .child(data_row(c.ink, &t!("settings.history.data_models"), models_desc, models_bytes, open_models.into_any_element()));
         // Shown only on a Mac that has Pindrop data.
         let import = self.model.read(cx).pindrop_found.then(|| {
             let state = self.model.read(cx).pindrop_import.clone();
             let running = state == crate::pindrop_import::PindropImport::Running;
-            let button = Button::new("import-pindrop", "Import").small().disabled(running).on_click(cx.listener(|this, _, _, cx| {
+            let button = Button::new("import-pindrop", t!("settings.history.import")).small().disabled(running).on_click(cx.listener(|this, _, _, cx| {
                 this.model.update(cx, |m, cx| m.import_pindrop(cx));
             }));
-            group("Import", cx).child(kit::row_s("Import from Pindrop".into(), state.message(), button, cx))
+            group(&t!("settings.history.import_group"), cx).child(kit::row_s(t!("settings.history.import_pindrop"), state.message(), button, cx))
         });
         kit::page(
             "history-page",
-            "History and privacy",
-            crate::shell::os_text!("What Sayso keeps, for how long, and what leaves this Mac.", "What Sayso keeps, for how long, and what leaves this PC.", "What Sayso keeps, for how long, and what leaves this computer."),
+            &t!("settings.history.title"),
+            &t!(crate::shell::os_text!("settings.history.subtitle_mac", "settings.history.subtitle_windows", "settings.history.subtitle_other")),
             kit::body().child(keep).child(data).child(privacy).children(import),
             cx,
         )

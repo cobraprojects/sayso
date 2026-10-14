@@ -7,6 +7,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::config::ThemeMode;
 use sayso_core::ink::{Appearance, Ink, NamedInk, Palette, Rgb};
+use sayso_i18n::t;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::{self, PaperStyled};
@@ -99,7 +100,7 @@ impl AppearanceSettings {
         wells.child(
             well_column("ink-custom", "Custom", custom_selected, &c)
                 .child(custom_well)
-                .child(well_label("Custom", custom_selected, &c))
+                .child(well_label(&t!("settings.appearance.custom"), custom_selected, &c))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.custom_open = true;
                     let current = this.model.read(cx).config.appearance.ink;
@@ -122,7 +123,7 @@ impl AppearanceSettings {
                 .flex()
                 .items_center()
                 .gap(px(12.))
-                .child(text::ui("Custom ink", 15., FontWeight::SEMIBOLD, c.ink))
+                .child(text::ui(t!("settings.appearance.custom_ink"), 15., FontWeight::SEMIBOLD, c.ink))
                 .child(
                     div()
                         .flex()
@@ -136,18 +137,19 @@ impl AppearanceSettings {
                         .text_size(px(13.))
                         .child(Input::new(&self.hex).appearance(false).w_full()),
                 )
-                .child(text::ui("A hex color, for example #2D3C8C.", 13., FontWeight::NORMAL, c.graphite)),
+                .child(text::ui(t!("settings.appearance.hex_hint"), 13., FontWeight::NORMAL, c.graphite)),
         );
         if self.hex_error {
             col = col.child(super::kit::notice(
                 BannerKind::Warning,
-                "This is not a color. Enter six hex digits, for example #2D3C8C.", cx));
+                t!("settings.appearance.hex_error"), cx));
         } else if !report.passes() {
             col = col.child(super::kit::notice(
                 BannerKind::Warning,
-                format!(
-                    "Text in this ink is hard to read: {:.1}:1 on light paper and {:.1}:1 on dark paper. Text needs at least 4.5:1. Choose a darker or stronger color.",
-                    report.light_ratio, report.dark_ratio
+                t!(
+                    "settings.appearance.low_contrast",
+                    light = format!("{:.1}", report.light_ratio),
+                    dark = format!("{:.1}", report.dark_ratio)
                 ), cx));
         }
         Some(col)
@@ -191,7 +193,11 @@ fn specimen(appearance: Appearance, ink: Ink, cx: &App) -> Div {
     let palette = Palette::new(ink, appearance);
     let ratio = palette.ink.contrast(palette.sheet);
     let pass = ratio >= 4.5;
-    let ratio_text = if pass { format!("AA · {ratio:.1}:1") } else { format!("Below AA · {ratio:.1}:1") };
+    let ratio_text = if pass {
+        t!("settings.appearance.specimen_pass", ratio = format!("{ratio:.1}"))
+    } else {
+        t!("settings.appearance.specimen_fail", ratio = format!("{ratio:.1}"))
+    };
     div()
         .flex()
         .flex_col()
@@ -202,8 +208,8 @@ fn specimen(appearance: Appearance, ink: Ink, cx: &App) -> Div {
         .rounded(px(14.))
         .bg(c.sheet)
         .shadow(paper::raised(&c))
-        .child(text::title("The quick brown fox", 22., &c).line_height(px(28.)))
-        .child(text::ui("Body text, secondary text, and a focus ring.", 13., FontWeight::NORMAL, c.graphite).line_height(px(16.)))
+        .child(text::title(t!("settings.appearance.specimen_title"), 22., &c).line_height(px(28.)))
+        .child(text::ui(t!("settings.appearance.specimen_body"), 13., FontWeight::NORMAL, c.graphite).line_height(px(16.)))
         .child(
             div()
                 .flex()
@@ -217,7 +223,7 @@ fn specimen(appearance: Appearance, ink: Ink, cx: &App) -> Div {
                         .px(px(12.))
                         .rounded(px(7.))
                         .bg(c.ink_fill)
-                        .child(text::ui("Primary", 12., FontWeight::SEMIBOLD, c.on_ink)),
+                        .child(text::ui(t!("settings.appearance.specimen_primary"), 12., FontWeight::SEMIBOLD, c.on_ink)),
                 )
                 .child(
                     div()
@@ -225,7 +231,7 @@ fn specimen(appearance: Appearance, ink: Ink, cx: &App) -> Div {
                         .items_center()
                         .gap(px(6.))
                         .child(kit::halo_dot(10., c.accent, 3., 0.18))
-                        .child(text::ui("Recording", 12., FontWeight::SEMIBOLD, c.accent)),
+                        .child(text::ui(t!("settings.appearance.specimen_recording"), 12., FontWeight::SEMIBOLD, c.accent)),
                 )
                 .child(div().flex_1())
                 .child(text::mono(ratio_text, 11., if pass { c.success } else { c.danger }).font_weight(FontWeight::NORMAL)),
@@ -247,14 +253,14 @@ impl Render for AppearanceSettings {
             Some(false) => 2,
         };
         let (m1, m2, m3) = (self.model.clone(), self.model.clone(), self.model.clone());
-        let theme = Segmented::new("theme-mode", ["Auto", "Light", "Dark"], theme_index).on_select(move |i, _, cx| {
+        let theme = Segmented::new("theme-mode", [t!("settings.appearance.theme_auto"), t!("settings.appearance.theme_light"), t!("settings.appearance.theme_dark")], theme_index).on_select(move |i, _, cx| {
             let mode = [ThemeMode::System, ThemeMode::Light, ThemeMode::Dark][i];
             m1.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.theme = mode));
         });
         let texture = Switch::new("paper-texture", a.paper_texture).on_toggle(move |on, _, cx| {
             m2.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.paper_texture = on));
         });
-        let motion = Segmented::new("reduce-motion", ["Auto", "On", "Off"], motion_index).on_select(move |i, _, cx| {
+        let motion = Segmented::new("reduce-motion", [t!("settings.appearance.motion_auto"), t!("settings.appearance.motion_on"), t!("settings.appearance.motion_off")], motion_index).on_select(move |i, _, cx| {
             let v = [None, Some(true), Some(false)][i];
             m3.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.reduce_motion = v));
         });
@@ -263,10 +269,10 @@ impl Render for AppearanceSettings {
             .flex()
             .flex_col()
             .pt(px(8.))
-            .child(crate::widgets::section("Ink", cx).pb(px(12.)))
+            .child(crate::widgets::section(&t!("settings.appearance.ink"), cx).pb(px(12.)))
             .child(
                 text::ui(
-                    "Your ink colors text, the waveform, and buttons. Sayso picks the accent and the recording color to match, and checks contrast in light and dark.",
+                    t!("settings.appearance.ink_detail"),
                     14.,
                     FontWeight::NORMAL,
                     c.graphite,
@@ -292,22 +298,32 @@ impl Render for AppearanceSettings {
             crate::chrome::apply(&m3.read(cx).config, window);
         });
 
-        let paper_group = group("Paper", cx)
-            .child(row("Appearance", crate::shell::os_text!("Auto follows macOS.", "Auto follows Windows.", "Auto follows the system."), theme, cx))
-            .child(row("Paper texture", "Grain on the window background. Content stays almost clean.", texture, cx))
-            .child(row("Reduce motion", crate::shell::os_text!("Ink appears without spreading. Auto follows macOS.", "Ink appears without spreading. Auto follows Windows.", "Ink appears without spreading. Auto follows the system."), motion, cx));
+        let paper_group = group(&t!("settings.appearance.paper"), cx)
+            .child(row(
+                &t!("settings.appearance.theme"),
+                &t!(crate::shell::os_text!("settings.appearance.theme_detail_mac", "settings.appearance.theme_detail_windows", "settings.appearance.theme_detail_other")),
+                theme,
+                cx,
+            ))
+            .child(row(&t!("settings.appearance.texture"), &t!("settings.appearance.texture_detail"), texture, cx))
+            .child(row(
+                &t!("settings.appearance.reduce_motion"),
+                &t!(crate::shell::os_text!("settings.appearance.motion_detail_mac", "settings.appearance.motion_detail_windows", "settings.appearance.motion_detail_other")),
+                motion,
+                cx,
+            ));
 
         // Only Linux lets an app choose who draws the title bar.
         let paper_group = paper_group.when(cfg!(target_os = "linux"), |g| {
             g.child(row(
-                "Use the system title bar",
-                "Off: Sayso draws its own title bar and window buttons, and the paper goes to the top edge.",
+                &t!("settings.appearance.system_title_bar"),
+                &t!("settings.appearance.system_title_bar_detail"),
                 title_bar,
                 cx,
             ))
         });
 
         let body = kit::body().child(ink_group).child(paper_group);
-        kit::page("appearance-page", "Appearance", "Your ink, light and dark paper, texture, and motion.", body, cx)
+        kit::page("appearance-page", &t!("settings.appearance.title"), &t!("settings.appearance.subtitle"), body, cx)
     }
 }

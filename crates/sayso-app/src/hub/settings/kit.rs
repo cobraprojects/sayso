@@ -6,6 +6,7 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::hotkey::Hotkey;
+use sayso_i18n::t;
 use sayso_platform::PermissionState;
 use sayso_ui::ActivePaper;
 use sayso_ui::assets::Icon;
@@ -145,7 +146,7 @@ pub fn key_well(id: impl Into<ElementId>, hotkey: &Hotkey, on_change: impl Fn(&C
         .cursor_pointer()
         .on_click(on_change)
         .child(Keycaps::hotkey(hotkey))
-        .child(div().pl(px(10.)).pr(px(8.)).child(text::ui("Change", 13., FontWeight::MEDIUM, c.accent)))
+        .child(div().pl(px(10.)).pr(px(8.)).child(text::ui(t!("settings.common.change"), 13., FontWeight::MEDIUM, c.accent)))
 }
 
 /// A dashed box: the empty or recording state of a key field, "Add app".
@@ -170,7 +171,7 @@ pub fn dashed(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
 /// The "Press keys to record…" box.
 pub fn recording_box(id: impl Into<ElementId>, window_only: bool, on_cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, cx: &App) -> Stateful<Div> {
     let c = cx.paper().colors;
-    let label = if window_only { "Press keys in this window…" } else { "Press keys to record…" };
+    let label = if window_only { t!("settings.common.press_keys_here") } else { t!("settings.common.press_keys") };
     dashed(id, cx)
         .on_click(on_cancel)
         .child(div().size(px(7.)).rounded_full().bg(c.accent))
@@ -216,7 +217,7 @@ pub fn key_field<V: 'static>(
             ));
             if clearable {
                 out = out.child(
-                    Button::new(SharedString::from(format!("{id}-clear")), "Clear")
+                    Button::new(SharedString::from(format!("{id}-clear")), t!("settings.common.clear"))
                         .ghost()
                         .small()
                         .on_click(cx.listener(move |this, _, _, cx| clear(this, slot, cx))),
@@ -229,7 +230,7 @@ pub fn key_field<V: 'static>(
                 dashed(SharedString::from(format!("{id}-empty")), cx)
                     .on_click(cx.listener(move |this, _, window, cx| s(this, slot, window, cx)))
                     .child(icon(Icon::Keyboard, 14., c.graphite))
-                    .child(text::ui("Record a key", 13., FontWeight::MEDIUM, c.graphite)),
+                    .child(text::ui(t!("settings.common.record_key"), 13., FontWeight::MEDIUM, c.graphite)),
             );
         }
     }
@@ -318,9 +319,9 @@ pub fn slider(
 pub fn permission_badge(state: PermissionState, cx: &App) -> Div {
     let c = cx.paper().colors;
     let (label, color, check) = match state {
-        PermissionState::Granted => ("Allowed", c.ink, true),
-        PermissionState::Denied => ("Blocked", c.danger, false),
-        PermissionState::NotDetermined => ("Waiting", c.accent, false),
+        PermissionState::Granted => (t!("settings.common.allowed"), c.ink, true),
+        PermissionState::Denied => (t!("settings.common.blocked"), c.danger, false),
+        PermissionState::NotDetermined => (t!("settings.common.waiting"), c.accent, false),
     };
     div()
         .flex()
@@ -365,7 +366,7 @@ pub fn path_row(id: &'static str, title: &str, path: &std::path::Path, cx: &App)
                 .child(text::ui(title.to_string(), 15., FontWeight::SEMIBOLD, c.ink))
                 .child(text::mono(shown, 12., c.graphite).font_weight(FontWeight::NORMAL)),
         )
-        .child(Button::new(id, "Reveal").small().on_click(move |_, _, _| {
+        .child(Button::new(id, t!("settings.common.reveal")).small().on_click(move |_, _, _| {
             let _ = std::fs::create_dir_all(&p);
             crate::model::AppModel::open_path(&p);
         }))

@@ -6,6 +6,7 @@ use crate::live::LiveAudio;
 use crate::model::AppModel;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_platform::{CaptureHandle, Permission, PermissionState};
 use sayso_ui::ActivePaper;
 use sayso_ui::components::*;
@@ -13,9 +14,6 @@ use sayso_ui::paper::PaperStyled;
 use sayso_ui::text;
 use std::sync::Arc;
 use std::time::Instant;
-
-/// Where the default input comes from.
-const FOLLOWS: &str = crate::shell::os_text!("Follows the input in System Settings › Sound.", "Follows the default input of the system.");
 
 const LENGTHS: [u64; 7] = [30, 60, 120, 300, 600, 900, 1800];
 
@@ -93,14 +91,17 @@ impl Render for AudioSettings {
         let default_name = devices.iter().find(|d| d.is_default).map(|d| d.name.clone());
         let meter_name = match &current_id {
             Some(id) => devices.iter().find(|d| d.id == *id).map(|d| d.name.clone()).unwrap_or_default(),
-            None => default_name.clone().unwrap_or_else(|| "System default".into()),
+            None => default_name.clone().unwrap_or_else(|| t!("settings.audio.system_default")),
         };
 
         // Device list.
         let mut options: Vec<(Option<String>, String, String)> = vec![(
             None,
-            "System default".into(),
-            default_name.clone().map(|n| format!("Now {n}. {}", FOLLOWS)).unwrap_or_else(|| FOLLOWS.into()),
+            t!("settings.audio.system_default"),
+            match default_name.clone() {
+                Some(name) => t!(crate::shell::os_text!("settings.audio.follows_now_mac", "settings.audio.follows_now_other"), name = name),
+                None => t!(crate::shell::os_text!("settings.audio.follows_mac", "settings.audio.follows_other")),
+            },
         )];
         options.extend(devices.iter().map(|d| (Some(d.id.clone()), d.name.clone(), String::new())));
         let mut list = div().flex().flex_col();
@@ -132,7 +133,7 @@ impl Render for AudioSettings {
             );
         }
         if devices.is_empty() {
-            list = list.child(kit::banner(BannerKind::Warning, format!("Sayso found no microphone. Connect one, or check {}.", crate::shell::sound_settings()), cx));
+            list = list.child(kit::banner(BannerKind::Warning, t!("settings.audio.no_microphone", settings = crate::shell::sound_settings()), cx));
         }
 
         // Level meter.
@@ -142,8 +143,8 @@ impl Render for AudioSettings {
                 .items_center()
                 .gap(px(12.))
                 .py(px(8.))
-                .child(div().flex_1().child(super::kit::notice(BannerKind::Info, "Allow microphone access to test your microphone here.", cx)))
-                .child(Button::new("allow-mic", if mic == PermissionState::Denied { crate::shell::open_permission_settings() } else { "Allow microphone".to_string() }).small().on_click(
+                .child(div().flex_1().child(super::kit::notice(BannerKind::Info, t!("settings.audio.allow_to_test"), cx)))
+                .child(Button::new("allow-mic", if mic == PermissionState::Denied { crate::shell::open_permission_settings() } else { t!("settings.audio.allow_microphone") }).small().on_click(
                     cx.listener(move |this, _, _, cx| {
                         this.model.update(cx, |m, _| {
                             if mic == PermissionState::Denied {
@@ -156,9 +157,9 @@ impl Render for AudioSettings {
                 ))
                 .into_any_element()
         } else if let Some(e) = &self.meter_error {
-            kit::banner(BannerKind::Warning, format!("The microphone did not start: {e}. Choose another input, or check {}.", crate::shell::sound_settings()), cx).into_any_element()
+            kit::banner(BannerKind::Warning, t!("settings.audio.meter_failed", error = e, settings = crate::shell::sound_settings()), cx).into_any_element()
         } else if recording {
-            kit::banner(BannerKind::Info, "The test pauses while you dictate.", cx).into_any_element()
+            kit::banner(BannerKind::Info, t!("settings.audio.test_paused"), cx).into_any_element()
         } else {
             if self.meter.is_some() && !cx.paper().reduce_motion {
                 window.request_animation_frame();
@@ -184,7 +185,7 @@ impl Render for AudioSettings {
                                 .items_end()
                                 .gap(px(2.))
                                 .child(text::ui(meter_name, 13., FontWeight::SEMIBOLD, c.ink))
-                                .child(text::ui("Say something. The ink moves with your voice.", 12., FontWeight::NORMAL, c.graphite)),
+                                .child(text::ui(t!("settings.audio.say_something"), 12., FontWeight::NORMAL, c.graphite)),
                         ),
                 )
                 .into_any_element()
@@ -200,19 +201,19 @@ impl Render for AudioSettings {
             m2.update(cx, |m, cx| m.edit_config(cx, |c| c.dictation.max_duration_s = LENGTHS[i]));
         }, cx);
         let preview_desc = if has_preview_model {
-            "Streams your words to the overlay while you speak. Uses a little more power."
+            t!("settings.audio.live_preview_detail")
         } else {
-            "Your model has no live preview in this language. Download a model that has one in Models, for example Parakeet EOU for English."
+            t!("settings.audio.live_preview_unavailable")
         };
 
-        let input = group("Input", cx).child(list).child(meter);
-        let rec = group("Recording", cx)
-            .child(row("Live preview", preview_desc, preview, cx))
-            .child(row("Maximum length", "Recording stops by itself after this long.", length, cx));
-        kit::page("audio-page", "Audio", "Your microphone and how long Sayso records.", kit::body().child(input).child(rec), cx)
+        let input = group(&t!("settings.audio.input"), cx).child(list).child(meter);
+        let rec = group(&t!("settings.audio.recording"), cx)
+            .child(row(&t!("settings.audio.live_preview"), &preview_desc, preview, cx))
+            .child(row(&t!("settings.audio.max_length"), &t!("settings.audio.max_length_detail"), length, cx));
+        kit::page("audio-page", &t!("settings.audio.title"), &t!("settings.audio.subtitle"), kit::body().child(input).child(rec), cx)
     }
 }
 
 fn format_length(s: u64) -> String {
-    if s < 60 { format!("{s} s") } else { format!("{} min", s / 60) }
+    if s < 60 { t!("settings.audio.length_seconds", seconds = s) } else { t!("settings.audio.length_minutes", minutes = s / 60) }
 }

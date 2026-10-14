@@ -15,6 +15,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::config::{Provider, ProviderKind, is_local_url, thinking_label};
 use sayso_enhance::AuthStatus;
+use sayso_i18n::t;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
@@ -40,7 +41,7 @@ struct AddProvider {
     name: Entity<InputState>,
     url: Entity<InputState>,
     key: Entity<InputState>,
-    error: Option<String>,
+    error: Option<AddError>,
     _sub: Subscription,
 }
 
@@ -77,12 +78,35 @@ const PRESETS: [(&str, &str); 4] = [
     ("LM Studio", "http://localhost:1234/v1"),
 ];
 
+/// Why a new provider was not saved. The panel keeps this, not the text, so
+/// the message changes with the interface language.
+#[derive(Clone, Copy)]
+enum AddError {
+    NoName,
+    BadUrl,
+    NoClaudeCli,
+    NoCodexCli,
+}
+
+impl AddError {
+    fn text(self) -> String {
+        match self {
+            AddError::NoName => t!("settings.providers.error_no_name"),
+            AddError::BadUrl => t!("settings.providers.error_bad_url"),
+            AddError::NoClaudeCli => t!("settings.providers.error_no_claude_cli"),
+            AddError::NoCodexCli => t!("settings.providers.error_no_codex_cli"),
+        }
+    }
+}
+
 pub struct ProviderSettings {
     model: Entity<AppModel>,
     open: Option<Open>,
     confirm_remove: Option<String>,
     add: Option<AddProvider>,
     tests: HashMap<String, Test>,
+    /// The locale of the text in the placeholders of the input fields.
+    locale: String,
     _observe: Subscription,
 }
 
@@ -107,7 +131,7 @@ impl ProviderSettings {
                 m.check_provider_login(id, cx);
             }
         });
-        Self { model, open: None, confirm_remove: None, add: None, tests: HashMap::new(), _observe: observe }
+        Self { model, open: None, confirm_remove: None, add: None, tests: HashMap::new(), locale: sayso_i18n::locale(), _observe: observe }
     }
 
     fn provider(&self, id: &str, cx: &App) -> Option<Provider> {
@@ -139,7 +163,7 @@ impl ProviderSettings {
         let Some(p) = self.provider(id, cx) else { return };
         let own = if self.sayso_login(&p, cx) { "" } else { p.config_dir().unwrap_or_default() };
         let folder = crate::widgets::input_state(tool(&p).1, own, window, cx);
-        let code = crate::widgets::input_state("Paste the code from the browser", "", window, cx);
+        let code = crate::widgets::input_state(&t!("settings.providers.code_placeholder"), "", window, cx);
         let folder_sub = cx.subscribe_in(&folder, window, |this, state, ev: &InputEvent, _, cx| {
             if !matches!(ev, InputEvent::PressEnter { .. } | InputEvent::Blur) {
                 return;
@@ -210,57 +234,54 @@ impl ProviderSettings {
         let c = cx.paper().colors;
         let test = self.tests.get(&p.id);
         let (name, _) = tool(p);
-        let bad = |line: &str, problem: Option<Problem>| Status { dot: c.danger, line: line.to_string(), color: c.danger, problem };
+        let bad = |line: String, problem: Option<Problem>| Status { dot: c.danger, line, color: c.danger, problem };
         if login.is_some_and(|l| l.sign_in.is_some()) {
-            return Status { dot: c.accent, line: "Waiting for the browser".into(), color: c.graphite, problem: None };
+            return Status { dot: c.accent, line: t!("settings.providers.waiting_for_browser"), color: c.graphite, problem: None };
         }
         if matches!(test, Some(Test::Running)) {
-            return Status { dot: c.accent, line: "Testing".into(), color: c.graphite, problem: None };
+            return Status { dot: c.accent, line: t!("settings.providers.testing"), color: c.graphite, problem: None };
         }
         if p.needs_model() {
-            return bad("Choose a model to use this provider", None);
+            return bad(t!("settings.providers.choose_model_to_use"), None);
         }
         let mut signed_in = None;
         if is_cli(p) {
             match login.and_then(|l| l.status.as_ref()) {
-                None => return Status { dot: c.pencil, line: "Checking the login".into(), color: c.graphite, problem: None },
+                None => return Status { dot: c.pencil, line: t!("settings.providers.checking_login"), color: c.graphite, problem: None },
                 Some(AuthStatus::SignedIn { account }) => {
-                    let mut parts = vec!["Signed in".to_string()];
-                    parts.extend(account.clone());
-                    parts.push("Cloud".into());
-                    signed_in = Some(parts.join(" · "));
+                    signed_in = Some(match account {
+                        Some(account) => t!("settings.providers.signed_in_account", account = account),
+                        None => t!("settings.providers.signed_in"),
+                    });
                 }
                 Some(AuthStatus::SignedOut { detail }) => {
-                    let place = if self.sayso_login(p, cx) {
-                        "Sign in to make a login for Sayso.".to_string()
+                    let message = if self.sayso_login(p, cx) {
+                        t!("settings.providers.signed_out_sayso", tool = name)
                     } else {
-                        "Sign in, or set the folder that holds your login.".to_string()
+                        t!("settings.providers.signed_out_folder", tool = name)
                     };
-                    return bad(
-                        "Not signed in",
-                        Some(Problem { message: format!("{name} has no account in the folder that Sayso uses. {place}"), details: Some(detail.clone()) }),
-                    );
+                    return bad(t!("settings.providers.not_signed_in"), Some(Problem { message, details: Some(detail.clone()) }));
                 }
                 Some(AuthStatus::NotInstalled) => {
                     return bad(
-                        "Not installed",
+                        t!("settings.providers.not_installed"),
                         Some(Problem {
-                            message: format!("Sayso cannot find the {name} command. Install {name}, then open this row again."),
+                            message: t!("settings.providers.not_installed_detail", tool = name),
                             details: None,
                         }),
                     );
                 }
                 Some(AuthStatus::Unknown { detail }) => {
                     return bad(
-                        "The login is not known",
-                        Some(Problem { message: format!("Sayso could not read the login of {name}. Test the connection to see if it works."), details: Some(detail.clone()) }),
+                        t!("settings.providers.login_unknown"),
+                        Some(Problem { message: t!("settings.providers.login_unknown_detail", tool = name), details: Some(detail.clone()) }),
                     );
                 }
             }
         }
         match test {
-            Some(Test::Failed(raw)) => bad("The test failed", Some(Problem { message: test_error(raw), details: Some(raw.clone()) })),
-            Some(Test::Passed(ms)) => Status { dot: c.success, line: format!("Answered in {ms} ms"), color: c.success, problem: None },
+            Some(Test::Failed(raw)) => bad(t!("settings.providers.test_failed"), Some(Problem { message: test_error(raw), details: Some(raw.clone()) })),
+            Some(Test::Passed(ms)) => Status { dot: c.success, line: t!("settings.providers.answered_in", ms = ms), color: c.success, problem: None },
             _ => match signed_in {
                 Some(line) => Status { dot: c.success, line, color: c.graphite, problem: None },
                 None => Status {
@@ -306,7 +327,7 @@ impl ProviderSettings {
                             .gap(px(8.))
                             .child(ui(p.name.clone(), 15., 18., FontWeight::SEMIBOLD, c.ink).truncate())
                             .when(default, |d| {
-                                d.child(div().flex_none().px(px(6.)).py(px(2.)).rounded(px(5.)).bg(c.deboss).child(pkit::caps("Default", 11., c.graphite)))
+                                d.child(div().flex_none().px(px(6.)).py(px(2.)).rounded(px(5.)).bg(c.deboss).child(pkit::caps(t!("settings.providers.default_badge"), 11., c.graphite)))
                             }),
                     )
                     .child(ui(status.line.clone(), 13., 16., FontWeight::NORMAL, status.color).truncate()),
@@ -316,12 +337,12 @@ impl ProviderSettings {
         if signing_in {
             let id = p.id.clone();
             head = head.child(
-                Button::new(SharedString::from(format!("cancel-sign-in-{}", p.id)), "Cancel")
+                Button::new(SharedString::from(format!("cancel-sign-in-{}", p.id)), t!("settings.providers.cancel"))
                     .on_click(cx.listener(move |this, _, _, cx| this.model.update(cx, |m, cx| m.cancel_sign_in(&id, cx)))),
             );
         } else if signed_out {
             let id = p.id.clone();
-            head = head.child(Button::new(SharedString::from(format!("sign-in-{}", p.id)), "Sign in").primary().on_click(cx.listener(
+            head = head.child(Button::new(SharedString::from(format!("sign-in-{}", p.id)), t!("settings.providers.sign_in")).primary().on_click(cx.listener(
                 move |this, _, window, cx| {
                     if this.open.as_ref().is_none_or(|o| o.id != id) {
                         this.open_row(&id, window, cx);
@@ -366,14 +387,14 @@ impl ProviderSettings {
             let sayso = self.sayso_login(p, cx);
             let entity = cx.entity();
             let id = p.id.clone();
-            let choice = Segmented::new(SharedString::from(format!("login-{}", p.id)), [format!("My {name} login"), "A login for Sayso only".to_string()], usize::from(sayso))
+            let choice = Segmented::new(SharedString::from(format!("login-{}", p.id)), [t!("settings.providers.login_mine", tool = name), t!("settings.providers.login_sayso")], usize::from(sayso))
                 .on_select(move |i, window, cx| entity.update(cx, |this, cx| this.set_sayso_login(&id, i == 1, window, cx)));
             let about = if sayso {
-                format!("Sayso keeps a login of its own. The {name} in your terminal does not use it.")
+                t!("settings.providers.login_sayso_detail", tool = name)
             } else {
-                format!("Sayso uses the account that {name} uses in your terminal.")
+                t!("settings.providers.login_mine_detail", tool = name)
             };
-            col = col.child(kit::row_s("Login".into(), about, choice, cx));
+            col = col.child(kit::row_s(t!("settings.providers.login"), about, choice, cx));
             if !sayso {
                 let field = div()
                     .flex()
@@ -388,19 +409,19 @@ impl ProviderSettings {
                     .text_size(px(12.))
                     .child(gpui_kit::component::input::Input::new(&open.folder).appearance(false).w_full());
                 col = col.child(kit::row(
-                    "Config folder",
-                    "Set this when your login is in another folder, for example a profile of an account switcher. Leave it empty for the default folder.",
+                    &t!("settings.providers.config_folder"),
+                    &t!("settings.providers.config_folder_detail"),
                     field,
                     cx,
                 ));
             }
         } else if let ProviderKind::OpenAiCompatible { base_url, .. } = &p.kind {
-            let place = if is_local_url(base_url) { format!("A server on this {}.", crate::shell::computer()) } else { "A cloud server. You use your own key.".to_string() };
-            col = col.child(kit::row_s("Address".into(), place, text::mono(base_url.clone(), 12., c.graphite).font_weight(FontWeight::NORMAL), cx));
+            let place = if is_local_url(base_url) { t!("settings.providers.address_local", computer = crate::shell::computer()) } else { t!("settings.providers.address_cloud") };
+            col = col.child(kit::row_s(t!("settings.providers.address"), place, text::mono(base_url.clone(), 12., c.graphite).font_weight(FontWeight::NORMAL), cx));
         }
 
         if p.kind != ProviderKind::AppleIntelligence {
-            col = col.child(kit::row("Model", "The list also has the thinking level of the model. A style can name another model.", self.model_picker(p, cx), cx));
+            col = col.child(kit::row(&t!("settings.providers.model"), &t!("settings.providers.model_detail"), self.model_picker(p, cx), cx));
         }
         let path = match &p.kind {
             ProviderKind::ClaudeCli { path, .. } | ProviderKind::CodexCli { path, .. } => path.clone(),
@@ -409,7 +430,7 @@ impl ProviderSettings {
         let mut left = div().flex().flex_col().flex_1().min_w_0().gap(px(2.));
         if let Some(path) = path {
             left = left
-                .child(ui("Program", 15., 18., FontWeight::SEMIBOLD, c.ink))
+                .child(ui(t!("settings.providers.program"), 15., 18., FontWeight::SEMIBOLD, c.ink))
                 .child(text::mono(path, 12., c.graphite).font_weight(FontWeight::NORMAL));
         }
         col.child(div().flex().items_center().w_full().gap(px(24.)).pt(px(14.)).child(left).child(self.actions(p, default, cx)))
@@ -422,14 +443,14 @@ impl ProviderSettings {
         if self.confirm_remove.as_deref() == Some(p.id.as_str()) {
             let id = p.id.clone();
             return row
-                .child(ui(format!("Remove {}?", p.name), 13., 16., FontWeight::MEDIUM, c.ink))
-                .child(Button::new("remove-yes", "Remove").danger().on_click(cx.listener(move |this, _, _, cx| {
+                .child(ui(t!("settings.providers.remove_confirm", name = p.name), 13., 16., FontWeight::MEDIUM, c.ink))
+                .child(Button::new("remove-yes", t!("settings.providers.remove")).danger().on_click(cx.listener(move |this, _, _, cx| {
                     this.confirm_remove = None;
                     this.open = None;
                     this.tests.remove(&id);
                     this.model.update(cx, |m, cx| m.remove_provider(&id, cx));
                 })))
-                .child(Button::new("remove-no", "Cancel").ghost().on_click(cx.listener(|this, _, _, cx| {
+                .child(Button::new("remove-no", t!("settings.providers.cancel")).ghost().on_click(cx.listener(|this, _, _, cx| {
                     this.confirm_remove = None;
                     cx.notify();
                 })));
@@ -437,19 +458,19 @@ impl ProviderSettings {
         let running = matches!(self.tests.get(&p.id), Some(Test::Running));
         let id = p.id.clone();
         row = row.child(
-            Button::new("test-provider", "Test connection")
+            Button::new("test-provider", t!("settings.providers.test_connection"))
                 .disabled(running || p.needs_model())
                 .on_click(cx.listener(move |this, _, _, cx| this.test(id.clone(), cx))),
         );
         if !default {
             let id = p.id.clone();
-            row = row.child(Button::new("default-provider", "Make default").on_click(cx.listener(move |this, _, _, cx| {
+            row = row.child(Button::new("default-provider", t!("settings.providers.make_default")).on_click(cx.listener(move |this, _, _, cx| {
                 let id = id.clone();
                 this.model.update(cx, |m, cx| m.edit_config(cx, |c| c.ai.default_provider = Some(id)));
             })));
         }
         let id = p.id.clone();
-        row.child(Button::new("remove-provider", "Remove").danger().on_click(cx.listener(move |this, _, _, cx| {
+        row.child(Button::new("remove-provider", t!("settings.providers.remove")).danger().on_click(cx.listener(move |this, _, _, cx| {
             this.confirm_remove = Some(id.clone());
             cx.notify();
         })))
@@ -462,7 +483,7 @@ impl ProviderSettings {
         let text_color = if c.is_dark() { c.danger } else { hsla(0.02, 0.6, 0.23, 1.0) };
         let copy = problem.details.clone().map(|details| {
             let all = format!("{}\n{details}", problem.message);
-            pkit::link(SharedString::from(format!("copy-problem-{id}")), "Copy details", 13., cx)
+            pkit::link(SharedString::from(format!("copy-problem-{id}")), t!("settings.providers.copy_details"), 13., cx)
                 .text_color(c.danger)
                 .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(all.clone())))
         });
@@ -502,12 +523,12 @@ impl ProviderSettings {
         let c = cx.paper().colors;
         let (name, _) = tool(p);
         let about = if takes_code {
-            format!("{name} opened its sign-in page. When the page shows a code, paste it here. Sayso does not see your password.")
+            t!("settings.providers.sign_in_code", tool = name)
         } else {
-            format!("{name} opened its sign-in page. Sayso continues when you finish there. Sayso does not see your password.")
+            t!("settings.providers.sign_in_wait", tool = name)
         };
         let link = url.filter(|u| u.starts_with("https://") || u.starts_with("http://")).map(|url| {
-            pkit::link(SharedString::from(format!("sign-in-page-{}", p.id)), "Open the sign-in page again", 13., cx)
+            pkit::link(SharedString::from(format!("sign-in-page-{}", p.id)), t!("settings.providers.open_sign_in_page"), 13., cx)
                 .font_weight(FontWeight::SEMIBOLD)
                 .on_click(move |_, _, _| AppModel::open_url(&url))
         });
@@ -535,7 +556,7 @@ impl ProviderSettings {
                             .flex_1()
                             .min_w_0()
                             .gap(px(3.))
-                            .child(ui("Finish the sign-in in your browser", 14., 18., FontWeight::SEMIBOLD, c.ink))
+                            .child(ui(t!("settings.providers.finish_sign_in"), 14., 18., FontWeight::SEMIBOLD, c.ink))
                             .child(ui(about, 13., 18., FontWeight::NORMAL, c.graphite)),
                     )
                     .children(link),
@@ -547,7 +568,7 @@ impl ProviderSettings {
                     .items_center()
                     .gap(px(8.))
                     .child(pkit::input_well(&open.code, cx).flex_1().min_w_0().font_family(sayso_ui::fonts::MONO))
-                    .child(Button::new("send-code", "Send code").primary().on_click(cx.listener(|this, _, window, cx| this.send_code(window, cx)))),
+                    .child(Button::new("send-code", t!("settings.providers.send_code")).primary().on_click(cx.listener(|this, _, window, cx| this.send_code(window, cx)))),
             );
         }
         div().w_full().min_w_0().pb(px(6.)).child(panel)
@@ -560,13 +581,13 @@ impl ProviderSettings {
         let level = p.thinking_sent().filter(|sent| m.thinking_choices(p).iter().any(|level| level == sent)).map(thinking_label);
         let label = match p.model() {
             Some(id) => m.model_label(&p.id, id),
-            None if p.needs_model() => "Choose a model".into(),
+            None if p.needs_model() => t!("settings.providers.choose_model"),
             // macOS chooses the model. Its name comes with the list.
             None if p.kind == ProviderKind::AppleIntelligence => match m.model_lists.get(&p.id) {
                 Some(crate::model::ModelList::Ready(list)) if !list.is_empty() => list[0].name.clone(),
-                _ => "Default model".into(),
+                _ => t!("settings.providers.default_model"),
             },
-            None => "Default model".into(),
+            None => t!("settings.providers.default_model"),
         };
         let label = match level {
             Some(level) => format!("{label} · {level}"),
@@ -626,7 +647,7 @@ impl ProviderSettings {
                     .child(ui(title.to_string(), 15., 18., FontWeight::SEMIBOLD, c.ink))
                     .child(ui(detail, 13., 16., FontWeight::NORMAL, c.graphite)),
             )
-            .child(Button::new(SharedString::from(format!("{id}-add")), "Add").on_click(cx.listener(move |this, _, window, cx| {
+            .child(Button::new(SharedString::from(format!("{id}-add")), t!("settings.providers.add")).on_click(cx.listener(move |this, _, window, cx| {
                 let p = provider.clone();
                 this.added(p, None, window, cx);
             })))
@@ -644,28 +665,28 @@ impl ProviderSettings {
             let first = models.first().cloned().unwrap_or_default();
             let kind = ProviderKind::OpenAiCompatible { base_url: "http://localhost:11434/v1".into(), model: first, api_key_account: None, zero_data_retention: false, thinking: None };
             let detail = if models.is_empty() {
-                format!("Running on this {} · no models pulled yet", crate::shell::computer())
+                t!("settings.providers.suggest_ollama_empty", computer = crate::shell::computer())
             } else {
-                format!("Running on this {} · {}", crate::shell::computer(), pkit::plural(models.len(), "model", "models"))
+                t!("settings.providers.suggest_ollama", count = models.len(), computer = crate::shell::computer())
             };
             found.push(("suggest-ollama", "Ollama", detail, Provider { id: new_id("ollama"), name: "Ollama".into(), kind }));
         }
         let has_claude = providers.iter().any(|p| matches!(p.kind, ProviderKind::ClaudeCli { .. }));
         if let (Some(path), false) = (&detected.claude_cli, has_claude) {
             let kind = ProviderKind::ClaudeCli { path: Some(path.display().to_string()), model: "haiku".into(), config_dir: None, thinking: Default::default() };
-            let detail = format!("Found on this {} · Cloud", crate::shell::computer());
+            let detail = t!("settings.providers.suggest_claude", computer = crate::shell::computer());
             found.push(("suggest-claude", "Claude CLI", detail, Provider { id: new_id("claude"), name: "Claude CLI".into(), kind }));
         }
         let has_codex = providers.iter().any(|p| matches!(p.kind, ProviderKind::CodexCli { .. }));
         if let (Some(path), false) = (&detected.codex_cli, has_codex) {
             let kind = ProviderKind::CodexCli { path: Some(path.display().to_string()), model: None, config_dir: None, thinking: Default::default() };
-            let detail = format!("Found on this {} · Cloud · about 5 s", crate::shell::computer());
+            let detail = t!("settings.providers.suggest_codex", computer = crate::shell::computer());
             found.push(("suggest-codex", "Codex CLI", detail, Provider { id: new_id("codex"), name: "Codex CLI".into(), kind }));
         }
         let has_apple = providers.iter().any(|p| matches!(p.kind, ProviderKind::AppleIntelligence));
         if let (Some(model), false) = (&detected.apple_intelligence, has_apple) {
             let p = Provider { id: new_id("apple-intelligence"), name: "Apple Intelligence".into(), kind: ProviderKind::AppleIntelligence };
-            found.push(("suggest-apple", "Apple Intelligence", format!("Runs on this Mac · {model}"), p));
+            found.push(("suggest-apple", "Apple Intelligence", t!("settings.providers.suggest_apple", model = model), p));
         }
         found.into_iter().map(|(id, title, detail, p)| self.suggestion(id, title, detail, p, cx)).collect()
     }
@@ -680,11 +701,11 @@ impl ProviderSettings {
             cx.notify();
             return;
         }
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder("For example, OpenRouter"));
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder(t!("settings.providers.name_placeholder")));
         let url = cx.new(|cx| InputState::new(window, cx).placeholder("https://openrouter.ai/api/v1"));
         let key = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder(crate::shell::os_text!("Stored in your Keychain", "Stored in Windows Credential Manager", "Stored in your system keyring"))
+                .placeholder(t!(crate::shell::os_text!("settings.providers.key_placeholder_mac", "settings.providers.key_placeholder_windows", "settings.providers.key_placeholder_other")))
                 .masked(true)
         });
         let sub = cx.subscribe_in(&url, window, |_, _, _: &InputEvent, _, cx| cx.notify());
@@ -710,9 +731,9 @@ impl ProviderSettings {
             AddKind::OpenAi => {
                 let url = add.url.read(cx).value().trim().trim_end_matches('/').to_string();
                 if name.is_empty() {
-                    add.error = Some("Enter a name for the provider.".into());
+                    add.error = Some(AddError::NoName);
                 } else if !(url.starts_with("http://") || url.starts_with("https://")) {
-                    add.error = Some("Enter a base URL that starts with http:// or https://.".into());
+                    add.error = Some(AddError::BadUrl);
                 }
                 if add.error.is_some() {
                     cx.notify();
@@ -725,11 +746,7 @@ impl ProviderSettings {
                 let claude = add.kind == AddKind::Claude;
                 let found = if claude { detected.claude_cli.is_some() } else { detected.codex_cli.is_some() };
                 if !found {
-                    add.error = Some(if claude {
-                        "Sayso cannot find the Claude CLI. Install it, then try again.".into()
-                    } else {
-                        "Sayso cannot find the Codex CLI. Install it, then try again.".into()
-                    });
+                    add.error = Some(if claude { AddError::NoClaudeCli } else { AddError::NoCodexCli });
                     cx.notify();
                     return;
                 }
@@ -792,7 +809,7 @@ impl ProviderSettings {
             AddKind::Codex => 2,
         };
         let entity = cx.entity();
-        let seg = Segmented::new("add-kind", ["OpenAI-compatible", "Claude CLI", "Codex CLI"], selected).on_select(move |i, _, cx| {
+        let seg = Segmented::new("add-kind", [t!("settings.providers.kind_openai"), "Claude CLI".to_string(), "Codex CLI".to_string()], selected).on_select(move |i, _, cx| {
             entity.update(cx, |this, cx| {
                 if let Some(a) = this.add.as_mut() {
                     a.kind = [AddKind::OpenAi, AddKind::Claude, AddKind::Codex][i];
@@ -812,39 +829,39 @@ impl ProviderSettings {
                 let url = add.url.read(cx).value().to_string();
                 let cloud = !url.trim().is_empty() && !is_local_url(&url);
                 body = body
-                    .child(pkit::field("Start from", presets, None, cx))
+                    .child(pkit::field(&t!("settings.providers.start_from"), presets, None, cx))
                     .child(
                         div()
                             .flex()
                             .gap(px(12.))
-                            .child(pkit::field("Name", pkit::input_well(&add.name, cx), None, cx).w(px(220.)))
-                            .child(pkit::field("Base URL", pkit::input_well(&add.url, cx), None, cx).flex_1()),
+                            .child(pkit::field(&t!("settings.providers.name"), pkit::input_well(&add.name, cx), None, cx).w(px(220.)))
+                            .child(pkit::field(&t!("settings.providers.base_url"), pkit::input_well(&add.url, cx), None, cx).flex_1()),
                     )
                     .child(pkit::field(
-                        "API key",
+                        &t!("settings.providers.api_key"),
                         pkit::input_well(&add.key, cx),
-                        Some("Not needed for local servers. You choose the model from the provider's list after you add it."),
+                        Some(&t!("settings.providers.api_key_hint")),
                         cx,
                     ))
                     .when(cloud, |d| {
                         d.child(Banner::new(
                             BannerKind::Info,
-                            "This is a cloud provider. When a style uses it, Sayso sends the style prompt, your dictionary words, and the transcript to it.",
+                            t!("settings.providers.cloud_notice"),
                         ))
                     });
             }
             AddKind::Claude | AddKind::Codex => {
                 let (path, name) = if add.kind == AddKind::Claude { (claude, "Claude CLI") } else { (codex, "Codex CLI") };
                 let status = match path {
-                    Some(p) => format!("Found at {}. Sayso runs it with no tools and no saved session.", p.display()),
-                    None => format!("Sayso cannot find the {name}. Install it, then try again."),
+                    Some(p) => t!("settings.providers.cli_found", path = p.display()),
+                    None => t!("settings.providers.cli_missing", tool = name),
                 };
                 body = body.child(ui(status, 13., 18., FontWeight::NORMAL, c.graphite)).child(Banner::new(
                     BannerKind::Info,
                     if add.kind == AddKind::Claude {
-                        "Cloud. About 1.8 s for each dictation with Haiku. The CLI uses your own account. You can sign in and choose another model after you add it."
+                        t!("settings.providers.claude_cli_notice")
                     } else {
-                        "Cloud. About 5 s for each dictation. The CLI uses your own account. You can sign in and choose a model after you add it."
+                        t!("settings.providers.codex_cli_notice")
                     },
                 ));
             }
@@ -857,15 +874,15 @@ impl ProviderSettings {
             .p(px(22.))
             .rounded(px(14.))
             .raised(&c)
-            .child(div().flex().items_center().justify_between().child(text::title("Add a provider", 22., &c)).child(seg))
+            .child(div().flex().items_center().justify_between().child(text::title(t!("settings.providers.add_title"), 22., &c)).child(seg))
             .child(body)
-            .when_some(add.error.clone(), |d, e| d.child(Banner::new(BannerKind::Warning, e)))
+            .when_some(add.error, |d, e| d.child(Banner::new(BannerKind::Warning, e.text())))
             .child(
                 div()
                     .flex()
                     .gap(px(8.))
-                    .child(Button::new("save-provider", "Add provider").primary().on_click(cx.listener(|this, _, window, cx| this.save_add(window, cx))))
-                    .child(Button::new("cancel-provider", "Cancel").ghost().on_click(cx.listener(|this, _, _, cx| {
+                    .child(Button::new("save-provider", t!("settings.providers.add_provider")).primary().on_click(cx.listener(|this, _, window, cx| this.save_add(window, cx))))
+                    .child(Button::new("cancel-provider", t!("settings.providers.cancel")).ghost().on_click(cx.listener(|this, _, _, cx| {
                         this.add = None;
                         cx.notify();
                     }))),
@@ -878,22 +895,36 @@ impl ProviderSettings {
 fn test_error(raw: &str) -> String {
     let lower = raw.to_lowercase();
     if lower.contains("not signed in") {
-        "The provider is not signed in. Sign in, or set the folder that holds your login.".into()
+        t!("settings.providers.error_not_signed_in")
     } else if lower.contains("refused") || lower.contains("connect") || lower.contains("dns") {
-        "Cannot connect. Start the server or check the URL, then test again.".into()
+        t!("settings.providers.error_cannot_connect")
     } else if lower.contains("timed out") || lower.contains("timeout") {
-        "No answer in time. Test again, or raise the timeout.".into()
+        t!("settings.providers.error_timeout")
     } else if lower.contains("401") || lower.contains("403") || lower.contains("unauthorized") || lower.contains("api key") {
-        "The provider refused the API key. Check the key, then test again.".into()
+        t!("settings.providers.error_refused_key")
     } else if lower.contains("404") || lower.contains("model") {
-        "The provider did not accept the model. Choose another model, then test again.".into()
+        t!("settings.providers.error_model")
     } else {
-        "The provider did not answer the test.".into()
+        t!("settings.providers.error_no_answer")
     }
 }
 
 impl Render for ProviderSettings {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The input fields keep their placeholders, so they change with the language.
+        if self.locale != sayso_i18n::locale() {
+            self.locale = sayso_i18n::locale();
+            if let Some(open) = &self.open {
+                open.code.update(cx, |s, cx| s.set_placeholder(t!("settings.providers.code_placeholder"), window, cx));
+            }
+            if let Some(add) = &self.add {
+                add.name.update(cx, |s, cx| s.set_placeholder(t!("settings.providers.name_placeholder"), window, cx));
+                add.key.update(
+                    cx,
+                    |s, cx| s.set_placeholder(t!(crate::shell::os_text!("settings.providers.key_placeholder_mac", "settings.providers.key_placeholder_windows", "settings.providers.key_placeholder_other")), window, cx),
+                );
+            }
+        }
         let c = cx.paper().colors;
         let (providers, default, enabled, searching) = {
             let m = self.model.read(cx);
@@ -905,18 +936,18 @@ impl Render for ProviderSettings {
         }
         let model = self.model.clone();
         let use_ai = kit::row(
-            "Use AI for styles",
-            "When this is off, Sayso inserts every dictation with the Raw style.",
+            &t!("settings.providers.use_ai"),
+            &t!("settings.providers.use_ai_detail"),
             Switch::new("ai-on", enabled).on_toggle(move |on, _, cx| model.update(cx, |m, cx| m.set_ai_enabled(on, cx))),
             cx,
         );
 
-        let mut list = group("Your providers", cx);
+        let mut list = group(&t!("settings.providers.your_providers"), cx);
         if providers.is_empty() {
             let line = if searching {
-                format!("Looking for AI providers on this {}.", crate::shell::computer())
+                t!("settings.providers.searching", computer = crate::shell::computer())
             } else {
-                "No provider is set up. Add one to use styles with AI.".to_string()
+                t!("settings.providers.none")
             };
             list = list.child(div().py(px(14.)).child(ui(line, 13., 16., FontWeight::NORMAL, c.graphite)));
         }
@@ -943,9 +974,9 @@ impl Render for ProviderSettings {
                             .flex_1()
                             .min_w_0()
                             .gap(px(2.))
-                            .child(ui("Add a provider", 15., 18., FontWeight::SEMIBOLD, c.ink))
+                            .child(ui(t!("settings.providers.add_a_provider"), 15., 18., FontWeight::SEMIBOLD, c.ink))
                             .child(ui(
-                                "OpenRouter, OpenAI, Ollama, LM Studio, or any server with the OpenAI API. You use your own key.",
+                                t!("settings.providers.add_a_provider_detail"),
                                 13.,
                                 16.,
                                 FontWeight::NORMAL,
@@ -958,8 +989,8 @@ impl Render for ProviderSettings {
 
         kit::page(
             "providers-page",
-            "Providers",
-            "The AI services that styles run on. A cloud provider receives the style prompt and your transcript. Nothing else.",
+            &t!("settings.providers.title"),
+            &t!("settings.providers.subtitle"),
             kit::body().child(div().flex().flex_col().w_full().min_w_0().child(use_ai)).child(list),
             cx,
         )

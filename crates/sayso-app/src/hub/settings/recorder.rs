@@ -12,6 +12,7 @@ use crate::model::AppModel;
 use gpui_kit::*;
 use sayso_core::config::Config;
 use sayso_core::hotkey::Hotkey;
+use sayso_i18n::t;
 use sayso_platform::{ConflictSource, HotkeyConflict};
 use std::time::{Duration, Instant};
 
@@ -46,17 +47,48 @@ impl Slot {
     }
 
     /// Another Sayso action that already uses `hotkey`.
-    pub fn clash(self, c: &Config, hotkey: &Hotkey) -> Option<&'static str> {
-        [
-            (Slot::Toggle, "Start and stop dictation"),
-            (Slot::PushToTalk, "Push to talk"),
-            (Slot::PasteLast, "Paste last text"),
-            (Slot::CycleStyle, "Next style"),
-            (Slot::Incognito, "Incognito"),
-        ]
-        .into_iter()
-        .find(|(s, _)| *s != self && s.get(c).as_ref() == Some(hotkey))
-        .map(|(_, name)| name)
+    pub fn clash(self, c: &Config, hotkey: &Hotkey) -> Option<Slot> {
+        [Slot::Toggle, Slot::PushToTalk, Slot::PasteLast, Slot::CycleStyle, Slot::Incognito]
+            .into_iter()
+            .find(|s| *s != self && s.get(c).as_ref() == Some(hotkey))
+    }
+
+    /// The name of the action, for sentences.
+    fn label(self) -> String {
+        match self {
+            Slot::Toggle => t!("settings.recorder.action_toggle"),
+            Slot::PushToTalk => t!("settings.recorder.action_push_to_talk"),
+            Slot::PasteLast => t!("settings.recorder.action_paste_last"),
+            Slot::CycleStyle => t!("settings.recorder.action_cycle_style"),
+            Slot::Incognito => t!("settings.recorder.action_incognito"),
+        }
+    }
+}
+
+/// Why a recorded key was not saved. The recorder keeps this, not the text,
+/// so the note changes with the interface language.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Note {
+    /// A modifier key on its own, for an action other than push to talk.
+    SoloOnlyForPushToTalk(Hotkey),
+    /// Another Sayso action uses the key.
+    UsedBy(Hotkey, Slot),
+}
+
+impl Note {
+    pub fn text(&self) -> String {
+        match self {
+            Note::SoloOnlyForPushToTalk(hk) => {
+                t!("settings.recorder.solo_only_push_to_talk", keys = words(hk), example = words(&Hotkey::toggle_default()))
+            }
+            Note::UsedBy(hk, other) => t!("settings.recorder.used_by", keys = words(hk), action = other.label()),
+        }
+    }
+}
+
+impl From<Note> for SharedString {
+    fn from(note: Note) -> Self {
+        note.text().into()
     }
 }
 
@@ -66,7 +98,7 @@ pub struct Recorder {
     /// The system listener is not available, so only keys in this window count.
     pub window_only: bool,
     /// A message after the last attempt, for example "Already used by ...".
-    pub note: Option<String>,
+    pub note: Option<Note>,
     generation: u64,
     pub focus: FocusHandle,
     conflicts: Vec<(Option<Hotkey>, Instant, Vec<HotkeyConflict>)>,
@@ -162,25 +194,21 @@ pub fn start<V: 'static>(
 /// Why `slot` cannot use `hk`, as a note for the UI. Only push-to-talk can
 /// use a modifier key on its own: the other actions register system hotkeys,
 /// and those need a chord.
-fn unusable(slot: Slot, hk: &Hotkey) -> Option<String> {
+fn unusable(slot: Slot, hk: &Hotkey) -> Option<Note> {
     match hk {
-        Hotkey::Solo(_) if slot != Slot::PushToTalk => Some(format!(
-            "{} on its own works only for Push to talk. Choose a key combination, for example {}.",
-            words(hk),
-            words(&Hotkey::toggle_default()),
-        )),
+        Hotkey::Solo(_) if slot != Slot::PushToTalk => Some(Note::SoloOnlyForPushToTalk(*hk)),
         _ => None,
     }
 }
 
 /// Save a recorded key unless the action cannot use it or another Sayso
 /// action uses it. Returns a note for the UI.
-fn finish(m: &mut AppModel, slot: Slot, hk: Hotkey, cx: &mut Context<AppModel>) -> Option<String> {
+fn finish(m: &mut AppModel, slot: Slot, hk: Hotkey, cx: &mut Context<AppModel>) -> Option<Note> {
     if let Some(note) = unusable(slot, &hk) {
         return Some(note);
     }
     if let Some(other) = slot.clash(&m.config, &hk) {
-        return Some(format!("{} is already used by {other}. Choose another key.", words(&hk)));
+        return Some(Note::UsedBy(hk, other));
     }
     slot.apply(m, Some(hk), cx);
     None
@@ -271,20 +299,13 @@ pub fn words(hk: &Hotkey) -> String {
 pub fn conflict_text(c: &HotkeyConflict, open_app: bool) -> String {
     let keys = words(&c.hotkey);
     match &c.source {
-        ConflictSource::App { name, confirmed: true, .. } => {
-            format!("{name} also uses {keys}. Both apps will react. Choose another key, or change the shortcut in {name}.")
-        }
-        ConflictSource::App { name, confirmed: false, .. } => {
-            let open = if open_app { " is open and" } else { "" };
-            format!(
-                "{name}{open} uses {keys} by default. If you did not change it in {name}, both apps will react. Choose another key, or change the shortcut in {name}."
-            )
-        }
-        ConflictSource::System { name, .. } if cfg!(windows) => format!("Windows uses {keys} for {name}. Choose another key."),
-        ConflictSource::System { name, .. } => format!(
-            "{system} uses {keys} for {name}. Choose another key, or turn the shortcut off in {settings}.",
-            system = crate::shell::os_text!("macOS", "Your desktop"),
-            settings = crate::shell::os_text!("System Settings › Keyboard › Keyboard Shortcuts", "the keyboard settings of your desktop"),
+        ConflictSource::App { name, confirmed: true, .. } => t!("settings.recorder.conflict_app", name = name, keys = keys),
+        ConflictSource::App { name, confirmed: false, .. } if open_app => t!("settings.recorder.conflict_app_open_default", name = name, keys = keys),
+        ConflictSource::App { name, confirmed: false, .. } => t!("settings.recorder.conflict_app_default", name = name, keys = keys),
+        ConflictSource::System { name, .. } => t!(
+            crate::shell::os_text!("settings.recorder.conflict_system_mac", "settings.recorder.conflict_system_windows", "settings.recorder.conflict_system_other"),
+            keys = keys,
+            name = name
         ),
     }
 }
@@ -292,7 +313,7 @@ pub fn conflict_text(c: &HotkeyConflict, open_app: bool) -> String {
 #[cfg(test)]
 mod tests {
     // Not `super::*`: the GPUI glob has its own `test` macro.
-    use super::{Slot, unusable};
+    use super::{Note, Slot, unusable};
     use sayso_core::hotkey::{Hotkey, SoloModifier};
 
     #[test]
@@ -300,8 +321,7 @@ mod tests {
         let solo = Hotkey::Solo(SoloModifier::RightOption);
         assert_eq!(unusable(Slot::PushToTalk, &solo), None);
         for slot in [Slot::Toggle, Slot::PasteLast, Slot::CycleStyle, Slot::Incognito] {
-            let note = unusable(slot, &solo).expect("a solo modifier is rejected");
-            assert!(note.contains("only for Push to talk"), "{note}");
+            assert_eq!(unusable(slot, &solo), Some(Note::SoloOnlyForPushToTalk(solo)));
         }
         assert_eq!(unusable(Slot::Toggle, &Hotkey::toggle_default()), None);
     }
