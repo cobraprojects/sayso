@@ -47,7 +47,7 @@ settings:
       one: "%{number} entry."
       other: "%{number} entries."
     entries_kept:
-      one: "%{number} entry. They stay until you clear them."
+      one: "%{number} entry. It stays until you clear it."
       other: "%{number} entries. They stay until you clear them."
     recordings_confirm:
       one: "Delete %{number} recording? The text of each entry stays. You cannot undo this."
