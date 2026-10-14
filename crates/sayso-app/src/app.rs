@@ -77,7 +77,10 @@ pub fn run() {
         cx.subscribe(&model, |model, event, cx| match event {
             AppEvent::OpenHub(route) => open_hub(&model, *route, cx),
             AppEvent::ThemeChanged => {}
-            AppEvent::LanguageChanged => cx.refresh_windows(),
+            AppEvent::LanguageChanged => {
+                crate::popover::refresh_tray_labels();
+                cx.refresh_windows();
+            }
         })
         .detach();
 

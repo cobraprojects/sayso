@@ -4,6 +4,7 @@
 use super::{OnboardingView, card, heading, ring};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_core::stt::ModelStatus;
 use sayso_platform::{Permission, PermissionState};
 use sayso_ui::components::*;
@@ -24,7 +25,7 @@ impl OnboardingView {
             Some(id) => devices.iter().find(|d| d.id == id).map(|d| d.name.clone()),
             None => devices.iter().find(|d| d.is_default).map(|d| d.name.clone()),
         }
-        .unwrap_or_else(|| "Default microphone".into());
+        .unwrap_or_else(|| t!("onboarding.permissions.default_microphone"));
         // The ring marks the card that needs you now.
         let focus_mic = mic != PermissionState::Granted;
         let focus_ax = !focus_mic && ax != PermissionState::Granted;
@@ -32,13 +33,13 @@ impl OnboardingView {
         // Microphone card.
         let mut mic_card = card(&c)
             .when(focus_mic, |d| d.shadow(ring(&c)))
-            .child(card_head("Microphone", mic, &c))
+            .child(card_head(&crate::shell::permission_name(Permission::Microphone), mic, &c))
             .child(text::ui(
                 match mic {
-                    PermissionState::Granted => "Say something. The ink should move with your voice.",
-                    PermissionState::Denied if cfg!(windows) => "Microphone access is off. In Settings › Privacy & security › Microphone, turn on microphone access and \"Let desktop apps access your microphone\".",
-                    PermissionState::Denied => "Microphone access is off for Sayso. Turn on Sayso in Privacy and Security › Microphone.",
-                    PermissionState::NotDetermined => crate::shell::os_text!("Sayso records only while you dictate. macOS asks you once.", "Sayso records only while you dictate."),
+                    PermissionState::Granted => t!("onboarding.permissions.mic_granted"),
+                    PermissionState::Denied if cfg!(windows) => t!("onboarding.permissions.mic_denied_windows"),
+                    PermissionState::Denied => t!("onboarding.permissions.mic_denied"),
+                    PermissionState::NotDetermined => t!(crate::shell::os_text!("onboarding.permissions.mic_undetermined_mac", "onboarding.permissions.mic_undetermined_other")),
                 },
                 13.,
                 FontWeight::NORMAL,
@@ -56,7 +57,7 @@ impl OnboardingView {
                     .rounded(px(12.))
                     .debossed(&c);
                 if let Some(e) = &self.meter_error {
-                    mic_card.child(well.child(text::ui(format!("The microphone did not start: {e}."), 12., FontWeight::NORMAL, c.danger)))
+                    mic_card.child(well.child(text::ui(t!("onboarding.permissions.mic_failed", error = e), 12., FontWeight::NORMAL, c.danger)))
                 } else {
                     let reduce = cx.paper().reduce_motion;
                     if self.meter.is_some() && !reduce {
@@ -71,7 +72,7 @@ impl OnboardingView {
                 }
             }
             PermissionState::NotDetermined => mic_card.child(
-                div().flex().pt(px(6.)).child(Button::new("allow-mic", "Allow microphone").primary().on_click(cx.listener(|this, _, _, cx| {
+                div().flex().pt(px(6.)).child(Button::new("allow-mic", t!("onboarding.permissions.allow_microphone")).primary().on_click(cx.listener(|this, _, _, cx| {
                     this.model.update(cx, |m, _| m.request_permission(Permission::Microphone));
                 }))),
             ),
@@ -89,12 +90,9 @@ impl OnboardingView {
             .child(card_head(&crate::shell::permission_name(Permission::Accessibility), if ax == PermissionState::Granted { ax } else { PermissionState::NotDetermined }, &c))
             .child(text::ui(
                 if ax == PermissionState::Granted {
-                    "Sayso can paste text into the app you are using."
+                    t!("onboarding.permissions.ax_granted")
                 } else {
-                    crate::shell::os_text!(
-                        "Lets Sayso paste text into the app you are using. Turn on Sayso in Privacy and Security › Accessibility.",
-                        "Lets Sayso paste text into the app you are using. Allow it in the dialog of your desktop, or follow the setup guide.",
-                    )
+                    t!(crate::shell::os_text!("onboarding.permissions.ax_needed_mac", "onboarding.permissions.ax_needed_other"))
                 },
                 13.,
                 FontWeight::NORMAL,
@@ -108,11 +106,11 @@ impl OnboardingView {
                     .items_center()
                     .gap(px(10.))
                     .pt(px(6.))
-                    .child(Button::new("open-ax", crate::shell::os_text!("Open System Settings", "Allow")).primary().on_click(cx.listener(|this, _, _, cx| {
+                    .child(Button::new("open-ax", t!(crate::shell::os_text!("onboarding.permissions.grant_ax_mac", "onboarding.permissions.grant_ax_other"))).primary().on_click(cx.listener(|this, _, _, cx| {
                         // `request` shows the macOS prompt, which adds Sayso to the list and opens Settings.
                         this.model.update(cx, |m, _| m.request_permission(Permission::Accessibility));
                     })))
-                    .child(Button::new("why-ax", "Why is this needed?").ghost().on_click(cx.listener(|this, _, _, cx| {
+                    .child(Button::new("why-ax", t!("onboarding.permissions.why_ax")).ghost().on_click(cx.listener(|this, _, _, cx| {
                         this.show_why = !this.show_why;
                         cx.notify();
                     }))),
@@ -120,10 +118,7 @@ impl OnboardingView {
             if self.show_why {
                 ax_card = ax_card.child(
                     text::ui(
-                        crate::shell::os_text!(
-                            "macOS lets an app send Command+V to other apps only with Accessibility access. Sayso uses it to paste your words, and does not read your screen.",
-                            "Sayso sends the paste key to the app you use. On Wayland your desktop asks you once to allow this. Sayso does not read your screen.",
-                        ),
+                        t!(crate::shell::os_text!("onboarding.permissions.why_ax_text_mac", "onboarding.permissions.why_ax_text_other")),
                         12.,
                         FontWeight::NORMAL,
                         c.graphite,
@@ -136,11 +131,11 @@ impl OnboardingView {
         // The background download.
         let (fraction, label) = match &status {
             ModelStatus::Downloading { fraction, .. } => (*fraction, format!("{:.0}%", fraction * 100.0)),
-            ModelStatus::Ready => (1.0, "Ready".into()),
-            ModelStatus::Optimizing => (1.0, "Optimizing".into()),
-            ModelStatus::Downloaded => (1.0, "Downloaded".into()),
-            ModelStatus::NotDownloaded => (0.0, "Not started".into()),
-            ModelStatus::Failed { .. } => (0.0, "Stopped".into()),
+            ModelStatus::Ready => (1.0, t!("onboarding.permissions.model_ready")),
+            ModelStatus::Optimizing => (1.0, t!("onboarding.permissions.model_optimizing")),
+            ModelStatus::Downloaded => (1.0, t!("onboarding.permissions.model_downloaded")),
+            ModelStatus::NotDownloaded => (0.0, t!("onboarding.permissions.model_not_started")),
+            ModelStatus::Failed { .. } => (0.0, t!("onboarding.permissions.model_stopped")),
         };
         let download = div()
             .flex()
@@ -168,13 +163,9 @@ impl OnboardingView {
             .px(px(self.side()))
             .pb(px(24.))
             .child(if crate::shell::HAS_INPUT_PERMISSIONS {
-                heading(
-                    "Two permissions",
-                    "Sayso needs to hear you and to type into other apps. This page updates by itself when you allow each one.",
-                    &c,
-                )
+                heading(&t!("onboarding.permissions.title"), &t!("onboarding.permissions.lead"), &c)
             } else {
-                heading("Your microphone", "Sayso needs to hear you. Check that the ink moves when you speak.", &c)
+                heading(&t!("onboarding.permissions.title_mic_only"), &t!("onboarding.permissions.lead_mic_only"), &c)
             })
             .when(!crate::dev::running_from_bundle(), |d| {
                 d.child(crate::hub::settings::kit::notice(BannerKind::Warning, crate::dev::UNBUNDLED_NOTE, cx))
@@ -184,10 +175,7 @@ impl OnboardingView {
             .when(crate::shell::HAS_INPUT_PERMISSIONS, |d| {
                 d.child(crate::hub::settings::kit::notice(
                     BannerKind::Info,
-                    crate::shell::os_text!(
-                        "A push-to-talk key needs one more permission, Input Monitoring. Sayso asks for it only if you set one in the next step.",
-                        "A push-to-talk key held alone, and Esc to cancel, need keyboard access. The next step tells you if your desktop needs it.",
-                    ), cx))
+                    t!(crate::shell::os_text!("onboarding.permissions.im_note_mac", "onboarding.permissions.im_note_other")), cx))
             })
             .into_any_element()
     }
@@ -195,19 +183,19 @@ impl OnboardingView {
 
 fn card_head(title: &str, state: PermissionState, c: &Colors) -> Div {
     let badge = match state {
-        PermissionState::Granted => super::check_line_w("Allowed", FontWeight::SEMIBOLD, c),
+        PermissionState::Granted => super::check_line_w(t!("onboarding.permissions.allowed"), FontWeight::SEMIBOLD, c),
         PermissionState::Denied => div()
             .flex()
             .items_center()
             .gap(px(6.))
             .child(crate::hub::settings::kit::halo_dot(8., c.danger, 3., 0.16))
-            .child(text::ui("Blocked", 13., FontWeight::SEMIBOLD, c.danger)),
+            .child(text::ui(t!("onboarding.permissions.blocked"), 13., FontWeight::SEMIBOLD, c.danger)),
         PermissionState::NotDetermined => div()
             .flex()
             .items_center()
             .gap(px(6.))
             .child(crate::hub::settings::kit::halo_dot(8., c.accent, 3., 0.16))
-            .child(text::ui("Waiting", 13., FontWeight::SEMIBOLD, c.accent)),
+            .child(text::ui(t!("onboarding.permissions.waiting"), 13., FontWeight::SEMIBOLD, c.accent)),
     };
     div()
         .flex()

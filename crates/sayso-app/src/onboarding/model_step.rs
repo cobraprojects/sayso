@@ -7,6 +7,7 @@ use crate::hub::pages::kit;
 use crate::hub::pages::models::size_label;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_core::models::{ModelId, ModelInfo, default_model};
 use sayso_core::stt::ModelStatus;
 use sayso_ui::assets::Icon;
@@ -65,7 +66,11 @@ impl OnboardingView {
         }
         let rate = (done - b0) as f64 / secs;
         let left = (total - done) as f64 / rate;
-        Some(if left < 90.0 { format!("about {} s left", left.ceil().max(1.0) as u64) } else { format!("about {} min left", (left / 60.0).ceil() as u64) })
+        Some(if left < 90.0 {
+            t!("onboarding.model.seconds_left", seconds = left.ceil().max(1.0) as u64)
+        } else {
+            t!("onboarding.model.minutes_left", minutes = (left / 60.0).ceil() as u64)
+        })
     }
 
     pub(super) fn model_step(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -103,7 +108,7 @@ impl OnboardingView {
                             .justify_between()
                             .h(px(22.))
                             .child(radio_dot(selected, cx))
-                            .when(info.recommended, |d| d.child(Badge::new("Recommended", BadgeTone::Accent))),
+                            .when(info.recommended, |d| d.child(Badge::new(t!("onboarding.model.recommended"), BadgeTone::Accent))),
                     )
                     .child(text::title(info.name.clone(), 20., &c).line_height(px(24.)))
                     .child(text::ui(info.description.clone(), 13., FontWeight::NORMAL, c.graphite).line_height(px(19.)))
@@ -122,8 +127,8 @@ impl OnboardingView {
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .child(text::ui("Do you want a different model?", 13., FontWeight::NORMAL, c.graphite))
-                .child(kit::link("all-models-link", format!("Show all {} models", self.local_models(cx).len()), 13., cx).on_click(open))
+                .child(text::ui(t!("onboarding.model.different_model"), 13., FontWeight::NORMAL, c.graphite))
+                .child(kit::link("all-models-link", t!("onboarding.model.show_all", count = self.local_models(cx).len()), 13., cx).on_click(open))
         } else {
             div()
                 .flex()
@@ -141,7 +146,7 @@ impl OnboardingView {
                         .font_weight(FontWeight::NORMAL)
                         .flex_1(),
                 )
-                .child(kit::link("all-models-link", "Change", 13., cx).on_click(open))
+                .child(kit::link("all-models-link", t!("onboarding.model.change"), 13., cx).on_click(open))
         };
 
         let strip = self.download_strip(&active_info, status, engine, &c, cx);
@@ -152,11 +157,7 @@ impl OnboardingView {
             .pt(px(28.))
             .px(px(self.side()))
             .pb(px(24.))
-            .child(heading(
-                "Choose a speech model",
-                "Sayso needs one downloaded model to work. You can add or switch models later.",
-                &c,
-            ))
+            .child(heading(&t!("onboarding.model.title"), &t!("onboarding.model.lead"), &c))
             .child(div().flex().flex_col().gap(px(14.)).child(cards).child(more))
             .child(strip)
             .into_any_element()
@@ -167,18 +168,18 @@ impl OnboardingView {
         if !engine {
             return crate::hub::settings::kit::notice(
                 BannerKind::Warning,
-                "The speech engine is not installed, so Sayso cannot download a model. Reinstall Sayso, then open it again.", cx)
+                t!("onboarding.model.no_engine"), cx)
             .into_any_element();
         }
         let parts_note = matches!(info.engine, sayso_core::models::EngineKind::ParakeetUnified { .. })
-            .then_some("Includes the final pass, the live preview, and the dictionary helper.");
+            .then(|| t!("onboarding.model.parts_note"));
         match status {
             ModelStatus::Downloading { fraction, bytes_done, bytes_total } => {
                 let total = if bytes_total > 0 { bytes_total } else { info.size_bytes };
                 // macOS downloads Apple Speech and gives no sizes.
-                let mut right = if total > 0 { format!("{} of {}", size_text(bytes_done), size_text(total)) } else { String::new() };
+                let mut right = if total > 0 { t!("onboarding.model.progress", done = size_text(bytes_done), total = size_text(total)) } else { String::new() };
                 if let Some(left) = self.time_left(&info.id, bytes_done, total) {
-                    right = format!("{right} · {left}");
+                    right = t!("onboarding.model.progress_left", progress = right, left = left);
                 }
                 well()
                     .child(
@@ -186,7 +187,7 @@ impl OnboardingView {
                             .flex()
                             .items_center()
                             .justify_between()
-                            .child(text::ui(format!("Downloading {}", info.name), 14., FontWeight::SEMIBOLD, c.ink))
+                            .child(text::ui(t!("onboarding.model.downloading", name = info.name), 14., FontWeight::SEMIBOLD, c.ink))
                             .child(text::mono(right, 12., c.graphite).font_weight(FontWeight::NORMAL)),
                     )
                     .child(track(fraction, 8., c))
@@ -199,8 +200,8 @@ impl OnboardingView {
                 .gap(px(12.))
                 .child(div().flex_1().min_w_0().child(crate::hub::settings::kit::notice(
                     BannerKind::Warning,
-                    format!("The download of {} stopped: {message}. Check your internet connection, then try again.", info.name), cx)))
-                .child(Button::new("retry-download", "Try again").on_click(cx.listener(|this, _, _, cx| this.ensure_download(cx))))
+                    t!("onboarding.model.download_failed", name = info.name, error = message), cx)))
+                .child(Button::new("retry-download", t!("onboarding.model.try_again")).on_click(cx.listener(|this, _, _, cx| this.ensure_download(cx))))
                 .into_any_element(),
             ModelStatus::NotDownloaded => well()
                 .child(
@@ -208,21 +209,21 @@ impl OnboardingView {
                         .flex()
                         .items_center()
                         .justify_between()
-                        .child(text::ui(format!("{} is not downloaded yet", info.name), 14., FontWeight::SEMIBOLD, c.ink))
+                        .child(text::ui(t!("onboarding.model.not_downloaded", name = info.name), 14., FontWeight::SEMIBOLD, c.ink))
                         .child(
-                            Button::new("start-download", if info.size_bytes > 0 { format!("Download {}", size_text(info.size_bytes)) } else { "Download".into() })
+                            Button::new("start-download", if info.size_bytes > 0 { t!("onboarding.model.download_size", size = size_text(info.size_bytes)) } else { t!("onboarding.model.download") })
                                 .small()
                                 .icon(Icon::Download)
                                 .on_click(cx.listener(|this, _, _, cx| this.ensure_download(cx))),
                         ),
                 )
-                .child(text::ui("Choose a model above, then press Download. You can continue when the download is done.", 12., FontWeight::NORMAL, c.graphite))
+                .child(text::ui(t!("onboarding.model.choose_then_download"), 12., FontWeight::NORMAL, c.graphite))
                 .into_any_element(),
             ModelStatus::Optimizing | ModelStatus::Downloaded | ModelStatus::Ready => {
                 let detail = match status {
-                    ModelStatus::Ready => crate::shell::os_text!("Downloaded and ready on this Mac.", "Downloaded and ready on this PC.", "Downloaded and ready."),
-                    ModelStatus::Optimizing => crate::shell::os_text!("Downloaded. Sayso is optimizing it for your Mac. This takes a minute the first time.", "Downloaded. Sayso is loading it."),
-                    _ => "Downloaded.",
+                    ModelStatus::Ready => t!(crate::shell::os_text!("onboarding.model.ready_mac", "onboarding.model.ready_windows", "onboarding.model.ready_other")),
+                    ModelStatus::Optimizing => t!(crate::shell::os_text!("onboarding.model.optimizing_mac", "onboarding.model.optimizing_other")),
+                    _ => t!("onboarding.model.downloaded"),
                 };
                 well()
                     .child(super::check_line_w(format!("{} · {}", info.name, size_label(info)), FontWeight::SEMIBOLD, c))

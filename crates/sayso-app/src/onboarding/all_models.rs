@@ -8,6 +8,7 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_core::languages;
 use sayso_core::models::{ModelId, ModelInfo};
 use sayso_core::stt::ModelStatus;
@@ -18,13 +19,13 @@ use sayso_ui::{ActivePaper, text};
 
 pub(super) struct AllModels {
     open: bool,
-    filter: Entity<InputState>,
+    pub(super) filter: Entity<InputState>,
     _filter: Subscription,
 }
 
 impl AllModels {
     pub(super) fn new(window: &mut Window, cx: &mut Context<OnboardingView>) -> Self {
-        let filter = crate::widgets::input_state("Filter by name or language", "", window, cx);
+        let filter = crate::widgets::input_state(&t!("onboarding.all_models.filter_placeholder"), "", window, cx);
         let sub = cx.subscribe(&filter, |_, _, _: &InputEvent, cx| cx.notify());
         Self { open: false, filter, _filter: sub }
     }
@@ -67,8 +68,8 @@ impl OnboardingView {
         let c = cx.paper().colors;
         let selected = info.id == *active;
         let state = match self.model.read(cx).status_of(&info.id) {
-            ModelStatus::Downloading { .. } => Some("Downloading"),
-            s if s.is_on_disk() => Some("Downloaded"),
+            ModelStatus::Downloading { .. } => Some(t!("onboarding.all_models.downloading")),
+            s if s.is_on_disk() => Some(t!("onboarding.all_models.downloaded")),
             _ => None,
         };
         let id = info.id.clone();
@@ -102,7 +103,7 @@ impl OnboardingView {
                             .items_center()
                             .gap(px(8.))
                             .child(text::title(info.name.clone(), 16., &c).line_height(px(20.)))
-                            .when(info.recommended, |d| d.child(Badge::new("Recommended", BadgeTone::Accent)))
+                            .when(info.recommended, |d| d.child(Badge::new(t!("onboarding.model.recommended"), BadgeTone::Accent)))
                             .when_some(state, |d, s| d.child(Badge::new(s, BadgeTone::Muted))),
                     )
                     .child(
@@ -133,7 +134,7 @@ impl OnboardingView {
         let mut list = div().id("all-models-list").flex().flex_col().flex_1().min_h_0().px(px(16.)).pb(px(16.));
         if models.is_empty() {
             list = list.child(div().px(px(12.)).py(px(20.)).child(text::ui(
-                "No model matches the filter. Try a different name or language.",
+                t!("onboarding.all_models.no_match"),
                 13.,
                 FontWeight::NORMAL,
                 c.graphite,
@@ -153,8 +154,8 @@ impl OnboardingView {
                     .h(px(34.))
                     .px(px(12.))
                     .child(caps(title, 11., c.graphite).flex_1())
-                    .child(caps("Speed", 11., c.graphite).w(px(82.)).flex_none())
-                    .child(caps("Size", 11., c.graphite).w(px(64.)).flex_none().text_right()),
+                    .child(caps(t!("onboarding.all_models.speed"), 11., c.graphite).w(px(82.)).flex_none())
+                    .child(caps(t!("onboarding.all_models.size"), 11., c.graphite).w(px(64.)).flex_none().text_right()),
             );
             for info in group {
                 list = list.child(self.all_models_row(info, &active, cx));
@@ -172,13 +173,9 @@ impl OnboardingView {
                     .flex()
                     .flex_col()
                     .gap(px(4.))
-                    .child(text::title("All models", 24., &c).line_height(px(30.)))
+                    .child(text::title(t!("onboarding.all_models.title"), 24., &c).line_height(px(30.)))
                     .child(text::ui(
-                        crate::shell::os_text!(
-                            "All of these models run on your Mac. Choose one, and Sayso downloads it.",
-                            "All of these models run on this PC. Choose one, and Sayso downloads it.",
-                            "All of these models run on this computer. Choose one, and Sayso downloads it.",
-                        ),
+                        t!(crate::shell::os_text!("onboarding.all_models.lead_mac", "onboarding.all_models.lead_windows", "onboarding.all_models.lead_other")),
                         13.,
                         FontWeight::NORMAL,
                         c.graphite,

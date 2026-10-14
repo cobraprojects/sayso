@@ -314,7 +314,7 @@ impl AppModel {
     fn final_pass(&self) -> Result<FinalPass, String> {
         let info = self.active_model();
         if let Some((provider, model)) = split_model_id(&info.id) {
-            let provider = self.config.speech.provider(provider).cloned().ok_or("The cloud provider of this model is not set up.")?;
+            let provider = self.config.speech.provider(provider).cloned().ok_or_else(|| t!("overlay.error.cloud_provider_not_set_up"))?;
             // If the provider fails, a local model that is already in memory takes over.
             let fallback = self
                 .services
@@ -331,7 +331,7 @@ impl AppModel {
                 fallback,
             });
         }
-        let engine = self.services.engine.clone().ok_or("The speech engine is not running.")?;
+        let engine = self.services.engine.clone().ok_or_else(|| t!("overlay.error.engine_not_running"))?;
         Ok(FinalPass::Local { engine, model: info.id })
     }
 
@@ -403,7 +403,7 @@ impl AppModel {
         if provider.needs_model() {
             self.session(session).enhance =
                 Some(EnhanceOutcome::Failed { provider_id: provider.id.clone(), reason: "no model is chosen for it".into() });
-            let enhance_error = Some(format!("{} has no model chosen", provider.id));
+            let enhance_error = Some(t!("overlay.error.no_model_chosen", provider = provider.id));
             self.dispatch(Event::ReadyToInsert { session, text, style_name: None, enhance_error }, cx);
             return;
         }
@@ -512,11 +512,16 @@ impl AppModel {
                 }
                 Err(e) => {
                     m.session(session).diagnostics.insert = Some(timings);
-                    let reason = match e {
+                    // The diagnostics keep the English reason, so a bug report reads the same in each language.
+                    let stored = match &e {
                         InsertError::NoFocusedField => "No text field is focused".to_string(),
                         other => other.to_string(),
                     };
-                    m.session(session).insert = Some(InsertOutcome::Failed { reason: reason.clone() });
+                    let reason = match e {
+                        InsertError::NoFocusedField => t!("overlay.error.no_focused_field"),
+                        other => other.to_string(),
+                    };
+                    m.session(session).insert = Some(InsertOutcome::Failed { reason: stored });
                     m.dispatch(Event::InsertFailed { session, text, reason }, cx);
                 }
             });
@@ -822,7 +827,7 @@ impl FinalPass {
                     match engine.status(model) {
                         ModelStatus::Ready => break,
                         ModelStatus::Failed { message } => return Err(message),
-                        _ if Instant::now() > deadline => return Err("The model did not load in time.".into()),
+                        _ if Instant::now() > deadline => return Err(t!("overlay.error.model_load_timeout")),
                         _ => std::thread::sleep(Duration::from_millis(150)),
                     }
                 }
@@ -853,7 +858,7 @@ impl FinalPass {
                         let Some((engine, local)) = fallback else { return Err(message) };
                         let options = SessionOptions { final_model: local.id.clone(), ..options.clone() };
                         let transcript = engine.transcribe(samples, &options).map_err(|_| message)?;
-                        let note = Some(format!("{} did not answer. Sayso used {}.", provider.name, local.name));
+                        let note = Some(t!("overlay.notice.provider_fallback", provider = provider.name, local = local.name));
                         Ok(Passed { transcript, note, model_wait_ms: 0 })
                     }
                 }

@@ -131,6 +131,7 @@ pub struct Tray;
 
 impl Tray {
     pub fn set_incognito(&self, _on: bool) {}
+    pub fn refresh_labels(&self) {}
 
     pub fn install(_on_event: impl Fn(TrayEvent) + Send + Sync + 'static) -> Option<Tray> {
         None
@@ -159,7 +160,7 @@ impl HotkeySource for NoHotkeys {
         let failed = [bindings.toggle, bindings.push_to_talk, bindings.paste_last, bindings.cycle_style, bindings.incognito]
             .into_iter()
             .flatten()
-            .map(|h| (h, "Hotkeys are not built for this system yet.".to_string()))
+            .map(|h| (h, sayso_i18n::t!("app.hotkeys_not_built")))
             .collect();
         HotkeyRegistration { failed, needs_input_monitoring: false }
     }
@@ -182,7 +183,7 @@ struct Nothing;
 
 impl TextInserter for Nothing {
     fn insert(&self, _text: &str, _method: InsertMethod) -> Result<InsertResult, InsertError> {
-        Err(InsertError::Failed("Insertion is not built for this system yet.".into()))
+        Err(InsertError::Failed(sayso_i18n::t!("app.insertion_not_built")))
     }
     fn copy_to_clipboard(&self, _text: &str) {}
 }

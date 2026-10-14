@@ -384,7 +384,7 @@ impl AppModel {
             // The installed app is the new version now. Quit, and it starts.
             Ok(()) => cx.quit(),
             Err(sayso_update::SwapError::Busy) => {
-                self.update = sayso_update::Status::Failed { message: "Another Sayso runs from this app. Quit it, then try again.".into() };
+                self.update = sayso_update::Status::Failed { message: t!("app.update.busy") };
             }
             Err(sayso_update::SwapError::Failed(message)) => self.update = sayso_update::Status::Failed { message },
         }
@@ -1110,7 +1110,7 @@ impl AppModel {
                     login.sign_in = None;
                     login.url = None;
                     if !signed_in {
-                        login.error = Some("The sign-in did not finish. Select Sign in to try again.".into());
+                        login.error = Some(t!("app.sign_in.not_finished"));
                     }
                 }
                 if login.sign_in.is_none() {
@@ -1144,7 +1144,7 @@ impl AppModel {
     pub fn send_sign_in_code(&mut self, id: &str, code: &str, cx: &mut Context<Self>) {
         let Some(login) = self.logins.get_mut(id) else { return };
         let Some(sign_in) = login.sign_in.clone() else { return };
-        login.error = sign_in.send_code(code.trim()).err().map(|e| format!("Sayso could not send the code: {e}"));
+        login.error = sign_in.send_code(code.trim()).err().map(|e| t!("app.sign_in.code_failed", error = e));
         cx.notify();
     }
 
@@ -1469,24 +1469,24 @@ impl AppModel {
         if model.is_remote() {
             // The engine process plays no part in a cloud final pass.
             return match self.status_of(&model.id) {
-                ModelStatus::Ready => ("Ready".into(), format!("{} · Cloud", model.name), |c| c.success),
-                _ => ("No model".into(), "Open Models to choose one".into(), |c| c.danger),
+                ModelStatus::Ready => (t!("app.engine.ready"), t!("app.engine.detail_cloud", model = model.name), |c| c.success),
+                _ => (t!("app.engine.no_model"), t!("app.engine.choose_model"), |c| c.danger),
             };
         }
         if self.services.engine.is_none() || self.engine_down.is_some() {
-            return ("Engine stopped".into(), "Restarting…".into(), |c| c.danger);
+            return (t!("app.engine.stopped"), t!("app.engine.restarting"), |c| c.danger);
         }
         match self.status_of(&model.id) {
-            ModelStatus::Ready => ("Ready".into(), model.name, |c| c.success),
-            ModelStatus::Optimizing => ("Optimizing".into(), model.name, |c| c.accent),
+            ModelStatus::Ready => (t!("app.engine.ready"), model.name, |c| c.success),
+            ModelStatus::Optimizing => (t!("app.engine.optimizing"), model.name, |c| c.accent),
             ModelStatus::Downloading { fraction, .. } => {
-                ("Downloading".into(), format!("{} · {:.0}%", model.name, fraction * 100.0), |c| c.accent)
+                (t!("app.engine.downloading"), t!("app.engine.detail_downloading", model = model.name, percent = format!("{:.0}", fraction * 100.0)), |c| c.accent)
             }
             // The idle time unloaded the model. The next dictation loads it.
-            ModelStatus::Downloaded if self.model_idle => ("Ready".into(), format!("{} · not in memory", model.name), |c| c.success),
-            ModelStatus::Downloaded => ("Loading".into(), model.name, |c| c.accent),
-            ModelStatus::NotDownloaded => ("No model".into(), "Open Models to download".into(), |c| c.danger),
-            ModelStatus::Failed { .. } => ("Model error".into(), model.name, |c| c.danger),
+            ModelStatus::Downloaded if self.model_idle => (t!("app.engine.ready"), t!("app.engine.detail_not_in_memory", model = model.name), |c| c.success),
+            ModelStatus::Downloaded => (t!("app.engine.loading"), model.name, |c| c.accent),
+            ModelStatus::NotDownloaded => (t!("app.engine.no_model"), t!("app.engine.download_model"), |c| c.danger),
+            ModelStatus::Failed { .. } => (t!("app.engine.model_error"), model.name, |c| c.danger),
         }
     }
 

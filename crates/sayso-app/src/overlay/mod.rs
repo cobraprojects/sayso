@@ -445,7 +445,7 @@ impl Render for OverlayView {
                                     .px(z(9.))
                                     .rounded_full()
                                     .debossed(&c)
-                                    .child(text::ui("Incognito", 12. * tk, FontWeight::MEDIUM, c.graphite)),
+                                    .child(text::ui(sayso_i18n::t!("overlay.incognito"), 12. * tk, FontWeight::MEDIUM, c.graphite)),
                             )
                         })
                         .child(capture());
@@ -461,10 +461,10 @@ impl Render for OverlayView {
                 State::Processing { stage, .. } => {
                     let label = match (stage, &model_status) {
                         // The final pass waits for a model that is not in memory yet.
-                        (_, ModelStatus::Optimizing | ModelStatus::Downloaded) => "Loading the model",
-                        (Stage::Enhancing, _) => "Applying style",
-                        (Stage::Inserting, _) => "Inserting",
-                        _ => "Transcribing",
+                        (_, ModelStatus::Optimizing | ModelStatus::Downloaded) => sayso_i18n::t!("overlay.stage.loading_model"),
+                        (Stage::Enhancing, _) => sayso_i18n::t!("overlay.stage.applying_style"),
+                        (Stage::Inserting, _) => sayso_i18n::t!("overlay.stage.inserting"),
+                        _ => sayso_i18n::t!("overlay.stage.transcribing"),
                     };
                     let p = if reduce { 0.6 } else { ((self.phase_start.elapsed().as_secs_f32() * 0.55).fract() * 0.9 + 0.08).min(0.98) };
                     div()
@@ -493,12 +493,12 @@ impl Render for OverlayView {
                         .rounded_full()
                         .floating(&c)
                         .child(Seal::new(28. * k))
-                        .child(text::ui("Inserted", 14. * tk, FontWeight::SEMIBOLD, c.ink))
+                        .child(text::ui(sayso_i18n::t!("overlay.inserted"), 14. * tk, FontWeight::SEMIBOLD, c.ink))
                         .when_some(style_name.clone(), |d, s| d.child(StyleTag::new(s, Some(c.ink))))
                         .child(capture())
                         .into_any_element(),
                     Notice::InsertedRaw { reason } => {
-                        notice_pill(Icon::Check, "Inserted without enhancement", Some(reason), size, &c).child(capture()).into_any_element()
+                        notice_pill(Icon::Check, &sayso_i18n::t!("overlay.inserted_raw"), Some(reason), size, &c).child(capture()).into_any_element()
                     }
                     Notice::Cancelled => {
                         let total = 5000.0;
@@ -514,7 +514,7 @@ impl Render for OverlayView {
                             .py(z(8.))
                             .rounded_full()
                             .floating(&c)
-                            .child(text::ui("Cancelled", 14. * tk, FontWeight::MEDIUM, c.graphite))
+                            .child(text::ui(sayso_i18n::t!("overlay.cancelled"), 14. * tk, FontWeight::MEDIUM, c.graphite))
                             .child(
                                 div()
                                     .id("undo")
@@ -529,7 +529,7 @@ impl Render for OverlayView {
                                     .cursor_pointer()
                                     .on_click(move |_, _, cx| model.update(cx, |m, cx| m.undo_cancel(cx)))
                                     .child(countdown_ring(left, c.on_ink).size(z(18.)))
-                                    .child(text::ui("Undo", 14. * tk, FontWeight::SEMIBOLD, c.on_ink)),
+                                    .child(text::ui(sayso_i18n::t!("overlay.undo"), 14. * tk, FontWeight::SEMIBOLD, c.on_ink)),
                             )
                             .child(capture())
                             .into_any_element()
@@ -556,11 +556,11 @@ impl Render for OverlayView {
                                     .justify_end()
                                     .gap(z(6.))
                                     .child(
-                                        Button::new("dismiss", "Dismiss")
+                                        Button::new("dismiss", sayso_i18n::t!("overlay.dismiss"))
                                             .small()
                                             .on_click(move |_, _, cx| m1.update(cx, |m, cx| m.dismiss_notice(cx))),
                                     )
-                                    .child(Button::new("copy", "Copy text").small().primary().on_click(move |_, _, cx| {
+                                    .child(Button::new("copy", sayso_i18n::t!("overlay.copy_text")).small().primary().on_click(move |_, _, cx| {
                                         m2.update(cx, |m, cx| {
                                             m.copy_text(&copy);
                                             m.dismiss_notice(cx);
@@ -616,7 +616,7 @@ fn idle_pill(hovered: bool, caps: &[String], size: OverlaySize, c: &sayso_ui::Co
             .bg(c.sheet_raised)
             .shadow(paper::raised(c))
             .child(Keycaps::new(caps.iter().cloned()).size(if k < 0.8 { KeySize::Small } else { KeySize::Medium }))
-            .child(text::ui("to dictate", 14. * tk, FontWeight::MEDIUM, c.graphite));
+            .child(text::ui(sayso_i18n::t!("overlay.to_dictate"), 14. * tk, FontWeight::MEDIUM, c.graphite));
     }
     div()
         .relative()

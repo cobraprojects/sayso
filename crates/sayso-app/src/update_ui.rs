@@ -5,6 +5,7 @@ use crate::hub::{Route, SettingsPage};
 use crate::model::AppModel;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_ui::ActivePaper;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
@@ -31,6 +32,48 @@ pub enum Action {
     OpenSettings,
 }
 
+/// The text of a button. An enum, not a string, so that a status stays `Copy`
+/// and the text follows the interface language when it is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Label {
+    /// No button text.
+    None,
+    CheckForUpdates,
+    UpdateNow,
+    ShowInFinder,
+    HowToUpdate,
+    Download,
+    Cancel,
+    RestartToUpdate,
+    OpenDownloadPage,
+    TryAgain,
+    SeeWhy,
+}
+
+impl Label {
+    pub fn text(self) -> String {
+        match self {
+            Label::None => String::new(),
+            Label::CheckForUpdates => t!("update.action.check"),
+            Label::UpdateNow => t!("update.action.update_now"),
+            Label::ShowInFinder => t!("update.action.show_in_finder"),
+            Label::HowToUpdate => t!("update.action.how_to_update"),
+            Label::Download => t!("update.action.download"),
+            Label::Cancel => t!("update.action.cancel"),
+            Label::RestartToUpdate => t!("update.action.restart"),
+            Label::OpenDownloadPage => t!("update.action.open_download_page"),
+            Label::TryAgain => t!("update.action.try_again"),
+            Label::SeeWhy => t!("update.action.see_why"),
+        }
+    }
+}
+
+impl From<Label> for SharedString {
+    fn from(label: Label) -> Self {
+        label.text().into()
+    }
+}
+
 /// How one status reads.
 #[derive(Debug, Clone, PartialEq)]
 pub struct View {
@@ -42,10 +85,10 @@ pub struct View {
     pub progress: Option<f32>,
     pub notes_url: Option<String>,
     /// The button in Settings.
-    pub action: Option<(&'static str, Action)>,
+    pub action: Option<(Label, Action)>,
     /// The line in the sidebar and the Popover, with its action there. None
     /// when the user has nothing to do or to watch.
-    pub short: Option<(String, &'static str, Action)>,
+    pub short: Option<(String, Label, Action)>,
 }
 
 pub fn view(status: &Status) -> View {
@@ -53,70 +96,64 @@ pub fn view(status: &Status) -> View {
     let plain = |title: String, detail: String| View { title, detail, tone: Tone::Plain, progress: None, notes_url: None, action: None, short: None };
     match status {
         Status::Idle { last_check } => View {
-            action: Some(("Check for updates", Action::Check)),
-            ..plain(
-                "Sayso is up to date".into(),
-                match last_check {
-                    Some(at) => format!("Version {version}. Last check {}.", when(*at)),
-                    None => format!("Version {version}. Sayso did not check yet."),
-                },
-            )
+            action: Some((Label::CheckForUpdates, Action::Check)),
+            ..plain(t!("update.up_to_date"), last_check_detail(*last_check))
         },
-        Status::Checking => plain("Checking for updates…".into(), format!("Version {version}")),
+        Status::Checking => plain(t!("update.checking"), t!("update.version", version = version)),
         Status::Available { version: new, notes_url, manual } => {
-            let title = format!("Sayso {new} is available");
+            let title = t!("update.available", version = new);
             let (detail, action, short) = match manual {
-                None => (format!("You have {version}."), ("Update now", Action::Install), ("Update now", Action::Install)),
+                None => (t!("update.you_have", version = version), (Label::UpdateNow, Action::Install), (Label::UpdateNow, Action::Install)),
                 Some(Manual::WrongFolder) => (
-                    "Sayso cannot update itself from this folder. Move Sayso to the Applications folder, then open it again.".into(),
-                    ("Show in Finder", Action::ShowApp),
-                    ("How to update", Action::OpenSettings),
+                    t!("update.wrong_folder"),
+                    (Label::ShowInFinder, Action::ShowApp),
+                    (Label::HowToUpdate, Action::OpenSettings),
                 ),
                 Some(Manual::NoPermission) => (
-                    format!("You have {version}. Sayso cannot write to its folder, so it cannot update itself. Download the new version and install it."),
-                    ("Download", Action::DownloadPage),
-                    ("How to update", Action::OpenSettings),
+                    t!("update.no_permission", version = version),
+                    (Label::Download, Action::DownloadPage),
+                    (Label::HowToUpdate, Action::OpenSettings),
                 ),
                 Some(Manual::NoExchange) => (
-                    format!("You have {version}. The disk of Sayso cannot replace an app in one step, so Sayso cannot update itself. Download the new version and install it."),
-                    ("Download", Action::DownloadPage),
-                    ("How to update", Action::OpenSettings),
+                    t!("update.no_exchange", version = version),
+                    (Label::Download, Action::DownloadPage),
+                    (Label::HowToUpdate, Action::OpenSettings),
                 ),
-                Some(Manual::Unsupported) => (format!("You have {version}. Download the new version and install it."), ("Download", Action::DownloadPage), ("Download", Action::DownloadPage)),
+                Some(Manual::Unsupported) => (t!("update.unsupported", version = version), (Label::Download, Action::DownloadPage), (Label::Download, Action::DownloadPage)),
                 Some(Manual::Packaged(package)) => return packaged(*package, title, notes_url),
             };
             View { tone: Tone::Accent, notes_url: Some(notes_url.clone()), action: Some(action), short: Some((title.clone(), short.0, short.1)), ..plain(title, detail) }
         }
         Status::Downloading { version: new, received, total } => View {
             progress: Some(if *total == 0 { 0. } else { *received as f32 / *total as f32 }),
-            action: Some(("Cancel", Action::Cancel)),
-            short: Some((format!("Downloading {new}"), "", Action::OpenSettings)),
-            ..plain(format!("Downloading Sayso {new}"), format!("{} of {}", megabytes(*received), megabytes(*total)))
+            action: Some((Label::Cancel, Action::Cancel)),
+            short: Some((t!("update.downloading_short", version = new), Label::None, Action::OpenSettings)),
+            ..plain(
+                t!("update.downloading", version = new),
+                t!("update.downloaded", received = megabytes(*received), total = megabytes(*total)),
+            )
         },
         Status::Preparing { version: new } => View {
-            short: Some((format!("Preparing {new}…"), "", Action::OpenSettings)),
-            ..plain(format!("Preparing Sayso {new}…"), "Sayso unpacks the new version and checks its signature.".into())
+            short: Some((t!("update.preparing_short", version = new), Label::None, Action::OpenSettings)),
+            ..plain(t!("update.preparing", version = new), t!("update.preparing_detail"))
         },
         Status::Ready { version: new } => View {
             tone: Tone::Accent,
-            action: Some(("Restart to update", Action::Restart)),
-            short: Some((format!("Sayso {new} is ready"), "Restart to update", Action::Restart)),
-            ..plain(format!("Sayso {new} is ready to install"), "Sayso closes and opens again. This takes a few seconds.".into())
+            action: Some((Label::RestartToUpdate, Action::Restart)),
+            short: Some((t!("update.ready_short", version = new), Label::RestartToUpdate, Action::Restart)),
+            ..plain(t!("update.ready", version = new), t!("update.ready_detail"))
         },
         Status::Unreadable => View {
             tone: Tone::Accent,
-            action: Some(("Open the download page", Action::DownloadPage)),
-            short: Some(("A newer Sayso is available".into(), "Download", Action::DownloadPage)),
-            ..plain(
-                "A newer Sayso is available".into(),
-                format!("Version {version} cannot read the update information. Download the new version and install it."),
-            )
+            action: Some((Label::OpenDownloadPage, Action::DownloadPage)),
+            short: Some((t!("update.newer_available"), Label::Download, Action::DownloadPage)),
+            ..plain(t!("update.newer_available"), t!("update.unreadable_detail", version = version))
         },
         Status::Failed { message } => View {
             tone: Tone::Danger,
-            action: Some(("Try again", Action::Check)),
-            short: Some(("Sayso could not update".into(), "See why", Action::OpenSettings)),
-            ..plain("Sayso could not update".into(), message.clone())
+            action: Some((Label::TryAgain, Action::Check)),
+            short: Some((t!("update.failed"), Label::SeeWhy, Action::OpenSettings)),
+            ..plain(t!("update.failed"), message.clone())
         },
     }
 }
@@ -127,26 +164,17 @@ pub fn view(status: &Status) -> View {
 /// release, so those two get no button.
 fn packaged(package: Package, title: String, notes_url: &str) -> View {
     let version = sayso_update::VERSION;
-    let download = Some(("Download", Action::DownloadPage));
+    let download = Some((Label::Download, Action::DownloadPage));
     let (detail, action) = match package {
-        Package::AppImage => (format!("You have {version}. Download the new AppImage and use it in place of this one."), download),
+        Package::AppImage => (t!("update.packaged_appimage", version = version), download),
         // The scope must be the scope of this install: a file that goes to
         // the system does not replace an install of the user.
-        Package::Flatpak => (
-            format!("You have {version}. Download the new Flatpak file. Then install it as you installed this one: \"flatpak install --user\" and the file, or without \"--user\" for an install for all users."),
-            download,
-        ),
-        Package::Aur => (
-            format!("You have {version}. Update the AUR package with your AUR helper, for example \"yay -S sayso-bin\". The package can get the new version some time after the release."),
-            None,
-        ),
-        Package::Nix => (
-            // Sayso cannot tell a system configuration from `nix run` or a profile.
-            format!("You have {version}. Get the new version with Nix. In a system configuration, update the flake input of Sayso and build the system again. With \"nix run\", add \"--refresh\". The flake can get the new version some time after the release."),
-            None,
-        ),
+        Package::Flatpak => (t!("update.packaged_flatpak", version = version), download),
+        Package::Aur => (t!("update.packaged_aur", version = version), None),
+        // Sayso cannot tell a system configuration from `nix run` or a profile.
+        Package::Nix => (t!("update.packaged_nix", version = version), None),
     };
-    let short = action.unwrap_or(("How to update", Action::OpenSettings));
+    let short = action.unwrap_or((Label::HowToUpdate, Action::OpenSettings));
     View { title: title.clone(), detail, tone: Tone::Accent, progress: None, notes_url: Some(notes_url.to_string()), action, short: Some((title, short.0, short.1)) }
 }
 
@@ -170,19 +198,24 @@ pub fn perform(action: Action, model: &Entity<AppModel>, cx: &mut App) {
 }
 
 fn megabytes(bytes: u64) -> String {
-    format!("{} MB", (bytes as f64 / 1_000_000.).round() as u64)
+    t!("update.megabytes", number = (bytes as f64 / 1_000_000.).round() as u64)
 }
 
-/// "today at 9:41" or "on Oct 2 at 9:41", in local time.
-fn when(unix_seconds: u64) -> String {
+/// "Version 0.7.1. Last check today at 9:41.", in local time.
+fn last_check_detail(last_check: Option<u64>) -> String {
     use chrono::{Local, TimeZone};
-    let Some(at) = Local.timestamp_opt(unix_seconds as i64, 0).single() else {
-        return "at an unknown time".into();
+    let version = sayso_update::VERSION;
+    let Some(unix_seconds) = last_check else {
+        return t!("update.never_checked", version = version);
     };
+    let Some(at) = Local.timestamp_opt(unix_seconds as i64, 0).single() else {
+        return t!("update.last_check_unknown", version = version);
+    };
+    let time = at.format("%-H:%M").to_string();
     if at.date_naive() == Local::now().date_naive() {
-        format!("today at {}", at.format("%-H:%M"))
+        t!("update.last_check_today", version = version, time = time)
     } else {
-        format!("on {}", at.format("%b %-d at %-H:%M"))
+        t!("update.last_check_date", version = version, date = sayso_i18n::dates::day_month_short(&at), time = time)
     }
 }
 
@@ -208,7 +241,7 @@ pub fn rail_slip(model: &Entity<AppModel>, cx: &App) -> Option<AnyElement> {
         .justify_center()
         .size(px(36.))
         .rounded(px(9.))
-        .tooltip(text_tooltip(format!("{headline}. {label}")));
+        .tooltip(text_tooltip(t!("update.tooltip", headline = headline, label = label.text())));
     Some(if action == Action::Restart {
         slip.ink_button(&c)
             .when(can_restart, |d| d.cursor_pointer().on_click(move |_, _, cx| perform(Action::Restart, &model, cx)))
@@ -249,7 +282,7 @@ pub fn sidebar_slip(model: &Entity<AppModel>, cx: &App) -> Option<AnyElement> {
                         .flex_1()
                         .min_w_0()
                         .gap(px(1.))
-                        .child(text::ui(label, 13., FontWeight::SEMIBOLD, c.on_ink))
+                        .child(text::ui(label.text(), 13., FontWeight::SEMIBOLD, c.on_ink))
                         .child(text::ui(headline, 12., FontWeight::NORMAL, c.on_ink.opacity(0.7))),
                 )
                 .into_any_element(),
@@ -274,9 +307,9 @@ pub fn sidebar_slip(model: &Entity<AppModel>, cx: &App) -> Option<AnyElement> {
         );
     }
     let (title, detail) = match &m.update {
-        Status::Available { version, .. } => ("Update available".to_string(), format!("Sayso {version}")),
-        Status::Unreadable => ("Update available".to_string(), "A newer Sayso".to_string()),
-        Status::Failed { .. } => (headline, label.to_string()),
+        Status::Available { version, .. } => (t!("update.slip_title"), t!("update.slip_version", version = version)),
+        Status::Unreadable => (t!("update.slip_title"), t!("update.slip_newer")),
+        Status::Failed { .. } => (headline, label.text()),
         _ => (headline, String::new()),
     };
     let dot = match v.tone {
@@ -309,7 +342,7 @@ pub fn popover_line(model: &Entity<AppModel>, hide: fn(&mut App), cx: &App) -> O
     let m = model.read(cx);
     let line = || div().flex().flex_1().items_center().gap(px(10.)).h(px(38.)).pl(px(12.)).pr(px(4.)).rounded(px(9.));
     let wrap = |inner: Div| div().flex().px(px(4.)).pt(px(8.)).pb(px(6.)).child(inner).into_any_element();
-    let button = |id: &'static str, label: &'static str, color: Hsla| {
+    let button = |id: &'static str, label: String, color: Hsla| {
         div()
             .id(id)
             .flex()
@@ -332,8 +365,8 @@ pub fn popover_line(model: &Entity<AppModel>, hide: fn(&mut App), cx: &App) -> O
                 .raised_small(&c)
                 .pr(px(6.))
                 .child(icon(Icon::Check, 14., c.graphite))
-                .child(text::ui(format!("Sayso is now {version}"), 13., FontWeight::MEDIUM, c.ink).flex_1().truncate())
-                .child(button("update-notes", "What is new", c.accent).on_click({
+                .child(text::ui(t!("update.now_version", version = version), 13., FontWeight::MEDIUM, c.ink).flex_1().truncate())
+                .child(button("update-notes", t!("update.whats_new"), c.accent).on_click({
                     let model = model.clone();
                     move |_, _, cx| {
                         // The notes in the app, when this version has some.
@@ -372,7 +405,7 @@ pub fn popover_line(model: &Entity<AppModel>, hide: fn(&mut App), cx: &App) -> O
                 .child(text::mono(format!("{}%", (progress * 100.) as u32), 12., c.graphite).font_weight(FontWeight::NORMAL)),
         ));
     }
-    if label.is_empty() {
+    if label == Label::None {
         return Some(wrap(line().debossed(&c).pr(px(12.)).child(text::ui(headline, 13., FontWeight::MEDIUM, c.ink).flex_1().truncate())));
     }
     let (wash, ink, strong) = match v.tone {
@@ -388,7 +421,7 @@ pub fn popover_line(model: &Entity<AppModel>, hide: fn(&mut App), cx: &App) -> O
             .border_color(strong.opacity(0.14))
             .child(div().flex_none().size(px(7.)).rounded_full().bg(strong))
             .child(text::ui(headline, 13., FontWeight::MEDIUM, ink).flex_1().truncate())
-            .child(button("update-action", label, strong).when(off, |d| d.opacity(0.5)).on_click(move |_, _, cx| {
+            .child(button("update-action", label.text(), strong).when(off, |d| d.opacity(0.5)).on_click(move |_, _, cx| {
                 if off {
                     return;
                 }
@@ -404,7 +437,7 @@ pub fn popover_line(model: &Entity<AppModel>, hide: fn(&mut App), cx: &App) -> O
 #[cfg(test)]
 mod tests {
     // Not `super::*`: that brings in the `test` attribute of GPUI.
-    use super::{Action, view};
+    use super::{Action, Label, view};
     use sayso_update::{Manual, Package, Status};
 
     fn available(manual: Option<Manual>) -> Status {
@@ -432,7 +465,8 @@ mod tests {
         let v = view(&available(None));
         assert_eq!(v.title, "Sayso 9.9.9 is available");
         assert_eq!(v.detail, format!("You have {}.", sayso_update::VERSION));
-        assert_eq!(v.action, Some(("Update now", Action::Install)));
+        assert_eq!(v.action, Some((Label::UpdateNow, Action::Install)));
+        assert_eq!(Label::UpdateNow.text(), "Update now");
         assert_eq!(v.notes_url.as_deref(), Some("https://example.com/notes"));
     }
 
@@ -451,8 +485,8 @@ mod tests {
         // The download page has the new file of these two.
         for package in [Package::AppImage, Package::Flatpak] {
             let v = view(&available(Some(Manual::Packaged(package))));
-            assert_eq!(v.action, Some(("Download", Action::DownloadPage)), "{package:?}");
-            assert!(matches!(v.short, Some((_, "Download", Action::DownloadPage))), "{package:?}");
+            assert_eq!(v.action, Some((Label::Download, Action::DownloadPage)), "{package:?}");
+            assert!(matches!(v.short, Some((_, Label::Download, Action::DownloadPage))), "{package:?}");
         }
         // A Flatpak file without the scope of the install goes to the wrong place.
         assert!(view(&available(Some(Manual::Packaged(Package::Flatpak)))).detail.contains("flatpak install --user"));
@@ -462,7 +496,7 @@ mod tests {
             assert_eq!(v.title, "Sayso 9.9.9 is available");
             assert!(v.detail.contains(command), "{}", v.detail);
             assert_eq!(v.action, None, "{package:?}");
-            assert!(matches!(v.short, Some((_, "How to update", Action::OpenSettings))), "{package:?}");
+            assert!(matches!(v.short, Some((_, Label::HowToUpdate, Action::OpenSettings))), "{package:?}");
             assert_eq!(v.notes_url.as_deref(), Some("https://example.com/notes"));
         }
     }
@@ -472,6 +506,6 @@ mod tests {
         let v = view(&Status::Downloading { version: "9.9.9".parse().unwrap(), received: 18_000_000, total: 41_000_000 });
         assert_eq!(v.detail, "18 MB of 41 MB");
         assert!((v.progress.unwrap() - 18. / 41.).abs() < 0.001);
-        assert_eq!(v.action, Some(("Cancel", Action::Cancel)));
+        assert_eq!(v.action, Some((Label::Cancel, Action::Cancel)));
     }
 }

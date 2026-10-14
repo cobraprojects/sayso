@@ -2,6 +2,7 @@
 
 use super::OnboardingView;
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::ActivePaper;
 use sayso_ui::components::ink_waveform;
@@ -28,7 +29,7 @@ impl OnboardingView {
             .child(droplet(484., 21., 2.6, 0.4))
             .child(droplet(86., 60., 2.1, 0.3))
             .child(droplet(313., 74., 1.6, 0.3));
-        let title = "Welcome to Sayso";
+        let title = t!("onboarding.welcome.title");
         let display = |color: Hsla| {
             div()
                 .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
@@ -36,9 +37,9 @@ impl OnboardingView {
                 .line_height(px(59.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color)
-                .child(title)
+                .child(title.clone())
         };
-        let fact = |label: &'static str| {
+        let fact = |label: String| {
             div()
                 .flex()
                 .items_center()
@@ -65,11 +66,7 @@ impl OnboardingView {
                     .child(div().relative().child(display(c.highlight(0.85)).absolute().top(px(1.)).left_0()).child(display(c.ink)))
                     .child(
                         text::ui(
-                            crate::shell::os_text!(
-                                "Dictate into any app on your Mac. Speech recognition runs on this Mac, so your voice never leaves it.",
-                                "Dictate into any app on your PC. Speech recognition runs on this PC, so your voice never leaves it.",
-                                "Dictate into any app. Speech recognition runs on this computer, so your voice never leaves it.",
-                            ),
+                            t!(crate::shell::os_text!("onboarding.welcome.lead_mac", "onboarding.welcome.lead_windows", "onboarding.welcome.lead_other")),
                             17.,
                             FontWeight::NORMAL,
                             c.graphite,
@@ -84,9 +81,9 @@ impl OnboardingView {
                     .flex()
                     .gap(px(28.))
                     .pt(px(8.))
-                    .child(fact(crate::shell::os_text!("Runs on the Neural Engine", "Runs on this PC", "Runs on this computer")))
-                    .child(fact("Works in every app"))
-                    .child(fact("Setup takes about 3 minutes")),
+                    .child(fact(t!(crate::shell::os_text!("onboarding.welcome.fact_engine_mac", "onboarding.welcome.fact_engine_windows", "onboarding.welcome.fact_engine_other"))))
+                    .child(fact(t!("onboarding.welcome.fact_every_app")))
+                    .child(fact(t!("onboarding.welcome.fact_setup_time"))),
             )
             .into_any_element()
     }
