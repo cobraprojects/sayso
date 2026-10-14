@@ -100,6 +100,20 @@ An install is Manual in these cases:
 - Linux: the install is a `--system` install, has no install marker, or its file system has no atomic exchange.
 - All systems: the manifest has a `schema` that this version does not know. The text says that this version cannot read the update information, with a link to the download page.
 
+On Linux, Sayso also finds the package that holds the install, and the text names the place of the new version. The code is `crates/sayso-update/src/install/package.rs`.
+
+| Package | How Sayso finds it | What the user gets |
+|---|---|---|
+| AppImage | The executable is in the folder of `APPDIR` | **Download**, and the instruction to replace the file |
+| Flatpak bundle | `FLATPAK_ID` is set | **Download**, and the instruction to run `flatpak install` with the scope of the install (`--user` or all users) |
+| AUR (`sayso-bin`) | The executable is in `/usr/lib/sayso`, and `/usr/share/licenses/sayso-bin` exists | The command of an AUR helper. No button |
+| Nix flake | The executable is in `/nix/store` | The steps for a system configuration and for `nix run`. No button |
+| Tarball, `.deb`, `.rpm` | None of the above | **Download** |
+
+Sayso cannot tell a NixOS configuration from `nix run` or a profile, so the text has the first two, and `docs/linux.md` has all three. The licenses folder is a sign of the AUR package, not a proof: Sayso does not read the pacman database.
+
+The AUR package and the flake get a new version after the release, so Sayso can show a version that they do not have yet. The text says so. When a package gets its own update source (an apt or rpm repository, a Flatpak repository), change its row and its text.
+
 ## Update manifest
 
 One file, `latest.json`, holds the manifest and its signatures. A single file means that a client never reads the manifest of one release with the signature of another.

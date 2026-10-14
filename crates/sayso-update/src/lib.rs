@@ -26,7 +26,7 @@ pub mod state;
 pub mod swap;
 mod updater;
 
-pub use install::Manual;
+pub use install::{Manual, Package};
 pub use swap::{AtStart, SwapError};
 pub use updater::{Options, Status, Updater};
 

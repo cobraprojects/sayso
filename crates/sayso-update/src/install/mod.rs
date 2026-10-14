@@ -2,7 +2,8 @@
 //!
 //! An install that can update itself gives an [`Installer`]. Any other
 //! install gives a [`Manual`] reason, and the user gets the new version from
-//! the download page. Only macOS has an installer now.
+//! the download page, or from the [`Package`] that holds the install. Only
+//! macOS has an installer now.
 
 use semver::Version;
 use std::path::{Path, PathBuf};
@@ -10,12 +11,18 @@ use std::sync::Arc;
 
 #[cfg(target_os = "macos")]
 mod macos;
+mod package;
+
+pub use package::Package;
 
 /// Why this install cannot update itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Manual {
     /// Sayso has no installer for this system yet.
     Unsupported,
+    /// A package holds the install, and the user updates Sayso the way that
+    /// package gets a new version.
+    Packaged(Package),
     /// The app runs from a place that cannot be changed: a disk image, an
     /// App Translocation path, or outside an app bundle.
     WrongFolder,
@@ -60,7 +67,11 @@ pub fn detect() -> Result<Arc<dyn Installer>, Manual> {
     {
         macos::MacInstall::detect().map(|install| Arc::new(install) as Arc<dyn Installer>)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        Err(Package::detect().map_or(Manual::Unsupported, Manual::Packaged))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         Err(Manual::Unsupported)
     }

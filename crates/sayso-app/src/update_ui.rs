@@ -10,7 +10,7 @@ use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
 use sayso_ui::text;
-use sayso_update::{Manual, Status};
+use sayso_update::{Manual, Package, Status};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
@@ -83,6 +83,7 @@ pub fn view(status: &Status) -> View {
                     ("How to update", Action::OpenSettings),
                 ),
                 Some(Manual::Unsupported) => (format!("You have {version}. Download the new version and install it."), ("Download", Action::DownloadPage), ("Download", Action::DownloadPage)),
+                Some(Manual::Packaged(package)) => return packaged(*package, title, notes_url),
             };
             View { tone: Tone::Accent, notes_url: Some(notes_url.clone()), action: Some(action), short: Some((title.clone(), short.0, short.1)), ..plain(title, detail) }
         }
@@ -118,6 +119,35 @@ pub fn view(status: &Status) -> View {
             ..plain("Sayso could not update".into(), message.clone())
         },
     }
+}
+
+/// A newer version for an install that a package holds. The download page
+/// has the new AppImage and the new Flatpak file. An AUR helper and Nix get
+/// the new version from their own source, which can have it later than the
+/// release, so those two get no button.
+fn packaged(package: Package, title: String, notes_url: &str) -> View {
+    let version = sayso_update::VERSION;
+    let download = Some(("Download", Action::DownloadPage));
+    let (detail, action) = match package {
+        Package::AppImage => (format!("You have {version}. Download the new AppImage and use it in place of this one."), download),
+        // The scope must be the scope of this install: a file that goes to
+        // the system does not replace an install of the user.
+        Package::Flatpak => (
+            format!("You have {version}. Download the new Flatpak file. Then install it as you installed this one: \"flatpak install --user\" and the file, or without \"--user\" for an install for all users."),
+            download,
+        ),
+        Package::Aur => (
+            format!("You have {version}. Update the AUR package with your AUR helper, for example \"yay -S sayso-bin\". The package can get the new version some time after the release."),
+            None,
+        ),
+        Package::Nix => (
+            // Sayso cannot tell a system configuration from `nix run` or a profile.
+            format!("You have {version}. Get the new version with Nix. In a system configuration, update the flake input of Sayso and build the system again. With \"nix run\", add \"--refresh\". The flake can get the new version some time after the release."),
+            None,
+        ),
+    };
+    let short = action.unwrap_or(("How to update", Action::OpenSettings));
+    View { title: title.clone(), detail, tone: Tone::Accent, progress: None, notes_url: Some(notes_url.to_string()), action, short: Some((title, short.0, short.1)) }
 }
 
 /// Do what a button for `action` says.
@@ -375,7 +405,7 @@ pub fn popover_line(model: &Entity<AppModel>, hide: fn(&mut App), cx: &App) -> O
 mod tests {
     // Not `super::*`: that brings in the `test` attribute of GPUI.
     use super::{Action, view};
-    use sayso_update::{Manual, Status};
+    use sayso_update::{Manual, Package, Status};
 
     fn available(manual: Option<Manual>) -> Status {
         Status::Available { version: "9.9.9".parse().unwrap(), notes_url: "https://example.com/notes".into(), manual }
@@ -408,10 +438,32 @@ mod tests {
 
     #[test]
     fn an_install_that_cannot_update_itself_never_offers_update_now() {
-        for manual in [Manual::Unsupported, Manual::WrongFolder, Manual::NoPermission, Manual::NoExchange] {
+        let packaged = [Package::AppImage, Package::Flatpak, Package::Aur, Package::Nix].map(Manual::Packaged);
+        for manual in [Manual::Unsupported, Manual::WrongFolder, Manual::NoPermission, Manual::NoExchange].into_iter().chain(packaged) {
             let v = view(&available(Some(manual)));
             assert!(!matches!(v.action, Some((_, Action::Install))), "{manual:?}");
             assert!(!matches!(v.short, Some((_, _, Action::Install))), "{manual:?}");
+        }
+    }
+
+    #[test]
+    fn a_package_sends_the_user_to_the_place_of_its_new_version() {
+        // The download page has the new file of these two.
+        for package in [Package::AppImage, Package::Flatpak] {
+            let v = view(&available(Some(Manual::Packaged(package))));
+            assert_eq!(v.action, Some(("Download", Action::DownloadPage)), "{package:?}");
+            assert!(matches!(v.short, Some((_, "Download", Action::DownloadPage))), "{package:?}");
+        }
+        // A Flatpak file without the scope of the install goes to the wrong place.
+        assert!(view(&available(Some(Manual::Packaged(Package::Flatpak)))).detail.contains("flatpak install --user"));
+        // An AUR helper and Nix get the new version. The download page is the wrong place.
+        for (package, command) in [(Package::Aur, "yay -S sayso-bin"), (Package::Nix, "--refresh")] {
+            let v = view(&available(Some(Manual::Packaged(package))));
+            assert_eq!(v.title, "Sayso 9.9.9 is available");
+            assert!(v.detail.contains(command), "{}", v.detail);
+            assert_eq!(v.action, None, "{package:?}");
+            assert!(matches!(v.short, Some((_, "How to update", Action::OpenSettings))), "{package:?}");
+            assert_eq!(v.notes_url.as_deref(), Some("https://example.com/notes"));
         }
     }
 

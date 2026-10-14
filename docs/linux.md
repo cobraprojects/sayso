@@ -33,7 +33,17 @@ The install was tested in a container of each of these, except Tumbleweed and Ar
 
 Without a `.deb` or `.rpm`, your system must have these libraries: ALSA (`libasound`), `libxcb`, `libxkbcommon`, `libxkbcommon-x11`, fontconfig, FreeType, and the Vulkan loader (`libvulkan`) or EGL. The AppImage does not need `libxkbcommon` and `libxkbcommon-x11` on your system. A Wayland session also needs `libwayland-client`.
 
-No package updates by itself. Sayso shows a new version and opens the download page.
+No package updates by itself. Sayso shows a new version and says where to get it:
+
+| Install | How to update |
+|---|---|
+| `.deb`, `.rpm`, tarball | Download the new file and install it. |
+| `.AppImage` | Download the new file and use it in place of the old one. |
+| `.flatpak` | Download the new file and install it as you installed the old one: `flatpak install --user ./<file>` for your user, or without `--user` for all users. |
+| AUR | Update `sayso-bin` with your AUR helper, for example `yay -S sayso-bin`. |
+| Nix flake | In a system configuration, update the flake input of Sayso (`nix flake update sayso` when its name is `sayso`) and build your system again. With `nix run`, add `--refresh`. In a profile, run `nix profile upgrade` with the name of Sayso in `nix profile list`. |
+
+The AUR package and the flake can get a new version some time after the release.
 
 ### Flatpak
 
