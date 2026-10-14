@@ -37,3 +37,20 @@ overlay:
     no_model_chosen: "%{provider} 未选择模型"
     no_focused_field: "没有聚焦的文本栏"
     model_load_timeout: "模型未能及时载入。"
+    no_speech: "未听到语音。"
+    not_taken: "该 App 未接收文本"
+    not_trusted: "Sayso 需要辅助功能权限才能插入文本"
+    secure_input: "密码栏处于活跃状态"
+    elevated: "%{app} 以管理员身份运行，因此 Windows 不允许 Sayso 在其中输入文字。"
+    elevated_unknown: "此应用以管理员身份运行，因此 Windows 不允许 Sayso 在其中输入文字。"
+    clipboard: "Sayso 无法使用剪贴板：%{error}"
+  # The style failed, and the text went in without it. "provider" is the
+  # name of the AI provider.
+  style_error:
+    timeout: "%{provider} 在 %{seconds} 秒后超时"
+    not_configured: "%{provider} 尚未设置"
+    http: "%{provider} 返回了 HTTP %{status}"
+    network: "无法连接到 %{provider}"
+    invalid_output: "%{provider} 返回的文本格式不正确"
+    refused: "%{provider} 拒绝了请求"
+    failed: "%{provider} 运行失败"

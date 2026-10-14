@@ -4,9 +4,8 @@ _version: 1
 app:
   hotkeys_not_built: "此系统尚不支持快捷键。"
   insertion_not_built: "此系统尚不支持插入文本。"
-  update:
-    busy: "另一个 Sayso 正在从此 App 运行。请先退出它，然后重试。"
   sign_in:
+    start_failed: "Sayso 无法开始登录：%{error}"
     not_finished: "登录未完成。请选择“登录”重试。"
     code_failed: "Sayso 无法发送代码：%{error}"
   # The status line at the foot of the Hub sidebar.

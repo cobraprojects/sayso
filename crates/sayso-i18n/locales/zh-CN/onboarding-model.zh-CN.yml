@@ -18,6 +18,7 @@ onboarding:
     minutes_left: "剩余约 %{minutes} 分钟"
     downloading: "正在下载 %{name}"
     download_failed: "%{name} 下载已停止：%{error}。请检查网络连接，然后重试。"
+    download_failed_reason: "%{name} 尚未就绪。%{reason}请重试。"
     try_again: "重试"
     not_downloaded: "%{name} 尚未下载"
     download_size: "下载 %{size}"
