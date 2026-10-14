@@ -17,21 +17,30 @@ build=$(date +%Y%m%d%H%M)
 
 echo "==> engine (swift, release)"
 (cd native/macos/SaysoEngine && swift build -c release 2>&1 | tail -1)
+echo "==> media remote adapter (cmake)"
+adapter_build=target/media-remote-adapter
+cmake -S native/macos/MediaRemoteAdapter -B "$adapter_build" -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake --build "$adapter_build" --target MediaRemoteAdapter -j 8 >/dev/null
 echo "==> app (cargo, $profile)"
 cargo build -p sayso-app $cargo_flag 2>&1 | grep -E "^(error|warning: unused)" || true
 cargo build -p sayso-app $cargo_flag --quiet
 
 app="${SAYSO_BUNDLE_DIR:-build}/Sayso.app"
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
 cp "target/$profile/sayso" "$app/Contents/MacOS/Sayso"
 cp native/macos/SaysoEngine/.build/release/SaysoEngine "$app/Contents/MacOS/SaysoEngine"
 cp assets/app/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
+# Pause media while recording: /usr/bin/perl runs the script, and the script
+# loads the framework (crates/sayso-platform-macos/src/media.rs).
+cp -R "$adapter_build/MediaRemoteAdapter.framework" "$app/Contents/Frameworks/"
+cp native/macos/MediaRemoteAdapter/bin/mediaremote-adapter.pl "$app/Contents/Resources/"
 sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" packaging/Info.plist > "$app/Contents/Info.plist"
 printf 'APPL????' > "$app/Contents/PkgInfo"
 
 echo "==> sign ($identity)"
 ent=packaging/Sayso.entitlements
+codesign --force --timestamp --options runtime -s "$identity" "$app/Contents/Frameworks/MediaRemoteAdapter.framework"
 codesign --force --timestamp --options runtime --entitlements "$ent" --identifier dev.sayso.Sayso.engine -s "$identity" "$app/Contents/MacOS/SaysoEngine"
 codesign --force --timestamp --options runtime --entitlements "$ent" --identifier dev.sayso.Sayso -s "$identity" "$app"
 codesign --verify --deep --strict "$app" && echo "==> signature ok: $app"

@@ -86,6 +86,7 @@ impl Render for AudioSettings {
         let current_id = m.resolve_input_device(current.as_deref());
         let mic = m.permission(Permission::Microphone);
         let live_preview = m.config.dictation.live_preview;
+        let pause_media = m.config.audio.pause_media;
         let max_s = m.config.dictation.max_duration_s;
         // With the setting off, ask what the preview would use if it were on.
         let has_preview_model = m.active_model().live_preview || m.preview_candidate().is_some();
@@ -190,9 +191,12 @@ impl Render for AudioSettings {
                 .into_any_element()
         };
 
-        let (m1, m2) = (self.model.clone(), self.model.clone());
+        let (m1, m2, m3) = (self.model.clone(), self.model.clone(), self.model.clone());
         let preview = Switch::new("live-preview", live_preview).on_toggle(move |on, _, cx| {
             m1.update(cx, |m, cx| m.edit_config(cx, |c| c.dictation.live_preview = on));
+        });
+        let pause = Switch::new("pause-media", pause_media).on_toggle(move |on, _, cx| {
+            m3.update(cx, |m, cx| m.edit_config(cx, |c| c.audio.pause_media = on));
         });
         let index = LENGTHS.iter().position(|l| *l >= max_s).unwrap_or(LENGTHS.len() - 1);
         let length = kit::stepper("max-length", format_length(max_s), move |d, _, cx| {
@@ -208,6 +212,7 @@ impl Render for AudioSettings {
         let input = group("Input", cx).child(list).child(meter);
         let rec = group("Recording", cx)
             .child(row("Live preview", preview_desc, preview, cx))
+            .child(row("Pause media", "Pauses music and videos while you dictate, and plays them again when you stop.", pause, cx))
             .child(row("Maximum length", "Recording stops by itself after this long.", length, cx));
         kit::page("audio-page", "Audio", "Your microphone and how long Sayso records.", kit::body().child(input).child(rec), cx)
     }

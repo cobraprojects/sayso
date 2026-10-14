@@ -62,6 +62,7 @@ Sayso must send keys to other apps, read the keyboard, and start tools of your s
 | All devices | `/dev/uinput` for the paste key and `/dev/input` for keyboard access. The udev rule and the `input` group of "Permissions" apply as they do without Flatpak. The Flatpak cannot install the udev rule. |
 | Host commands (`org.freedesktop.Flatpak`) | The `claude` and `codex` tools of your system, for AI styles, and `gsettings`, for the GNOME custom shortcuts |
 | `~/.config/autostart` | **Launch at login** |
+| Media players (`org.mpris.MediaPlayer2.*`) | **Pause media**: Sayso pauses the players that play while you dictate |
 | Secret Service, the tray, audio, network | API keys, the tray icon, the microphone, model downloads, and cloud providers |
 
 Differences from the other packages:

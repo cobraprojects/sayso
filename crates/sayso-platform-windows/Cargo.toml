@@ -24,6 +24,10 @@ rodio = { version = "0.22.2", default-features = false, features = ["playback", 
 image = { version = "0.25", default-features = false, features = ["png"] }
 # The same version as gpui-pre, so a build compiles it once.
 windows = { version = "0.62.2", features = [
+    "Foundation",
+    "Foundation_Collections",
+    "Media",
+    "Media_Control",
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",

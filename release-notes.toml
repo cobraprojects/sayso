@@ -43,6 +43,11 @@ icon = "code"
 title = "Copy metadata from History"
 text = "Each new dictation keeps the time of each step. When a dictation is slow, choose Copy metadata in the menu of its history entry and put the result in a bug report. Your dictated text is not in it."
 
+[[release.item]]
+icon = "audio"
+title = "Pause media while you dictate"
+text = "Sayso can pause your music and videos when you start to dictate, and play them again when you stop. Turn on Pause media in Settings › Audio."
+
 [[release]]
 version = "0.7.1"
 title = "Styles keep your words"

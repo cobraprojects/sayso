@@ -59,6 +59,7 @@ pub fn platform(sounds_dir: PathBuf) -> Platform {
         sounds: Arc::new(sounds::RodioSounds::new(sounds_dir)),
         login_item: Arc::new(Nothing),
         prefs: Arc::new(Nothing),
+        media: Arc::new(Nothing),
     }
 }
 
@@ -223,4 +224,11 @@ impl SystemPrefs for Nothing {
     fn reduce_motion(&self) -> bool {
         false
     }
+}
+
+impl MediaControl for Nothing {
+    fn pause_playing(&self) -> Vec<PausedPlayer> {
+        Vec::new()
+    }
+    fn resume(&self, _players: &[PausedPlayer]) {}
 }
