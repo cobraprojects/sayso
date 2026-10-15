@@ -44,7 +44,6 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 size_mb: PARAKEET_V3_MB,
                 languages: languages::parakeet_v3(),
                 speed: 5,
-                wer: Some(2.3),
             }
             .build()
         },
@@ -59,7 +58,6 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 size_mb: PARAKEET_V2_MB,
                 languages: en(),
                 speed: 5,
-                wer: Some(1.7),
             }
             .build()
         },
@@ -75,7 +73,6 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 size_mb: 574,
                 languages: languages::whisper(),
                 speed: 3,
-                wer: None,
             }
             .build()
         },
@@ -90,7 +87,6 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 size_mb: 1081,
                 languages: languages::whisper(),
                 speed: 1,
-                wer: None,
             }
             .build()
         },
@@ -105,7 +101,6 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 size_mb: 539,
                 languages: languages::whisper(),
                 speed: 2,
-                wer: None,
             }
             .build()
         },
@@ -120,7 +115,6 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 size_mb: 488,
                 languages: languages::whisper(),
                 speed: 4,
-                wer: None,
             }
             .build()
         },
@@ -135,7 +129,6 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 size_mb: 148,
                 languages: languages::whisper(),
                 speed: 5,
-                wer: None,
             }
             .build()
         },
@@ -150,7 +143,6 @@ pub(super) fn catalog() -> Vec<ModelInfo> {
                 size_mb: 78,
                 languages: languages::whisper(),
                 speed: 5,
-                wer: None,
             }
             .build()
         },

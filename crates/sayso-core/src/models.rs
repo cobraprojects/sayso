@@ -7,6 +7,7 @@
 
 mod portable;
 
+use crate::config::PreviewChoice;
 use crate::languages;
 use sayso_i18n::t;
 use crate::speech::Speech;
@@ -37,7 +38,7 @@ impl std::fmt::Display for ModelId {
 pub enum EngineKind {
     /// FluidAudio Parakeet Unified: batch, streaming, and the CTC vocabulary helper.
     ParakeetUnified { streaming_tier: String },
-    /// FluidAudio Parakeet EOU 120M: streaming preview only.
+    /// FluidAudio Parakeet EOU 120M: streaming. The final pass streams the whole recording.
     ParakeetEou,
     /// FluidAudio Parakeet TDT family, batch only. `version` is one of "v2",
     /// "v3", "ultra", "redux", "phonon2", "tdt_ctc_110m", "ja".
@@ -131,8 +132,15 @@ pub struct ModelInfo {
     pub vocabulary: bool,
     /// 1 (slow) to 5 (fast), for the speed meter in Models.
     pub speed: u8,
-    /// Word error rate in percent on LibriSpeech test-clean, if published. For display only.
+    /// Published word error rate in percent (see [`published`]). None when no
+    /// figure on the same test sets exists.
     pub wer_percent: Option<f32>,
+    /// The word error rate of the live preview, when it differs from the final pass.
+    pub preview_wer_percent: Option<f32>,
+    /// The text has punctuation and capitals.
+    pub punctuation: bool,
+    /// The page of the upstream model.
+    pub card_url: Option<String>,
     pub recommended: bool,
     /// The first macOS version that can run the model. Zero on other systems.
     pub min_macos: u32,
@@ -157,6 +165,24 @@ impl ModelInfo {
             [one] => languages::display(one),
             many => t!("core.models.languages", count = many.len()),
         }
+    }
+
+    /// The time between two live preview updates.
+    pub fn preview_interval_ms(&self) -> Option<u32> {
+        if !self.live_preview {
+            return None;
+        }
+        match &self.engine {
+            // One chunk of the streaming tier "70_2_2": 2 frames of 80 ms.
+            EngineKind::ParakeetUnified { .. } | EngineKind::ParakeetEou => Some(160),
+            EngineKind::Nemotron { chunk_ms } | EngineKind::NemotronMultilingual { chunk_ms } => Some(*chunk_ms),
+            _ => None,
+        }
+    }
+
+    /// True when the model understands `language`, a code or "auto".
+    pub fn understands(&self, language: &str) -> bool {
+        if language == languages::AUTO { self.is_multilingual() } else { self.languages.iter().any(|l| l == language) }
     }
 
     /// The language to send to the model for a `dictation.language` setting:
@@ -205,12 +231,12 @@ struct Entry {
     size_mb: u64,
     languages: Vec<String>,
     speed: u8,
-    wer: Option<f32>,
 }
 
 impl Entry {
     /// A batch model: final pass only, no dictionary words, macOS 14.
     fn build(self) -> ModelInfo {
+        let p = published(self.id);
         ModelInfo {
             id: ModelId::new(self.id),
             name: self.name.into(),
@@ -223,10 +249,67 @@ impl Entry {
             live_preview: false,
             vocabulary: false,
             speed: self.speed,
-            wer_percent: self.wer,
+            wer_percent: p.wer,
+            preview_wer_percent: p.preview_wer,
+            punctuation: p.punctuation,
+            card_url: p.card_url(),
             recommended: false,
             min_macos: 14,
         }
+    }
+}
+
+/// What the authors of a model published about it, by model id. The ids are
+/// the same on all systems, and the figures are for the upstream checkpoint.
+pub(crate) struct Published {
+    /// The average word error rate on the eight English sets of the Open ASR
+    /// Leaderboard (AMI, Earnings22, GigaSpeech, LibriSpeech clean and other,
+    /// SPGISpeech, TED-LIUM, VoxPopuli). Punctuation does not count. Sources
+    /// are in `docs/model-roles.md`.
+    pub wer: Option<f32>,
+    pub preview_wer: Option<f32>,
+    pub punctuation: bool,
+    /// The Hugging Face repository.
+    pub card: Option<&'static str>,
+}
+
+impl Published {
+    pub fn card_url(&self) -> Option<String> {
+        self.card.map(|repo| format!("https://huggingface.co/{repo}"))
+    }
+}
+
+pub(crate) fn published(id: &str) -> Published {
+    let (wer, preview_wer, card) = match id {
+        "cohere-transcribe" => (Some(5.42), None, Some("CohereLabs/cohere-transcribe-03-2026")),
+        "parakeet-unified-en" => (Some(5.91), Some(6.92), Some("nvidia/parakeet-unified-en-0.6b")),
+        "parakeet-tdt-v2" => (Some(6.05), None, Some("nvidia/parakeet-tdt-0.6b-v2")),
+        "parakeet-tdt-v3" => (Some(6.32), None, Some("nvidia/parakeet-tdt-0.6b-v3")),
+        "nemotron-en" => (Some(6.93), None, Some("nvidia/nemotron-speech-streaming-en-0.6b")),
+        "canary-1b-v2" => (Some(7.15), None, Some("nvidia/canary-1b-v2")),
+        "whisper-large-v3" => (Some(7.44), None, Some("openai/whisper-large-v3")),
+        "parakeet-tdt-ctc-110m" => (Some(7.49), None, Some("nvidia/parakeet-tdt_ctc-110m")),
+        "whisper-distil-large-v3" => (Some(7.52), None, Some("distil-whisper/distil-large-v3")),
+        "whisper-large-v3-turbo" => (Some(7.83), None, Some("openai/whisper-large-v3-turbo")),
+        "whisper-large-v2" => (Some(7.84), None, Some("openai/whisper-large-v2")),
+        "parakeet-eou-120m" => (Some(9.30), None, Some("nvidia/parakeet_realtime_eou_120m-v1")),
+        "parakeet-ultra" => (None, None, Some("moondream/parakeet-ultra")),
+        "parakeet-redux" => (None, None, Some("moondream/parakeet-redux")),
+        "phonon-2" => (None, None, Some("FermionResearch/Phonon-2")),
+        "parakeet-ja" => (None, None, Some("nvidia/parakeet-tdt_ctc-0.6b-ja")),
+        "nemotron-multilingual" => (None, None, Some("nvidia/nemotron-3.5-asr-streaming-0.6b")),
+        "whisper-medium" => (None, None, Some("openai/whisper-medium")),
+        "whisper-small" => (None, None, Some("openai/whisper-small")),
+        "whisper-base" => (None, None, Some("openai/whisper-base")),
+        "whisper-tiny" => (None, None, Some("openai/whisper-tiny")),
+        "sensevoice-small" => (None, None, Some("FunAudioLLM/SenseVoiceSmall")),
+        _ => (None, None, None),
+    };
+    Published {
+        wer,
+        preview_wer,
+        punctuation: id != "parakeet-eou-120m",
+        card,
     }
 }
 
@@ -267,7 +350,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
                 size_mb: 595 + 578 + 98,
                 languages: en(),
                 speed: 5,
-                wer: Some(2.2),
             }
             .build()
         },
@@ -280,7 +362,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 632,
             languages: languages::parakeet_v3(),
             speed: 5,
-            wer: Some(2.1),
         }
         .build(),
         Entry {
@@ -292,7 +373,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 483,
             languages: languages::parakeet_v3(),
             speed: 5,
-            wer: Some(2.3),
         }
         .build(),
         ModelInfo {
@@ -306,7 +386,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
                 size_mb: 220,
                 languages: languages::parakeet_v3(),
                 speed: 5,
-                wer: Some(2.7),
             }
             .build()
         },
@@ -319,7 +398,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 465,
             languages: en(),
             speed: 5,
-            wer: None,
         }
         .build(),
         ModelInfo {
@@ -333,7 +411,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
                 size_mb: 357,
                 languages: en(),
                 speed: 5,
-                wer: Some(2.5),
             }
             .build()
         },
@@ -346,7 +423,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 227,
             languages: en(),
             speed: 5,
-            wer: Some(3.0),
         }
         .build(),
         Entry {
@@ -358,11 +434,9 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 625,
             languages: vec!["ja".into()],
             speed: 3,
-            wer: None,
         }
         .build(),
         ModelInfo {
-            final_pass: false,
             live_preview: true,
             ..Entry {
                 id: "parakeet-eou-120m",
@@ -373,7 +447,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
                 size_mb: 222,
                 languages: en(),
                 speed: 5,
-                wer: Some(4.9),
             }
             .build()
         },
@@ -387,7 +460,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 646,
             languages: languages::whisper(),
             speed: 3,
-            wer: None,
         }
         .build(),
         Entry {
@@ -399,7 +471,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 948,
             languages: languages::whisper(),
             speed: 2,
-            wer: None,
         }
         .build(),
         Entry {
@@ -411,7 +482,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 952,
             languages: languages::whisper(),
             speed: 2,
-            wer: None,
         }
         .build(),
         Entry {
@@ -423,7 +493,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 595,
             languages: en(),
             speed: 4,
-            wer: None,
         }
         .build(),
         Entry {
@@ -435,7 +504,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 1530,
             languages: languages::whisper(),
             speed: 2,
-            wer: None,
         }
         .build(),
         Entry {
@@ -447,7 +515,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 217,
             languages: languages::whisper(),
             speed: 4,
-            wer: None,
         }
         .build(),
         Entry {
@@ -459,7 +526,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 147,
             languages: languages::whisper(),
             speed: 5,
-            wer: None,
         }
         .build(),
         Entry {
@@ -471,7 +537,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 77,
             languages: languages::whisper(),
             speed: 5,
-            wer: None,
         }
         .build(),
         // Other families.
@@ -486,7 +551,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
                 size_mb: 0,
                 languages: languages::apple_speech(),
                 speed: 5,
-                wer: None,
             }
             .build()
         },
@@ -502,7 +566,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
                 size_mb: 664,
                 languages: languages::nemotron(),
                 speed: 4,
-                wer: None,
             }
             .build()
         },
@@ -517,7 +580,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
                 size_mb: 627,
                 languages: en(),
                 speed: 4,
-                wer: Some(2.3),
             }
             .build()
         },
@@ -532,7 +594,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
                 size_mb: 2190,
                 languages: languages::cohere(),
                 speed: 3,
-                wer: Some(1.8),
             }
             .build()
         },
@@ -547,7 +608,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
                 size_mb: 569,
                 languages: en(),
                 speed: 2,
-                wer: None,
             }
             .build()
         },
@@ -560,7 +620,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 240,
             languages: languages::sensevoice(),
             speed: 5,
-            wer: None,
         }
         .build(),
         Entry {
@@ -572,7 +631,6 @@ fn apple_catalog() -> Vec<ModelInfo> {
             size_mb: 644,
             languages: vec!["zh".into()],
             speed: 5,
-            wer: None,
         }
         .build(),
     ]
@@ -595,25 +653,33 @@ pub fn find_with(speech: &Speech, id: &ModelId) -> Option<ModelInfo> {
     find(id).or_else(|| speech.catalog().into_iter().find(|m| &m.id == id))
 }
 
-/// The model that streams the live preview for `active`.
+/// The model that streams the live preview for `active`, the final model.
 ///
-/// The active model does it when it can stream. If not, a local streaming
-/// model that is on disk and understands the dictation language does it: the
-/// small fallback model first, then the others in catalog order. `on_disk`
-/// tells which local models are downloaded.
-pub fn preview_for(active: &ModelInfo, language_setting: &str, on_disk: impl Fn(&ModelId) -> bool) -> Option<ModelId> {
+/// A chosen model does it when it is on disk and understands the dictation
+/// language. With `Auto`, the final model does it when it can stream. If not,
+/// a local streaming model that is on disk and understands the language does
+/// it: the small fallback model first, then the others in catalog order.
+/// `on_disk` tells which local models are downloaded.
+pub fn preview_for(active: &ModelInfo, choice: &PreviewChoice, language_setting: &str, on_disk: impl Fn(&ModelId) -> bool) -> Option<ModelId> {
+    let language = active.language_for(language_setting);
+    if let PreviewChoice::Model(id) = choice {
+        return find(id).filter(|m| m.live_preview && on_disk(&m.id) && m.understands(&language)).map(|m| m.id);
+    }
     if active.live_preview {
         return Some(active.id.clone());
     }
-    let language = active.language_for(language_setting);
     let fallback = preview_fallback();
-    let mut candidates: Vec<ModelInfo> = catalog()
-        .into_iter()
-        .filter(|m| m.live_preview && on_disk(&m.id))
-        .filter(|m| if language == languages::AUTO { m.is_multilingual() } else { m.languages.contains(&language) })
-        .collect();
+    let mut candidates: Vec<ModelInfo> =
+        catalog().into_iter().filter(|m| m.live_preview && on_disk(&m.id) && m.understands(&language)).collect();
     candidates.sort_by_key(|m| m.id != fallback);
     candidates.first().map(|m| m.id.clone())
+}
+
+/// True when the chosen preview model does not understand the dictation
+/// language, so the dictation has no live preview.
+pub fn preview_language_mismatch(active: &ModelInfo, choice: &PreviewChoice, language_setting: &str) -> bool {
+    let PreviewChoice::Model(id) = choice else { return false };
+    find(id).is_some_and(|m| !m.understands(&active.language_for(language_setting)))
 }
 
 /// Human-readable size: "626 MB", "1.3 GB".
@@ -660,7 +726,8 @@ mod tests {
         let fallback = find(&preview_fallback()).unwrap();
         assert!(fallback.live_preview);
         #[cfg(target_os = "macos")]
-        assert!(!fallback.final_pass);
+        // Rough, but it can write the final text.
+        assert!(fallback.final_pass && !fallback.punctuation);
         let default = find(&default_model()).unwrap();
         assert!(default.recommended && default.final_pass);
     }
@@ -712,21 +779,51 @@ mod tests {
         let all = ["parakeet-unified-en", "parakeet-eou-120m", "nemotron-multilingual", "nemotron-en"];
 
         // A streaming model previews itself, whatever else is on disk.
-        assert_eq!(preview_for(&model("parakeet-unified-en"), "en", on(&[])), Some(default_model()));
+        assert_eq!(preview_for(&model("parakeet-unified-en"), &PreviewChoice::Auto, "en", on(&[])), Some(default_model()));
 
         // Whisper in English: the small fallback wins over the bigger streaming models.
         let whisper = model("whisper-large-v3-turbo");
-        assert_eq!(preview_for(&whisper, "en", on(&all)), Some(preview_fallback()));
-        assert_eq!(preview_for(&whisper, "en", on(&["parakeet-unified-en"])), Some(default_model()));
-        assert_eq!(preview_for(&whisper, "en", on(&[])), None);
+        assert_eq!(preview_for(&whisper, &PreviewChoice::Auto, "en", on(&all)), Some(preview_fallback()));
+        assert_eq!(preview_for(&whisper, &PreviewChoice::Auto, "en", on(&["parakeet-unified-en"])), Some(default_model()));
+        assert_eq!(preview_for(&whisper, &PreviewChoice::Auto, "en", on(&[])), None);
 
         // German or detection: only a multilingual streaming model can preview.
-        assert_eq!(preview_for(&whisper, "de", on(&all)), Some(ModelId::new("nemotron-multilingual")));
-        assert_eq!(preview_for(&whisper, "auto", on(&all)), Some(ModelId::new("nemotron-multilingual")));
-        assert_eq!(preview_for(&whisper, "de", on(&["parakeet-eou-120m"])), None, "an English preview of German speech is wrong");
+        assert_eq!(preview_for(&whisper, &PreviewChoice::Auto, "de", on(&all)), Some(ModelId::new("nemotron-multilingual")));
+        assert_eq!(preview_for(&whisper, &PreviewChoice::Auto, "auto", on(&all)), Some(ModelId::new("nemotron-multilingual")));
+        assert_eq!(preview_for(&whisper, &PreviewChoice::Auto, "de", on(&["parakeet-eou-120m"])), None, "an English preview of German speech is wrong");
 
         // An English-only model ignores the setting, so its preview is English too.
-        assert_eq!(preview_for(&model("parakeet-tdt-v2"), "de", on(&["parakeet-eou-120m"])), Some(preview_fallback()));
+        assert_eq!(preview_for(&model("parakeet-tdt-v2"), &PreviewChoice::Auto, "de", on(&["parakeet-eou-120m"])), Some(preview_fallback()));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn a_chosen_preview_model_wins_when_it_can_run() {
+        let model = |id: &str| find(&ModelId::new(id)).unwrap();
+        let eou = PreviewChoice::Model(ModelId::new("parakeet-eou-120m"));
+        let unified = model("parakeet-unified-en");
+        let disk = |id: &ModelId| id.as_str() == "parakeet-eou-120m";
+
+        // Also when the final model streams by itself.
+        assert_eq!(preview_for(&unified, &eou, "en", disk), Some(ModelId::new("parakeet-eou-120m")));
+        assert_eq!(preview_for(&unified, &eou, "en", |_| false), None, "not on disk");
+
+        // An English model under a German final pass: no preview, and the page says why.
+        let whisper = model("whisper-large-v3");
+        assert_eq!(preview_for(&whisper, &eou, "de", disk), None);
+        assert!(preview_language_mismatch(&whisper, &eou, "de"));
+        assert!(!preview_language_mismatch(&whisper, &eou, "en"));
+        assert!(!preview_language_mismatch(&whisper, &PreviewChoice::Auto, "de"));
+    }
+
+    #[test]
+    fn every_published_figure_has_a_page() {
+        for m in catalog() {
+            if m.wer_percent.is_some() {
+                assert!(m.card_url.is_some(), "{}", m.id);
+            }
+            assert!(m.preview_wer_percent.is_none() || m.live_preview, "{}", m.id);
+        }
     }
 
     #[test]

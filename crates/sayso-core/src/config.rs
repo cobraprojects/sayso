@@ -129,8 +129,11 @@ pub struct Dictation {
     /// A language code such as "en" or "de", or "auto" to let the model detect
     /// the language. A model that does not support the language ignores it.
     pub language: String,
-    /// A local model id, or "<provider id>:<model>" for a speech provider's model.
+    /// The final model: a local model id, or "<provider id>:<model>" for a
+    /// speech provider's model.
     pub model: ModelId,
+    /// The preview model: "auto", or the id of a streaming local model.
+    pub preview_model: PreviewChoice,
     pub live_preview: bool,
     /// Change spoken punctuation ("comma", "new line") into marks and line
     /// breaks, after the replacements. The commands are English.
@@ -153,12 +156,40 @@ impl Default for Dictation {
         Self {
             language: "en".into(),
             model: default_model(),
+            preview_model: PreviewChoice::Auto,
             live_preview: true,
             spoken_punctuation: false,
             min_duration_ms: 300,
             max_duration_s: 600,
             keep_model_minutes: None,
             preload_model: true,
+        }
+    }
+}
+
+/// Which model gives the live preview.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub enum PreviewChoice {
+    /// The final model when it streams. Otherwise a streaming model on disk
+    /// that understands the dictation language (`models::preview_for`).
+    #[default]
+    Auto,
+    /// This streaming model, also when another model would fit better.
+    Model(ModelId),
+}
+
+impl From<String> for PreviewChoice {
+    fn from(s: String) -> Self {
+        if s == "auto" { PreviewChoice::Auto } else { PreviewChoice::Model(ModelId(s)) }
+    }
+}
+
+impl From<PreviewChoice> for String {
+    fn from(c: PreviewChoice) -> Self {
+        match c {
+            PreviewChoice::Auto => "auto".into(),
+            PreviewChoice::Model(id) => id.0,
         }
     }
 }
@@ -611,6 +642,8 @@ pub enum ConfigProblem {
     UnknownProvider(String),
     #[error("\"{0}\" is not a known model")]
     UnknownModel(String),
+    #[error("\"{0}\" cannot show a live preview. Use \"auto\" or a streaming model")]
+    NotAStreamingModel(String),
     #[error("\"{0}\" is not an interface language Sayso has. Sayso uses the language of the system")]
     UnknownInterfaceLanguage(String),
     #[error("\"{0}\" is not a language code Sayso knows. Use \"auto\" or a code such as \"en\"")]
@@ -737,6 +770,13 @@ impl Config {
         if crate::models::find_with(&self.speech, &self.dictation.model).is_none() {
             issue("dictation.model", ConfigProblem::UnknownModel(self.dictation.model.to_string()));
         }
+        if let PreviewChoice::Model(id) = &self.dictation.preview_model {
+            match crate::models::find(id) {
+                None => issue("dictation.preview_model", ConfigProblem::UnknownModel(id.to_string())),
+                Some(m) if !m.live_preview => issue("dictation.preview_model", ConfigProblem::NotAStreamingModel(id.to_string())),
+                Some(_) => {}
+            }
+        }
         if !sayso_i18n::is_valid_setting(&self.general.language) {
             issue("general.language", ConfigProblem::UnknownInterfaceLanguage(self.general.language.clone()));
         }
@@ -828,6 +868,31 @@ mod tests {
         let back = Config::parse(&c.to_toml());
         assert!(back.issues.is_empty(), "{:?}", back.issues);
         assert_eq!(back.config.dictation.keep_model_minutes, Some(15));
+    }
+
+    #[test]
+    fn the_preview_model_is_automatic_unless_the_file_names_one() {
+        // A config file from before the setting.
+        let old = Config::parse("[dictation]\nlanguage = \"de\"\n");
+        assert!(old.issues.is_empty(), "{:?}", old.issues);
+        assert_eq!(old.config.dictation.preview_model, PreviewChoice::Auto);
+        let streaming = crate::models::catalog().into_iter().find(|m| m.live_preview).unwrap().id;
+        let mut c = Config::default();
+        c.dictation.preview_model = PreviewChoice::Model(streaming.clone());
+        let back = Config::parse(&c.to_toml());
+        assert!(back.issues.is_empty(), "{:?}", back.issues);
+        assert_eq!(back.config.dictation.preview_model, PreviewChoice::Model(streaming));
+    }
+
+    #[test]
+    fn the_preview_model_must_stream() {
+        let mut c = Config::default();
+        c.dictation.preview_model = PreviewChoice::Model(ModelId::new("no-such-model"));
+        assert_eq!(c.validate()[0].problem, ConfigProblem::UnknownModel("no-such-model".into()));
+        let batch = crate::models::catalog().into_iter().find(|m| !m.live_preview).unwrap().id;
+        c.dictation.preview_model = PreviewChoice::Model(batch.clone());
+        assert_eq!(c.validate()[0].problem, ConfigProblem::NotAStreamingModel(batch.to_string()));
+        assert_eq!(c.validate()[0].field, "dictation.preview_model");
     }
 
     #[test]

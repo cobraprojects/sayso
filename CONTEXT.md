@@ -23,7 +23,7 @@ The fixed steps that turn audio into inserted text: transcribe → apply replace
 The process that runs local models. On macOS this is the Swift sidecar (`SaysoEngine`) with WhisperKit and FluidAudio. On Windows it is the portable sidecar (`native/portable`, also `SaysoEngine`) with transcribe-rs. On Linux it is the Rust sidecar (`sayso-engine`) with sherpa-onnx. The Windows and Linux engines run on the CPU. All three speak the same protocol. Rust code talks to the engine through the `SttBackend` trait. The engine never sees a cloud model. The engine on macOS also runs the language model of a style (see Apple Intelligence). Rust code reaches it through the `LanguageModel` trait.
 
 **Model**
-A speech model, for example "Parakeet Unified EN" or "Whisper large-v3". One model is the active model. A model is a local model or a cloud model.
+A speech model, for example "Parakeet Unified EN" or "Whisper large-v3". A dictation uses a final model and, when the live preview is on, a preview model. A model is a local model or a cloud model.
 
 **Local model**
 A model that the user downloads and that runs on this computer in the engine. The audio stays on the computer.
@@ -38,7 +38,16 @@ A service that runs cloud models: OpenAI, Groq, ElevenLabs, Deepgram, AssemblyAI
 The transcription that runs when the dictation stops. Its result is the transcript.
 
 **Live preview**
-Text from a streaming model while the user speaks. It shows only in the overlay and is never inserted. A streaming local model gives the preview, also when the active model is a cloud model.
+Text from a streaming model while the user speaks. It shows only in the overlay and is never inserted. A streaming local model gives the preview, also when the final model is a cloud model.
+
+**Final model**
+The model that does the final pass (`dictation.model`). Any local model with a final pass, or a cloud model.
+
+**Preview model**
+The streaming local model that gives the live preview. The user chooses it on the Models page, or leaves it on "Automatic" (`dictation.preview_model = "auto"`): the final model when it streams, else a streaming model on disk that understands the dictation language. A chosen model that does not understand the dictation language gives no preview, and the Models page says so. The preview model can be the final model, and then it loads once.
+
+**Streaming model**
+A local model that can give the live preview. Every streaming model can also do the final pass.
 
 **Dictation language**
 The language the user speaks: a language code, or "auto" to let the model detect it. Each model gets the nearest value that it supports.

@@ -566,8 +566,9 @@ actor Engine {
             guard #available(macOS 26, *) else { throw EngineError("Apple Speech needs macOS 26") }
             text = try await AppleSpeech.transcribe(
                 url: URL(fileURLWithPath: path), language: language, vocabulary: vocabulary)
-        case .parakeetEou:
-            throw EngineError("model \(model) has no final pass")
+        case .parakeetEou(let eou):
+            text = try await transcribeStreaming(
+                model: model, streamer: .standard(eou), samples: samples, language: language)
         }
         out.send(
             "final", id: id,

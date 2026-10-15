@@ -8,15 +8,15 @@ core:
       other: "%{count}言語"
   # The descriptions of the local models in the Models page and onboarding.
   model:
-    parakeet_unified_en: "英語で最も速く、最も正確です。話している間、言葉をリアルタイムに表示します。"
+    parakeet_unified_en: "英語で高速かつ正確です。ライブプレビューと最終テキストを1つのモデルで処理します。"
     parakeet_ultra: "ヨーロッパの言語に最適なローカルモデルです。Parakeet v3 と同じ速さで、より正確です。"
     parakeet_tdt_v3: "ヨーロッパの言語向け。Ultra よりダウンロードが小さくなります。"
     parakeet_redux: "最も小さい多言語の Parakeet です。初回の起動には約6分かかります。"
-    parakeet_tdt_v2: "以前の Parakeet です。ライブプレビューはありません。"
+    parakeet_tdt_v2: "以前の英語向け Parakeet です。"
     phonon_2: "英語向けのコンパクトな Parakeet v3 です。初回の起動には約1分かかります。"
     parakeet_tdt_ctc_110m: "小さく高速で、古い Mac 向けです。"
     parakeet_ja: "日本語用にトレーニングされた Parakeet モデルです。"
-    parakeet_eou_120m: "ライブプレビューのないモデルに使う、小さなライブプレビューです。句読点は付きません。"
+    parakeet_eou_120m: "小型で非常に高速です。句読点と大文字はありません。"
     whisper_large_v3_turbo: "large-v3 とほぼ同じ精度で、はるかに高速です。"
     whisper_large_v3: "強いなまりや複数の言語が混ざった話し方に強いモデルです。初回の起動は遅くなります。"
     whisper_large_v2: "以前の large モデルです。言語によってはこちらのほうが適しています。"
