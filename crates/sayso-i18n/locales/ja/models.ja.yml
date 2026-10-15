@@ -60,6 +60,12 @@ models:
     non_streaming_note: "話し終えてからテキストを書き込みます。"
     streaming: "ストリーミングモデル"
     streaming_note: "話している間に動作するため、ライブプレビューも表示できます。"
+  search:
+    placeholder: "モデルを検索"
+    empty: "「%{query}」に一致するモデルはありません。"
+  sort:
+    recommended: "おすすめ"
+    button: "並べ替え: %{key}"
   details:
     streaming: "ストリーミングモデル"
     non_streaming: "非ストリーミングモデル"

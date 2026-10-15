@@ -137,11 +137,68 @@ fn key_placeholder() -> String {
     t!(crate::shell::os_text!("models.add.key_placeholder_mac", "models.add.key_placeholder_windows", "models.add.key_placeholder_other"))
 }
 
+/// The order of the model lists.
+#[derive(Clone, Copy, PartialEq)]
+enum SortKey {
+    /// The catalog order, the recommended model first.
+    Recommended,
+    Accuracy,
+    Speed,
+    Size,
+}
+
+impl SortKey {
+    const ALL: [SortKey; 4] = [SortKey::Recommended, SortKey::Accuracy, SortKey::Speed, SortKey::Size];
+
+    fn label(self) -> String {
+        match self {
+            SortKey::Recommended => t!("models.sort.recommended"),
+            SortKey::Accuracy => t!("models.group.accuracy"),
+            SortKey::Speed => t!("models.group.speed"),
+            SortKey::Size => t!("models.group.size"),
+        }
+    }
+}
+
+/// Sort the best first: the most accurate, the fastest, the smallest. `reversed`
+/// turns the order around, but models without an accuracy figure or a size stay last.
+fn sort_models(list: &mut [ModelInfo], key: SortKey, reversed: bool) {
+    use std::cmp::Ordering;
+    list.sort_by(|a, b| {
+        let order = match key {
+            SortKey::Recommended => b.recommended.cmp(&a.recommended),
+            SortKey::Accuracy => match (a.wer_percent, b.wer_percent) {
+                (Some(x), Some(y)) => x.total_cmp(&y),
+                (Some(_), None) => return Ordering::Less,
+                (None, Some(_)) => return Ordering::Greater,
+                (None, None) => Ordering::Equal,
+            },
+            SortKey::Speed => b.speed.cmp(&a.speed),
+            // Apple Speech has no size here (macOS keeps its files), so it goes last.
+            SortKey::Size => match (a.size_bytes, b.size_bytes) {
+                (0, 0) => Ordering::Equal,
+                (_, 0) => return Ordering::Less,
+                (0, _) => return Ordering::Greater,
+                (x, y) => x.cmp(&y),
+            },
+        };
+        if reversed { order.reverse() } else { order }
+    });
+}
+
+/// True when the model's name, vendor, languages, or description has `query`
+/// (lowercase). An empty query matches every model.
+fn matches(info: &ModelInfo, query: &str) -> bool {
+    query.is_empty()
+        || [info.name.as_str(), info.vendor.as_str(), &info.language_label(), &info.description].iter().any(|s| s.to_lowercase().contains(query))
+}
+
 /// Which floating menu of the page is open.
 #[derive(Clone, PartialEq)]
 enum OpenMenu {
     Final,
     Preview,
+    Sort,
     /// The "Use" menu in the row of a streaming model.
     Use(ModelId),
 }
@@ -167,6 +224,9 @@ pub struct ModelsPage {
     menu: Option<OpenMenu>,
     /// The model in the details modal.
     details: Option<ModelId>,
+    search: Entity<InputState>,
+    sort: SortKey,
+    reversed: bool,
     focus: FocusHandle,
     /// The page has no room for all columns (set at each render).
     narrow: bool,
@@ -177,8 +237,10 @@ pub struct ModelsPage {
 }
 
 impl ModelsPage {
-    pub fn new(model: Entity<AppModel>, _window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(model: Entity<AppModel>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let observe = cx.observe(&model, |_, _, cx| cx.notify());
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder(t!("models.search.placeholder")));
+        let subs = vec![cx.subscribe_in(&search, window, |_, _, _: &InputEvent, _, cx| cx.notify())];
         Self {
             model,
             confirm_delete: None,
@@ -187,12 +249,75 @@ impl ModelsPage {
             confirm_remove: None,
             menu: None,
             details: None,
+            search,
+            sort: SortKey::Recommended,
+            reversed: false,
             focus: cx.focus_handle(),
             narrow: false,
             locale: sayso_i18n::locale(),
             _observe: observe,
-            _subs: Vec::new(),
+            _subs: subs,
         }
+    }
+
+    fn query(&self, cx: &App) -> String {
+        self.search.read(cx).value().trim().to_lowercase()
+    }
+
+    /// Sort by `key`. The key that is already active turns its order around.
+    fn set_sort(&mut self, key: SortKey, cx: &mut Context<Self>) {
+        self.reversed = key == self.sort && key != SortKey::Recommended && !self.reversed;
+        self.sort = key;
+        self.menu = None;
+        cx.notify();
+    }
+
+    /// The search field and the sort menu, above the lists.
+    fn toolbar(&self, cx: &mut Context<Self>) -> Div {
+        let menu = (self.menu == Some(OpenMenu::Sort)).then(|| {
+            let items = SortKey::ALL.iter().map(|k| MenuItem::new(k.label()).selected(*k == self.sort)).collect();
+            let page = cx.entity().downgrade();
+            let pick = {
+                let page = page.clone();
+                move |i: usize, _: &mut Window, cx: &mut App| {
+                    let _ = page.update(cx, |this, cx| {
+                        // A pick from the menu always gives the best first.
+                        this.reversed = false;
+                        this.sort = SortKey::ALL[i];
+                        this.menu = None;
+                        cx.notify();
+                    });
+                }
+            };
+            div().absolute().top_full().right_0().w(px(200.)).child(kit::menu_items("sort-menu", items, pick, Self::close_menu(page), cx)).into_any_element()
+        });
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(px(16.))
+            .child(kit::search_well(&self.search, 34., None, cx).w(px(300.)))
+            .child(
+                div()
+                    .relative()
+                    .flex_none()
+                    .child(Button::new("sort-models", t!("models.sort.button", key = self.sort.label())).small().on_click(cx.listener(|this, _, _, cx| this.toggle_menu(OpenMenu::Sort, cx))))
+                    .children(menu),
+            )
+    }
+
+    /// A column caption that sorts the lists. The active one shows its direction.
+    fn sort_caption(&self, key: SortKey, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
+        let c = cx.paper().colors;
+        let active = self.sort == key;
+        let label = if active { format!("{} {}", key.label(), if self.reversed { "↑" } else { "↓" }) } else { key.label() };
+        div()
+            .id(SharedString::from(format!("sort-{}", key.label())))
+            .w(px(width))
+            .flex_none()
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _, _, cx| this.set_sort(key, cx)))
+            .child(caps(label, 11., if active { c.ink } else { c.graphite }))
     }
 
     fn open_details(&mut self, id: ModelId, window: &mut Window, cx: &mut Context<Self>) {
@@ -680,10 +805,8 @@ impl ModelsPage {
                 .border_b_1()
                 .border_color(c.rule)
                 .child(div().flex().flex_col().flex_1().min_w_0().gap(px(3.)).child(text::title(title, 20., &c).line_height(px(26.))).child(ui(note, 13., 18., FontWeight::NORMAL, c.graphite)))
-                .when(!self.narrow, |d| {
-                    d.child(caps(t!("models.group.accuracy"), 11., c.graphite).w(px(ACCURACY_W)).flex_none()).child(caps(t!("models.group.speed"), 11., c.graphite).w(px(SPEED_W)).flex_none())
-                })
-                .child(caps(t!("models.group.size"), 11., c.graphite).w(px(SIZE_W)).flex_none())
+                .when(!self.narrow, |d| d.child(self.sort_caption(SortKey::Accuracy, ACCURACY_W, cx)).child(self.sort_caption(SortKey::Speed, SPEED_W, cx)))
+                .child(self.sort_caption(SortKey::Size, SIZE_W, cx))
                 .child(div().w(px(ACTION_W)).flex_none()),
         );
         for info in models {
@@ -1149,6 +1272,7 @@ impl ModelsPage {
     fn cloud(&mut self, active: &sayso_core::models::ModelId, cx: &mut Context<Self>) -> Div {
         let c = cx.paper().colors;
         let providers = self.model.read(cx).config.speech.providers.clone();
+        let query = self.query(cx);
         let note = ui(t!("models.cloud.note", computer = crate::shell::computer()), 13., 16., FontWeight::NORMAL, c.graphite).into_any_element();
         let mut col = div().flex().flex_col().child(kit::section_head(&t!("models.cloud.title"), Some(note), cx));
         if providers.is_empty() && self.add.is_none() {
@@ -1165,8 +1289,11 @@ impl ModelsPage {
             );
         }
         for p in &providers {
+            let models: Vec<ModelInfo> = p.catalog().into_iter().filter(|m| &m.id != active && matches(m, &query)).collect();
+            if models.is_empty() && !query.is_empty() {
+                continue;
+            }
             col = col.child(self.provider_head(p, cx));
-            let models: Vec<ModelInfo> = p.catalog().into_iter().filter(|m| &m.id != active).collect();
             for info in &models {
                 col = col.child(self.row(info, cx));
             }
@@ -1226,14 +1353,18 @@ impl Render for ModelsPage {
             Some(disk),
             cx,
         );
-        // Each list in order of accuracy. Models without a figure go last.
+        let query = self.query(cx);
+        let (sort, reversed) = (self.sort, self.reversed);
         let list = |streaming: bool| -> Vec<ModelInfo> {
-            let mut list: Vec<ModelInfo> = catalog.iter().filter(|i| !i.is_remote() && i.live_preview == streaming).cloned().collect();
-            list.sort_by(|a, b| a.wer_percent.unwrap_or(f32::MAX).total_cmp(&b.wer_percent.unwrap_or(f32::MAX)));
+            let mut list: Vec<ModelInfo> = catalog.iter().filter(|i| !i.is_remote() && i.live_preview == streaming && matches(i, &query)).cloned().collect();
+            sort_models(&mut list, sort, reversed);
             list
         };
         let (non_streaming, streaming) = (list(false), list(true));
-        let mut tables = div().flex().flex_col().gap(px(36.));
+        let mut tables = div().flex().flex_col().gap(px(36.)).child(self.toolbar(cx));
+        if non_streaming.is_empty() && streaming.is_empty() {
+            tables = tables.child(ui(t!("models.search.empty", query = self.search.read(cx).value().trim().to_string()), 14., 20., FontWeight::NORMAL, c.graphite));
+        }
         if !non_streaming.is_empty() {
             tables = tables.child(self.group(t!("models.group.non_streaming"), t!("models.group.non_streaming_note"), &non_streaming, cx));
         }
@@ -1262,5 +1393,57 @@ impl Render for ModelsPage {
                 .child(div().pt(px(8.)).child(tables))
                 .child(div().pt(px(8.)).child(cloud)),
         )).children(details)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SortKey, matches, sort_models};
+    use sayso_core::models::catalog;
+
+    fn ids(list: &[sayso_core::models::ModelInfo]) -> Vec<&str> {
+        list.iter().map(|m| m.id.as_str()).collect()
+    }
+
+    #[test]
+    fn the_best_comes_first_and_unmeasured_models_stay_last() {
+        let mut list = catalog();
+        sort_models(&mut list, SortKey::Accuracy, false);
+        let wers: Vec<Option<f32>> = list.iter().map(|m| m.wer_percent).collect();
+        let measured = wers.iter().take_while(|w| w.is_some()).count();
+        assert!(wers[measured..].iter().all(Option::is_none), "{:?}", ids(&list));
+        assert!(wers[..measured].windows(2).all(|w| w[0] <= w[1]));
+
+        sort_models(&mut list, SortKey::Accuracy, true);
+        assert!(list.last().unwrap().wer_percent.is_none(), "reversed, unmeasured models still go last");
+        assert!(list[0].wer_percent >= list[1].wer_percent);
+
+        sort_models(&mut list, SortKey::Size, false);
+        let sized: Vec<u64> = list.iter().map(|m| m.size_bytes).take_while(|&b| b > 0).collect();
+        assert!(sized.windows(2).all(|w| w[0] <= w[1]));
+        assert!(list[sized.len()..].iter().all(|m| m.size_bytes == 0), "no size goes last");
+        sort_models(&mut list, SortKey::Speed, false);
+        assert!(list.windows(2).all(|w| w[0].speed >= w[1].speed));
+    }
+
+    #[test]
+    fn recommended_keeps_the_catalog_order_with_the_recommended_model_first() {
+        let mut list = catalog();
+        list.reverse();
+        sort_models(&mut list, SortKey::Recommended, false);
+        assert!(list[0].recommended);
+        let mut expected = catalog();
+        expected.reverse();
+        expected.retain(|m| !m.recommended);
+        assert_eq!(ids(&list[1..]), ids(&expected), "the sort is stable");
+    }
+
+    #[test]
+    fn search_looks_at_name_vendor_and_languages() {
+        let m = catalog().remove(0);
+        assert!(matches(&m, ""));
+        assert!(matches(&m, &m.name.to_lowercase()));
+        assert!(matches(&m, &m.vendor.to_lowercase()));
+        assert!(!matches(&m, "no model has this text"));
     }
 }

@@ -60,6 +60,12 @@ models:
     non_streaming_note: "They write your text after you stop talking."
     streaming: "Streaming models"
     streaming_note: "They work as you talk, so they can also show the live preview."
+  search:
+    placeholder: "Search models"
+    empty: "No models match “%{query}”."
+  sort:
+    recommended: "Recommended"
+    button: "Sort: %{key}"
   details:
     streaming: "Streaming model"
     non_streaming: "Non-streaming model"

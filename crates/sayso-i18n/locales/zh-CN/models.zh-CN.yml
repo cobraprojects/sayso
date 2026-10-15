@@ -60,6 +60,12 @@ models:
     non_streaming_note: "在你停止说话后写出文本。"
     streaming: "流式模型"
     streaming_note: "边说边处理，因此也能显示实时预览。"
+  search:
+    placeholder: "搜索模型"
+    empty: "没有与“%{query}”匹配的模型。"
+  sort:
+    recommended: "推荐"
+    button: "排序：%{key}"
   details:
     streaming: "流式模型"
     non_streaming: "非流式模型"

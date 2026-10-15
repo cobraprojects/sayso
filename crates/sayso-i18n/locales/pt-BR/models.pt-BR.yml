@@ -60,6 +60,12 @@ models:
     non_streaming_note: "Escrevem seu texto depois que você para de falar."
     streaming: "Modelos de streaming"
     streaming_note: "Funcionam enquanto você fala, então também podem mostrar a prévia ao vivo."
+  search:
+    placeholder: "Buscar modelos"
+    empty: "Nenhum modelo corresponde a “%{query}”."
+  sort:
+    recommended: "Recomendado"
+    button: "Ordenar: %{key}"
   details:
     streaming: "Modelo de streaming"
     non_streaming: "Modelo sem streaming"
