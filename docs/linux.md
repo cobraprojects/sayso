@@ -195,6 +195,7 @@ If your desktop gives no global shortcuts to apps, bind these commands to keys i
 | `sayso --cycle-style` | Switch to the next style |
 | `sayso --incognito` | Turn incognito on or off |
 | `sayso --push-to-talk-down`, `sayso --push-to-talk-up` | Push-to-talk, for tools that run one command on press and one on release |
+| `sayso --push-to-talk-up-submit` | Push-to-talk release, and Enter once the app has the text: for a chat or a terminal. Without a read of the text there is no Enter. |
 
 On sway, for example, add this to the config:
 

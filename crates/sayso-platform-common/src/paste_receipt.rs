@@ -31,6 +31,8 @@ pub struct Receipts {
     /// is a clipboard manager that reacts to the clipboard change itself.
     sent_at: Option<Instant>,
     reads: Vec<Instant>,
+    /// The reads whose reader got the whole text, by the time each read began.
+    delivered: Vec<Instant>,
     /// Another app wrote to the clipboard. Our promise is gone.
     replaced: bool,
 }
@@ -46,6 +48,16 @@ impl Receipts {
 
     pub fn mark_replaced(&mut self) {
         self.replaced = true;
+    }
+
+    /// The read that began at `read_at` has all of the text: the writer is done.
+    pub fn record_delivered(&mut self, read_at: Instant) {
+        self.delivered.push(read_at);
+    }
+
+    /// Whether a read that began at or after the paste key got the whole text.
+    pub fn delivered(&self) -> bool {
+        self.sent_at.is_some_and(|sent| self.delivered.iter().any(|read| *read >= sent))
     }
 
     /// The reads that count: at or after the paste key.
@@ -141,6 +153,20 @@ mod tests {
             at += ms(100);
         }
         assert_eq!(r.verdict(t + MAX_SETTLE, QUIET), Verdict::Taken);
+    }
+
+    #[test]
+    fn only_a_read_that_began_after_the_key_press_is_delivered() {
+        let t = Instant::now();
+        let mut r = Receipts::default();
+        r.record_read(t);
+        r.mark_sent(t + ms(10));
+        r.record_delivered(t);
+        assert!(!r.delivered(), "a clipboard manager's read that began before the key");
+        r.record_read(t + ms(20));
+        assert!(!r.delivered(), "read, but not written out yet");
+        r.record_delivered(t + ms(20));
+        assert!(r.delivered());
     }
 
     #[test]

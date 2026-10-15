@@ -332,7 +332,11 @@ impl Server {
         if format.counts
             && let Some(receipts) = &owned.receipts
         {
-            receipts.lock().record_read(Instant::now());
+            // The property holds the whole text before the reader is told, so the read is delivered at once.
+            let at = Instant::now();
+            let mut receipts = receipts.lock();
+            receipts.record_read(at);
+            receipts.record_delivered(at);
         }
         Some(true)
     }

@@ -339,17 +339,30 @@ impl Dispatch<Source, (Selection, u64)> for State {
             source::Event::Send { mime_type, fd } => {
                 let Some(owned) = owned else { return };
                 let Some((_, bytes)) = owned.formats.iter().find(|(m, _)| *m == mime_type) else { return };
-                if read_counts(&mime_type)
+                let counted = if read_counts(&mime_type)
                     && let Some(receipts) = &owned.receipts
                 {
-                    receipts.lock().record_read(Instant::now());
-                }
+                    let at = Instant::now();
+                    receipts.lock().record_read(at);
+                    Some((receipts.clone(), at))
+                } else {
+                    None
+                };
                 // A slow reader must not stop the thread, so each write has its own.
                 let bytes = bytes.clone();
                 let spawned = std::thread::Builder::new().name("sayso-clipboard-send".into()).spawn(move || {
                     let mut file = std::fs::File::from(fd);
-                    if let Err(e) = file.write_all(&bytes) {
-                        log::debug!("a clipboard reader closed early: {e}");
+                    let written = file.write_all(&bytes);
+                    // Writing only fills the pipe; the app has the text once the pipe is empty.
+                    let drained = written.is_ok() && counted.is_some() && wait_until_drained(&file);
+                    drop(file); // the reader sees the end of the text only once the pipe closes
+                    match written {
+                        Ok(()) => {
+                            if let (true, Some((receipts, at))) = (drained, counted) {
+                                receipts.lock().record_delivered(at);
+                            }
+                        }
+                        Err(e) => log::debug!("a clipboard reader closed early: {e}"),
                     }
                 });
                 if let Err(e) = spawned {
@@ -367,5 +380,55 @@ impl Dispatch<Source, (Selection, u64)> for State {
             }
             _ => {}
         }
+    }
+}
+
+/// Wait until the reader has taken every byte out of the pipe `file` writes to.
+/// False when it has not after [`DRAIN_TIMEOUT`]: a reader that stalls gets no Enter after it.
+fn wait_until_drained(file: &std::fs::File) -> bool {
+    let started = Instant::now();
+    loop {
+        let mut queued: libc::c_int = 0;
+        // SAFETY: FIONREAD writes one c_int; Linux answers it for either end of a pipe.
+        if unsafe { libc::ioctl(file.as_raw_fd(), libc::FIONREAD, &mut queued) } != 0 || queued == 0 {
+            return true;
+        }
+        if started.elapsed() >= DRAIN_TIMEOUT {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+/// How long a reader may take to empty the pipe before Sayso stops waiting for it.
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_pipe_is_drained_once_its_reader_has_every_byte() {
+        let (mut reader, writer) = std::io::pipe().unwrap();
+        let mut writer = std::fs::File::from(OwnedFd::from(writer));
+        writer.write_all(b"dictated text").unwrap();
+        let taking = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            let mut got = [0u8; 13];
+            reader.read_exact(&mut got).unwrap();
+            got
+        });
+        let started = Instant::now();
+        assert!(wait_until_drained(&writer));
+        assert!(started.elapsed() >= Duration::from_millis(50), "not drained before the reader read");
+        assert_eq!(&taking.join().unwrap(), b"dictated text");
+    }
+
+    #[test]
+    fn a_reader_that_never_reads_times_out() {
+        let (_reader, writer) = std::io::pipe().unwrap();
+        let mut writer = std::fs::File::from(OwnedFd::from(writer));
+        writer.write_all(b"dictated text").unwrap();
+        assert!(!wait_until_drained(&writer));
     }
 }

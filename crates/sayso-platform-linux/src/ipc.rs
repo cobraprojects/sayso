@@ -30,6 +30,8 @@ pub enum Command {
     /// Push-to-talk from a key that sends one command on press and one on release.
     PushToTalkDown,
     PushToTalkUp,
+    /// Push-to-talk released, then Enter after the insert: sends a chat message.
+    PushToTalkUpSubmit,
     /// Open the Hub (a second start of Sayso).
     Open,
 }
@@ -45,6 +47,7 @@ impl Command {
             Command::Incognito => "incognito",
             Command::PushToTalkDown => "push-to-talk-down",
             Command::PushToTalkUp => "push-to-talk-up",
+            Command::PushToTalkUpSubmit => "push-to-talk-up-submit",
             Command::Open => "open",
         }
     }
@@ -58,6 +61,7 @@ impl Command {
             Command::Incognito,
             Command::PushToTalkDown,
             Command::PushToTalkUp,
+            Command::PushToTalkUpSubmit,
             Command::Open,
         ]
         .into_iter()
@@ -78,6 +82,7 @@ impl Command {
             Command::Incognito => HotkeyEvent::ToggleIncognito,
             Command::PushToTalkDown => HotkeyEvent::PushToTalkDown,
             Command::PushToTalkUp => HotkeyEvent::PushToTalkUp,
+            Command::PushToTalkUpSubmit => HotkeyEvent::PushToTalkUpSubmit,
             Command::Open => return None,
         })
     }
@@ -326,13 +331,15 @@ mod tests {
 
     #[test]
     fn words_round_trip_and_flags_parse() {
-        for c in [Command::Toggle, Command::Cancel, Command::PasteLast, Command::CycleStyle, Command::Incognito, Command::Open] {
+        for c in [Command::Toggle, Command::Cancel, Command::PasteLast, Command::CycleStyle, Command::Incognito, Command::PushToTalkUpSubmit, Command::Open] {
             assert_eq!(Command::parse(c.word()), Some(c));
         }
         assert_eq!(Command::parse("toggle\n"), Some(Command::Toggle));
         assert_eq!(Command::parse("dance"), None);
         let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(Command::from_args(args(&["sayso", "--toggle"])), Some(Command::Toggle));
+        assert_eq!(Command::from_args(args(&["sayso", "--push-to-talk-up-submit"])), Some(Command::PushToTalkUpSubmit));
+        assert_eq!(Command::PushToTalkUpSubmit.hotkey(), Some(HotkeyEvent::PushToTalkUpSubmit));
         assert_eq!(Command::from_args(args(&["sayso", "--hub"])), None);
         assert_eq!(Command::from_args(args(&["sayso", "--open"])), None, "open is not a command line flag");
     }
