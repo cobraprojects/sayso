@@ -9,7 +9,7 @@ use crate::live::LiveAudio;
 use crate::services::Services;
 use gpui_kit::*;
 use sayso_i18n::t;
-use sayso_core::config::{Config, ConfigIssue, Provider, ProviderKind};
+use sayso_core::config::{Config, ConfigIssue, PreviewChoice, Provider, ProviderKind};
 use sayso_core::enhance::ModelChoice;
 use sayso_core::dictation::{Event, Machine, State, Timing};
 use sayso_core::dictionary::{Replacement, Replacer, Word};
@@ -496,6 +496,7 @@ impl AppModel {
         if before.dictation.model != self.config.dictation.model
             || before.dictation.language != self.config.dictation.language
             || before.dictation.live_preview != self.config.dictation.live_preview
+            || before.dictation.preview_model != self.config.dictation.preview_model
             || keep_changed
         {
             // The language can change which model gives the live preview.
@@ -614,18 +615,39 @@ impl AppModel {
         self.config.speech.provider(provider)
     }
 
-    /// The model for the live preview, when it is on and usable.
-    ///
-    /// The active model streams its own preview if it can. If not, a streaming
-    /// model that is on disk and understands the dictation language does it:
-    /// the small Parakeet EOU first, then any other.
+    /// The model for the live preview, when it is on and usable
+    /// (`models::preview_for`).
     pub fn preview_model(&self) -> Option<ModelId> {
         if self.config.dictation.live_preview { self.preview_candidate() } else { None }
     }
 
     /// The model the live preview uses when the setting is on.
     pub fn preview_candidate(&self) -> Option<ModelId> {
-        sayso_core::models::preview_for(&self.active_model(), &self.config.dictation.language, |id| self.status_of(id).is_on_disk())
+        let d = &self.config.dictation;
+        sayso_core::models::preview_for(&self.active_model(), &d.preview_model, &d.language, |id| self.status_of(id).is_on_disk())
+    }
+
+    /// The chosen preview model does not understand the dictation language.
+    pub fn preview_language_mismatch(&self) -> bool {
+        let d = &self.config.dictation;
+        d.live_preview && sayso_core::models::preview_language_mismatch(&self.active_model(), &d.preview_model, &d.language)
+    }
+
+    /// Choose the preview model, or turn the preview off with `None`. A chosen
+    /// model that is not on disk downloads.
+    pub fn set_preview(&mut self, choice: Option<PreviewChoice>, cx: &mut Context<Self>) {
+        if let Some(PreviewChoice::Model(id)) = &choice
+            && matches!(self.status_of(id), ModelStatus::NotDownloaded | ModelStatus::Failed { .. })
+        {
+            self.download_model(id.clone(), cx);
+        }
+        self.edit_config(cx, |c| match choice {
+            Some(choice) => {
+                c.dictation.live_preview = true;
+                c.dictation.preview_model = choice;
+            }
+            None => c.dictation.live_preview = false,
+        });
     }
 
     pub fn download_model(&mut self, id: ModelId, cx: &mut Context<Self>) {

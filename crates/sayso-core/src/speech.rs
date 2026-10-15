@@ -196,6 +196,9 @@ impl SpeechProvider {
             vocabulary,
             speed,
             wer_percent: None,
+            preview_wer_percent: None,
+            punctuation: true,
+            card_url: None,
             recommended: false,
             min_macos: 14,
         };

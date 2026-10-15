@@ -39,6 +39,7 @@ settings:
       push_to_talk_is_toggle: "é a mesma tecla de hotkeys.toggle"
       unknown_provider: "nenhum provedor tem o id \"%{id}\""
       unknown_model: "\"%{id}\" não é um modelo conhecido"
+      not_a_streaming_model: "\"%{id}\" não pode mostrar uma prévia ao vivo. Use \"auto\" ou um modelo de streaming"
       unknown_interface_language: "\"%{code}\" não é um idioma de interface que o Sayso tem. O Sayso usa o idioma do sistema"
       unknown_dictation_language: "\"%{code}\" não é um código de idioma que o Sayso conhece. Use \"auto\" ou um código como \"en\""
       speech_timeout_too_short: "deve ser de pelo menos 1000 ms"

@@ -87,7 +87,7 @@ impl Render for AudioSettings {
         let pause_media = m.config.audio.pause_media;
         let max_s = m.config.dictation.max_duration_s;
         // With the setting off, ask what the preview would use if it were on.
-        let has_preview_model = m.active_model().live_preview || m.preview_candidate().is_some();
+        let has_preview_model = m.preview_candidate().is_some();
         let recording = !matches!(m.state(), sayso_core::dictation::State::Idle);
         let default_name = devices.iter().find(|d| d.is_default).map(|d| d.name.clone());
         let meter_name = match &current_id {

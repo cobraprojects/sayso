@@ -4,13 +4,14 @@
 //! in groups with a speed meter, the size, and one action per row, then the
 //! cloud providers with their models.
 
-use super::kit::{self, caps, mono, ui};
+use super::kit::{self, MenuItem, caps, mono, ui};
 use crate::model::AppModel;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::config::is_local_url;
-use sayso_core::models::{EngineKind, Family, ModelInfo, format_size};
+use sayso_core::config::PreviewChoice;
+use sayso_core::models::{EngineKind, Family, ModelId, ModelInfo, format_size};
 use sayso_core::speech::{SpeechProvider, SpeechProviderKind};
 use sayso_core::stt::ModelStatus;
 use sayso_i18n::t;
@@ -37,14 +38,57 @@ pub fn group_title(family: Family) -> String {
     }
 }
 
-/// The speed meter: five bars, `speed` of them in ink.
-pub fn speed_meter(speed: u8, c: &Colors) -> Div {
+/// Five bars, `level` of them in ink.
+pub fn meter(level: u8, c: &Colors) -> Div {
     let mut meter = div().flex().flex_none().items_center().gap(px(3.));
     for i in 0..5u8 {
-        meter = meter.child(div().w(px(14.)).h(px(6.)).rounded(px(2.)).bg(if i < speed { c.ink } else { c.deboss_shade }));
+        meter = meter.child(div().w(px(14.)).h(px(6.)).rounded(px(2.)).bg(if i < level { c.ink } else { c.deboss_shade }));
     }
     meter
 }
+
+/// The speed meter: five bars, `speed` of them in ink.
+pub fn speed_meter(speed: u8, c: &Colors) -> Div {
+    meter(speed, c)
+}
+
+/// The accuracy meter level for a word error rate. The steps are in
+/// `docs/model-roles.md`.
+pub fn accuracy_level(wer: f32) -> u8 {
+    match wer {
+        w if w < 6.0 => 5,
+        w if w < 6.6 => 4,
+        w if w < 8.0 => 3,
+        w if w < 9.0 => 2,
+        _ => 1,
+    }
+}
+
+/// One wrong word in this many.
+pub fn one_in(wer: f32) -> u32 {
+    (100. / wer).round() as u32
+}
+
+/// "160 ms" or "1.1 s".
+fn interval_label(ms: u32) -> String {
+    if ms >= 1000 { format!("{:.1} s", ms as f32 / 1000.) } else { format!("{ms} ms") }
+}
+
+/// A large number over a small note, in the setup card.
+fn stat(value: String, note: String, c: &Colors) -> Div {
+    div().flex().flex_col().gap(px(2.)).child(text::title(value, 22., c).line_height(px(28.))).child(ui(note, 12., 16., FontWeight::NORMAL, c.graphite))
+}
+
+/// The tag of a model that has a role.
+fn role_pill(label: String, c: &Colors) -> Div {
+    div().flex().flex_none().items_center().h(px(28.)).px(px(12.)).rounded_full().bg(c.accent_wash).child(ui(label, 13., 16., FontWeight::SEMIBOLD, c.accent))
+}
+
+// The column widths of the lists.
+const ACCURACY_W: f32 = 176.;
+const SPEED_W: f32 = 84.;
+const SIZE_W: f32 = 64.;
+const ACTION_W: f32 = 132.;
 
 /// The result of a provider check, shown on the provider's line.
 #[derive(Clone)]
@@ -93,12 +137,37 @@ fn key_placeholder() -> String {
     t!(crate::shell::os_text!("models.add.key_placeholder_mac", "models.add.key_placeholder_windows", "models.add.key_placeholder_other"))
 }
 
+/// Which floating menu of the page is open.
+#[derive(Clone, PartialEq)]
+enum OpenMenu {
+    Final,
+    Preview,
+    /// The "Use" menu in the row of a streaming model.
+    Use(ModelId),
+}
+
+/// The state of the live preview slot.
+enum PreviewSlot {
+    Off,
+    /// The chosen model does not understand the dictation language.
+    Paused(ModelInfo),
+    /// The final model also gives the preview.
+    Same(ModelInfo),
+    Model(ModelInfo),
+    /// Automatic, and no streaming model is on disk.
+    Unavailable,
+}
+
 pub struct ModelsPage {
     model: Entity<AppModel>,
     confirm_delete: Option<String>,
     add: Option<AddProvider>,
     tests: HashMap<String, Test>,
     confirm_remove: Option<String>,
+    menu: Option<OpenMenu>,
+    /// The model in the details modal.
+    details: Option<ModelId>,
+    focus: FocusHandle,
     /// The page has no room for all columns (set at each render).
     narrow: bool,
     /// The locale of the text in the placeholders of the add form.
@@ -110,68 +179,124 @@ pub struct ModelsPage {
 impl ModelsPage {
     pub fn new(model: Entity<AppModel>, _window: &mut Window, cx: &mut Context<Self>) -> Self {
         let observe = cx.observe(&model, |_, _, cx| cx.notify());
-        Self { model, confirm_delete: None, add: None, tests: HashMap::new(), confirm_remove: None, narrow: false, locale: sayso_i18n::locale(), _observe: observe, _subs: Vec::new() }
+        Self {
+            model,
+            confirm_delete: None,
+            add: None,
+            tests: HashMap::new(),
+            confirm_remove: None,
+            menu: None,
+            details: None,
+            focus: cx.focus_handle(),
+            narrow: false,
+            locale: sayso_i18n::locale(),
+            _observe: observe,
+            _subs: Vec::new(),
+        }
     }
 
-    fn hero(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn open_details(&mut self, id: ModelId, window: &mut Window, cx: &mut Context<Self>) {
+        self.details = Some(id);
+        self.confirm_delete = None;
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    fn toggle_menu(&mut self, menu: OpenMenu, cx: &mut Context<Self>) {
+        self.menu = if self.menu.as_ref() == Some(&menu) { None } else { Some(menu) };
+        cx.notify();
+    }
+
+    fn close_menu(page: WeakEntity<Self>) -> impl Fn(&mut Window, &mut App) + 'static {
+        move |_, cx| {
+            let _ = page.update(cx, |this, cx| {
+                this.menu = None;
+                cx.notify();
+            });
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Setup card
+    // -----------------------------------------------------------------------
+
+    /// The final model and the preview model, side by side.
+    fn setup(&self, cx: &mut Context<Self>) -> Div {
+        let c = cx.paper().colors;
+        let final_slot = self.final_slot(cx);
+        let preview_slot = self.preview_slot(cx);
+        let narrow = self.narrow;
+        div()
+            .flex()
+            .flex_none()
+            .when(narrow, |d| d.flex_col())
+            .rounded(px(16.))
+            .bg(c.sheet_raised)
+            .shadow(vec![
+                BoxShadow::new(px(0.), px(1.), c.highlight(1.0)).inset(),
+                BoxShadow::new(px(0.), px(1.), c.shadow(0.14)).blur_radius(px(2.)),
+                BoxShadow::new(px(0.), px(12.), c.shadow(0.10)).blur_radius(px(28.)),
+            ])
+            .child(final_slot.flex_grow(1.25).flex_basis(relative(0.)).min_w_0())
+            .child(if narrow { div().h(px(1.)).mx(px(28.)).bg(c.rule) } else { div().w(px(1.)).my(px(22.)).bg(c.rule) })
+            .child(preview_slot.flex_grow(1.).flex_basis(relative(0.)).min_w_0())
+    }
+
+    fn slot_label(&self, dot: Hsla, label: String, c: &Colors) -> Div {
+        div().flex().items_center().gap(px(8.)).child(status_dot(dot, 8.)).child(caps(label, 12., c.graphite))
+    }
+
+    fn slot_name(&self, name: String, muted: bool, c: &Colors) -> Div {
+        let title = text::title(name, 30., c).line_height(px(34.));
+        if muted { title.italic().font_weight(FontWeight::MEDIUM).text_color(c.graphite) } else { title }
+    }
+
+    fn change_button(&self, id: &'static str, menu: OpenMenu, cx: &mut Context<Self>) -> Button {
+        Button::new(id, t!("models.setup.change")).small().on_click(cx.listener(move |this, _, _, cx| this.toggle_menu(menu.clone(), cx)))
+    }
+
+    fn final_slot(&self, cx: &mut Context<Self>) -> Div {
         let c = cx.paper().colors;
         let m = self.model.read(cx);
         let info = m.active_model();
         let status = m.status_of(&info.id);
         let engine = m.services.engine.is_some();
         let measured = m.measured_speed(&info.id);
-
         let remote = info.is_remote();
-        let (dot, label) = match &status {
-            ModelStatus::Ready => (c.success, t!("models.hero.in_use")),
-            ModelStatus::NotDownloaded if remote => (c.danger, t!("models.hero.provider_not_set_up")),
+
+        let (dot, state) = match &status {
+            ModelStatus::Ready => (c.success, None),
+            ModelStatus::NotDownloaded if remote => (c.danger, Some(t!("models.hero.provider_not_set_up"))),
             // The idle time unloaded the model. The next dictation loads it.
-            ModelStatus::Downloaded if m.model_idle => (c.success, t!("models.hero.in_use_idle")),
-            ModelStatus::Downloaded => (c.accent, t!("models.hero.loading")),
-            ModelStatus::Optimizing => (c.accent, crate::shell::optimizing()),
-            ModelStatus::Downloading { fraction, .. } => (c.accent, t!("models.downloading_percent", percent = format!("{:.0}", fraction * 100.))),
-            ModelStatus::NotDownloaded => (c.danger, t!("models.hero.not_downloaded")),
-            ModelStatus::Failed { .. } => (c.danger, t!("models.hero.model_error")),
+            ModelStatus::Downloaded if m.model_idle => (c.success, None),
+            ModelStatus::Downloaded => (c.accent, Some(t!("models.hero.loading"))),
+            ModelStatus::Optimizing => (c.accent, Some(crate::shell::optimizing())),
+            ModelStatus::Downloading { fraction, .. } => (c.accent, Some(format!("{:.0}%", fraction * 100.))),
+            ModelStatus::NotDownloaded => (c.danger, Some(t!("models.hero.not_downloaded"))),
+            ModelStatus::Failed { .. } => (c.danger, Some(t!("models.hero.model_error"))),
+        };
+        let label = match state {
+            Some(s) => format!("{} · {s}", t!("models.setup.final")),
+            None => t!("models.setup.final"),
         };
 
-        let stat = |value: String, note: String| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .child(text::title(value, 28., &c).line_height(px(34.)))
-                .child(ui(note, 12., 16., FontWeight::NORMAL, c.graphite))
-        };
-        let mut stats = div().flex().flex_none().items_end().gap(px(28.)).pb(px(4.));
-        match measured {
-            Some((ms, dur)) => stats = stats.child(stat(t!("models.hero.ms", ms = ms), t!("models.hero.for_speech", duration = kit::duration_words(dur)))),
-            None => stats = stats.child(stat(format!("{}/5", info.speed), t!("models.hero.speed"))),
-        }
+        let mut stats = div().flex().flex_none().items_end().gap(px(24.));
         if let Some(wer) = info.wer_percent {
-            stats = stats.child(stat(format!("{wer}%"), t!("models.hero.word_error_rate")));
+            stats = stats.child(stat(t!("models.setup.one_in", n = one_in(wer)), t!("models.setup.words_wrong"), &c));
         }
-        let parts = match info.engine {
-            EngineKind::ParakeetUnified { .. } => 3,
-            _ => 1,
-        };
+        stats = stats.child(match measured {
+            Some((ms, dur)) => stat(t!("models.hero.ms", ms = ms), t!("models.hero.for_speech", duration = kit::duration_words(dur)), &c),
+            None => stat(format!("{}/5", info.speed), t!("models.hero.speed"), &c),
+        });
         stats = stats.child(if remote {
-            stat(t!("models.hero.cloud"), t!("models.hero.audio_goes_to", vendor = info.vendor))
+            stat(t!("models.hero.cloud"), t!("models.hero.audio_goes_to", vendor = info.vendor), &c)
         } else {
-            stat(size_label(&info), if info.size_bytes == 0 {
-                t!("models.hero.stores_files")
-            } else if status.is_on_disk() {
-                t!("models.hero.parts_on_disk", count = parts)
-            } else {
-                t!("models.hero.to_download")
-            })
+            stat(size_label(&info), if status.is_on_disk() || info.size_bytes == 0 { t!("models.setup.on_disk") } else { t!("models.hero.to_download") }, &c)
         });
 
         let id = info.id.clone();
         let action: Option<AnyElement> = match &status {
-            ModelStatus::NotDownloaded if remote => Some(
-                ui(t!("models.hero.add_provider_again"), 13., 18., FontWeight::NORMAL, c.danger)
-                    .into_any_element(),
-            ),
+            ModelStatus::NotDownloaded if remote => Some(ui(t!("models.hero.add_provider_again"), 13., 18., FontWeight::NORMAL, c.danger).into_any_element()),
             ModelStatus::NotDownloaded => Some(
                 Button::new("hero-download", if info.size_bytes == 0 { t!("models.download") } else { t!("models.download_size", size = format_size(info.size_bytes)) })
                     .primary()
@@ -200,11 +325,9 @@ impl ModelsPage {
                     .flex()
                     .flex_col()
                     .gap(px(6.))
-                    .w(px(360.))
+                    .max_w(px(360.))
                     .child(Progress::new(*fraction))
-                    .when(*bytes_total > 0, |d| {
-                        d.child(mono(t!("models.hero.bytes_of", done = format_size(*bytes_done), total = format_size(*bytes_total)), 11., c.graphite))
-                    })
+                    .when(*bytes_total > 0, |d| d.child(mono(t!("models.hero.bytes_of", done = format_size(*bytes_done), total = format_size(*bytes_total)), 11., c.graphite)))
                     .into_any_element(),
             ),
             ModelStatus::Optimizing => Some(
@@ -215,39 +338,202 @@ impl ModelsPage {
                     FontWeight::NORMAL,
                     c.graphite,
                 )
-                    .into_any_element(),
+                .into_any_element(),
             ),
             _ => None,
         };
 
+        let menu = (self.menu == Some(OpenMenu::Final)).then(|| self.final_menu(cx).into_any_element());
         div()
             .flex()
-            .flex_none()
-            .gap(px(36.))
-            // A narrow page: the numbers go under the name.
-            .when(self.narrow, |d| d.flex_col().gap(px(20.)))
-            .py(px(24.))
+            .flex_col()
+            .gap(px(10.))
+            .pt(px(24.))
+            .pb(px(22.))
             .px(px(28.))
-            .rounded(px(16.))
-            .bg(c.sheet_raised)
-            .shadow(vec![
-                BoxShadow::new(px(0.), px(1.), c.highlight(1.0)).inset(),
-                BoxShadow::new(px(0.), px(1.), c.shadow(0.14)).blur_radius(px(2.)),
-                BoxShadow::new(px(0.), px(12.), c.shadow(0.10)).blur_radius(px(28.)),
-            ])
+            .child(self.slot_label(dot, label, &c))
+            .child(self.slot_name(info.name.clone(), false, &c))
+            .child(ui(format!("{} · {}", info.vendor, info.language_label()), 14., 20., FontWeight::NORMAL, c.graphite))
+            .when_some(action, |d, a| d.child(div().flex().pt(px(4.)).child(a)))
             .child(
                 div()
                     .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .gap(px(10.))
-                    .child(div().flex().items_center().gap(px(8.)).child(status_dot(dot, 8.)).child(caps(label, 12., c.graphite)))
-                    .child(text::title(info.name.clone(), 32., &c).line_height(px(35.)))
-                    .child(ui(format!("{} · {}", info.vendor, info.description), 14., 20., FontWeight::NORMAL, c.graphite))
-                    .when_some(action, |d, a| d.child(div().flex().pt(px(6.)).child(a))),
+                    .items_end()
+                    .justify_between()
+                    .gap(px(16.))
+                    .mt_auto()
+                    .pt(px(10.))
+                    .child(stats)
+                    .child(div().relative().flex_none().child(self.change_button("change-final", OpenMenu::Final, cx)).children(menu)),
             )
-            .child(stats)
+    }
+
+    /// The models that can write the final text now: local models on disk and
+    /// set-up cloud models.
+    fn final_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let m = self.model.read(cx);
+        let active = m.active_model().id;
+        let models: Vec<ModelInfo> = m.catalog().into_iter().filter(|i| i.final_pass && m.status_of(&i.id).is_on_disk() || i.is_remote() && m.status_of(&i.id) == ModelStatus::Ready).collect();
+        let items = models
+            .iter()
+            .map(|i| {
+                let item = MenuItem::new(i.name.clone()).selected(i.id == active);
+                match i.wer_percent {
+                    Some(wer) => item.detail(t!("models.setup.one_in", n = one_in(wer))),
+                    None => item,
+                }
+            })
+            .collect();
+        let ids: Vec<ModelId> = models.into_iter().map(|i| i.id).collect();
+        let page = cx.entity().downgrade();
+        let pick = {
+            let page = page.clone();
+            move |i: usize, _: &mut Window, cx: &mut App| {
+                let id = ids[i].clone();
+                let _ = page.update(cx, |this, cx| {
+                    this.menu = None;
+                    this.model.update(cx, |m, cx| m.set_active_model(id, cx));
+                });
+            }
+        };
+        div().absolute().top_full().right_0().w(px(300.)).child(kit::menu_items("final-menu", items, pick, Self::close_menu(page), cx))
+    }
+
+    fn preview_state(&self, cx: &App) -> PreviewSlot {
+        let m = self.model.read(cx);
+        let d = &m.config.dictation;
+        if !d.live_preview {
+            return PreviewSlot::Off;
+        }
+        if m.preview_language_mismatch()
+            && let PreviewChoice::Model(id) = &d.preview_model
+            && let Some(info) = sayso_core::models::find(id)
+        {
+            return PreviewSlot::Paused(info);
+        }
+        // A chosen model that is not on disk yet shows its download.
+        if let PreviewChoice::Model(id) = &d.preview_model
+            && !m.status_of(id).is_on_disk()
+            && let Some(info) = sayso_core::models::find(id)
+        {
+            return PreviewSlot::Model(info);
+        }
+        let active = m.active_model();
+        match m.preview_model() {
+            Some(id) if id == active.id => PreviewSlot::Same(active),
+            Some(id) => sayso_core::models::find(&id).map_or(PreviewSlot::Unavailable, PreviewSlot::Model),
+            None => PreviewSlot::Unavailable,
+        }
+    }
+
+    fn preview_slot(&self, cx: &mut Context<Self>) -> Div {
+        let c = cx.paper().colors;
+        let state = self.preview_state(cx);
+        let m = self.model.read(cx);
+        let label = t!("models.setup.preview");
+        let (head, name, muted, line) = match &state {
+            PreviewSlot::Off => (self.slot_label(c.pencil, label, &c), t!("models.setup.off"), true, None),
+            PreviewSlot::Unavailable => (self.slot_label(c.pencil, label, &c), t!("models.setup.unavailable"), true, Some(t!("models.setup.unavailable_note"))),
+            PreviewSlot::Paused(info) => (
+                self.slot_label(c.danger, format!("{label} · {}", t!("models.setup.paused")), &c),
+                info.name.clone(),
+                false,
+                Some(t!("models.setup.mismatch", language = sayso_core::languages::display(&m.config.dictation.language))),
+            ),
+            PreviewSlot::Same(_) => (self.slot_label(c.success, label, &c), t!("models.setup.same_model"), true, None),
+            PreviewSlot::Model(info) => {
+                let (dot, s) = match m.status_of(&info.id) {
+                    ModelStatus::Downloading { fraction, .. } => (c.accent, Some(format!("{:.0}%", fraction * 100.))),
+                    ModelStatus::Optimizing | ModelStatus::Downloaded => (c.accent, Some(t!("models.hero.loading"))),
+                    ModelStatus::Failed { .. } => (c.danger, Some(t!("models.hero.model_error"))),
+                    _ => (c.success, None),
+                };
+                let text = match s {
+                    Some(s) => format!("{label} · {s}"),
+                    None => label,
+                };
+                (self.slot_label(dot, text, &c), info.name.clone(), false, Some(format!("{} · {}", info.vendor, info.language_label())))
+            }
+        };
+        let mut stats = div().flex().flex_none().items_end().gap(px(24.));
+        if let PreviewSlot::Same(info) | PreviewSlot::Model(info) = &state {
+            if let Some(wer) = info.preview_wer_percent.or(info.wer_percent) {
+                stats = stats.child(stat(t!("models.setup.one_in", n = one_in(wer)), t!("models.setup.words_wrong"), &c));
+            }
+            if let Some(ms) = info.preview_interval_ms() {
+                stats = stats.child(stat(interval_label(ms), t!("models.setup.between_updates"), &c));
+            }
+        }
+        let button: AnyElement = if let PreviewSlot::Paused(_) = state {
+            Button::new("use-automatic", t!("models.setup.use_automatic"))
+                .small()
+                .on_click(cx.listener(|this, _, _, cx| this.model.update(cx, |m, cx| m.set_preview(Some(PreviewChoice::Auto), cx))))
+                .into_any_element()
+        } else {
+            let menu = (self.menu == Some(OpenMenu::Preview)).then(|| self.preview_menu(cx).into_any_element());
+            div().relative().flex_none().child(self.change_button("change-preview", OpenMenu::Preview, cx)).children(menu).into_any_element()
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .pt(px(24.))
+            .pb(px(22.))
+            .px(px(28.))
+            .child(head)
+            .child(self.slot_name(name, muted, &c))
+            .when_some(line, |d, l| d.child(ui(l, 14., 20., FontWeight::NORMAL, c.graphite)))
+            .child(div().flex().items_end().justify_between().gap(px(16.)).mt_auto().pt(px(10.)).child(stats).child(button))
+    }
+
+    /// Automatic, the streaming models, and off.
+    fn preview_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let m = self.model.read(cx);
+        let d = &m.config.dictation;
+        let streaming: Vec<ModelInfo> = m.catalog().into_iter().filter(|i| i.live_preview).collect();
+        let mut items = vec![MenuItem::new(t!("models.setup.automatic")).selected(d.live_preview && d.preview_model == PreviewChoice::Auto).rule_after()];
+        let count = streaming.len();
+        for (n, i) in streaming.iter().enumerate() {
+            let chosen = d.live_preview && d.preview_model == PreviewChoice::Model(i.id.clone());
+            let detail = if m.status_of(&i.id).is_on_disk() { i.language_label() } else { format_size(i.size_bytes) };
+            let item = MenuItem::new(i.name.clone()).detail(detail).selected(chosen);
+            items.push(if n + 1 == count { item.rule_after() } else { item });
+        }
+        items.push(MenuItem::new(t!("models.setup.no_preview")).selected(!d.live_preview));
+        let ids: Vec<ModelId> = streaming.into_iter().map(|i| i.id).collect();
+        let page = cx.entity().downgrade();
+        let pick = {
+            let page = page.clone();
+            move |i: usize, _: &mut Window, cx: &mut App| {
+                let choice = match i {
+                    0 => Some(PreviewChoice::Auto),
+                    i if i <= ids.len() => Some(PreviewChoice::Model(ids[i - 1].clone())),
+                    _ => None,
+                };
+                let _ = page.update(cx, |this, cx| {
+                    this.menu = None;
+                    this.model.update(cx, |m, cx| m.set_preview(choice, cx));
+                });
+            }
+        };
+        div().absolute().top_full().right_0().w(px(320.)).child(kit::menu_items("preview-menu", items, pick, Self::close_menu(page), cx))
+    }
+
+    // -----------------------------------------------------------------------
+    // Lists
+    // -----------------------------------------------------------------------
+
+    /// "Final text", "Live preview", or "In use" for a model with both roles.
+    fn role_tag(&self, id: &ModelId, cx: &App) -> Option<String> {
+        let m = self.model.read(cx);
+        let is_final = &m.active_model().id == id;
+        let is_preview = m.preview_model().as_ref() == Some(id);
+        match (is_final, is_preview) {
+            (true, true) => Some(t!("models.row.in_use")),
+            (true, false) => Some(t!("models.setup.final")),
+            (false, true) => Some(t!("models.setup.preview")),
+            (false, false) => None,
+        }
     }
 
     fn row(&self, info: &ModelInfo, cx: &mut Context<Self>) -> impl IntoElement {
@@ -255,39 +541,19 @@ impl ModelsPage {
         let m = self.model.read(cx);
         let status = m.status_of(&info.id);
         let engine = m.services.engine.is_some();
-        let is_preview = m.preview_model().as_ref() == Some(&info.id);
         let remote = info.is_remote();
         // A custom endpoint on this Mac is not cloud.
         let place = match sayso_core::speech::split_model_id(&info.id).and_then(|(p, _)| m.config.speech.provider(p)) {
             Some(p) if !p.is_cloud() => t!("models.row.server"),
             _ => t!("models.row.cloud"),
         };
-        let engine_name = info.engine.runtime();
-        let langs = info.language_label();
-        let desc = info.description.trim_end_matches('.').to_string();
-        let speed = speed_meter(info.speed, &c).w(px(120.));
+        let mut meta = if remote { info.description.trim_end_matches('.').to_string() } else { format!("{} · {}", info.vendor, info.language_label()) };
+        if !info.punctuation {
+            meta = format!("{meta} · {}", t!("models.row.no_punctuation"));
+        }
         let id = info.id.clone();
         let key = info.id.as_str().to_string();
-        let confirm = self.confirm_delete.as_deref() == Some(key.as_str());
-
-        let delete = {
-            let id = id.clone();
-            let key = key.clone();
-            if confirm {
-                Button::new(SharedString::from(format!("del-yes-{key}")), t!("models.row.delete")).small().danger().on_click(cx.listener(
-                    move |this, _, _, cx| {
-                        let id = id.clone();
-                        this.confirm_delete = None;
-                        this.model.update(cx, |m, cx| m.delete_model(id, cx));
-                    },
-                ))
-            } else {
-                Button::new(SharedString::from(format!("del-{key}")), t!("models.row.delete")).small().ghost().on_click(cx.listener(move |this, _, _, cx| {
-                    this.confirm_delete = Some(key.clone());
-                    cx.notify();
-                }))
-            }
-        };
+        let tag = self.role_tag(&info.id, cx);
 
         let action: AnyElement = match &status {
             ModelStatus::Downloading { fraction, .. } => div()
@@ -295,16 +561,11 @@ impl ModelsPage {
                 .flex_col()
                 .gap(px(6.))
                 .w_full()
-                .child(
-                    div()
-                        .flex()
-                        .justify_between()
-                        .child(ui(t!("models.row.downloading"), 12., 16., FontWeight::SEMIBOLD, c.ink))
-                        .child(mono(format!("{:.0}%", fraction * 100.), 11., c.graphite)),
-                )
+                .child(div().flex().justify_between().child(ui(t!("models.row.downloading"), 12., 16., FontWeight::SEMIBOLD, c.ink)).child(mono(format!("{:.0}%", fraction * 100.), 11., c.graphite)))
                 .child(Progress::new(*fraction))
                 .into_any_element(),
-            ModelStatus::NotDownloaded => Button::new(SharedString::from(format!("dl-{key}")), t!("models.download"))
+            ModelStatus::NotDownloaded if !remote => Button::new(SharedString::from(format!("dl-{key}")), t!("models.download"))
+                .small()
                 .disabled(!engine)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let id = id.clone();
@@ -316,96 +577,339 @@ impl ModelsPage {
                 .flex_col()
                 .items_end()
                 .gap(px(4.))
-                .child(Button::new(SharedString::from(format!("retry-{key}")), t!("models.try_again")).small().on_click(cx.listener(
-                    move |this, _, _, cx| {
-                        let id = id.clone();
-                        this.model.update(cx, |m, cx| m.download_model(id, cx));
-                    },
-                )))
+                .child(Button::new(SharedString::from(format!("retry-{key}")), t!("models.try_again")).small().on_click(cx.listener(move |this, _, _, cx| {
+                    let id = id.clone();
+                    this.model.update(cx, |m, cx| m.download_model(id, cx));
+                })))
                 .child(ui(crate::engine_text::describe(*reason, message), 11., 14., FontWeight::NORMAL, c.danger).truncate().max_w(px(150.)))
                 .into_any_element(),
             ModelStatus::Optimizing => ui(t!("models.row.optimizing"), 12., 16., FontWeight::SEMIBOLD, c.graphite).into_any_element(),
-            _ if remote => Button::new(SharedString::from(format!("use-{key}")), t!("models.row.use"))
+            _ if tag.is_some() => role_pill(tag.clone().unwrap_or_default(), &c).into_any_element(),
+            _ if info.live_preview => {
+                let open = self.menu == Some(OpenMenu::Use(info.id.clone()));
+                let menu_id = info.id.clone();
+                let menu = open.then(|| self.use_menu(info.id.clone(), cx).into_any_element());
+                div()
+                    .relative()
+                    .child(Button::new(SharedString::from(format!("use-{key}")), t!("models.row.use")).small().on_click(cx.listener(move |this, _, _, cx| this.toggle_menu(OpenMenu::Use(menu_id.clone()), cx))))
+                    .children(menu)
+                    .into_any_element()
+            }
+            _ => Button::new(SharedString::from(format!("use-{key}")), t!("models.row.use"))
                 .small()
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let id = id.clone();
                     this.model.update(cx, |m, cx| m.set_active_model(id, cx));
                 }))
                 .into_any_element(),
-            _ if !info.final_pass => div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .child(ui(if is_preview { t!("models.row.live_preview") } else { t!("models.row.preview_only") }, 12., 16., FontWeight::MEDIUM, c.graphite))
-                .child(delete)
-                .into_any_element(),
-            _ => div()
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .when(!confirm, |d| {
-                    d.child(Button::new(SharedString::from(format!("use-{key}")), t!("models.row.use")).small().on_click(cx.listener(move |this, _, _, cx| {
-                        let id = id.clone();
-                        this.model.update(cx, |m, cx| m.set_active_model(id, cx));
-                    })))
-                })
-                // macOS owns the Apple Speech files, so there is nothing to delete.
-                .when(info.engine != EngineKind::AppleSpeech, |d| d.child(delete))
-                .into_any_element(),
         };
 
+        let accuracy = match info.wer_percent {
+            Some(wer) => div()
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .child(meter(accuracy_level(wer), &c))
+                .child(ui(t!("models.row.one_in_wrong", n = one_in(wer)), 13., 16., FontWeight::NORMAL, c.graphite)),
+            None => ui(t!("models.row.not_measured"), 13., 16., FontWeight::NORMAL, c.pencil),
+        };
+        let open_id = info.id.clone();
         div()
             .flex()
             .flex_none()
             .items_center()
             .gap(px(16.))
-            .h(px(64.))
-            .border_t_1()
+            .h(px(66.))
+            .border_b_1()
             .border_color(c.rule)
             .child(
                 div()
+                    .id(SharedString::from(format!("open-{key}")))
                     .flex()
-                    .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .gap(px(2.))
-                    .child(text::title(info.name.clone(), 17., &c).line_height(px(22.)))
+                    .h_full()
+                    .items_center()
+                    .gap(px(16.))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, window, cx| this.open_details(open_id.clone(), window, cx)))
                     .child(
-                        ui(
-                            if remote { format!("{langs} · {desc}") } else { format!("{} · {engine_name} · {langs} · {desc}", info.vendor) },
-                            13.,
-                            16.,
-                            FontWeight::NORMAL,
-                            c.graphite,
-                        )
-                        .truncate(),
-                    ),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(3.))
+                            .child(text::title(info.name.clone(), 17., &c).line_height(px(22.)))
+                            .child(ui(meta, 13., 16., FontWeight::NORMAL, c.graphite).truncate()),
+                    )
+                    // A narrow page has no accuracy and speed columns.
+                    .when(!self.narrow, |d| d.child(accuracy.w(px(ACCURACY_W)).flex_none()).child(meter(info.speed, &c).w(px(SPEED_W))))
+                    .child(mono(if remote { place } else { size_label(info) }, 12., c.graphite).w(px(SIZE_W)).flex_none()),
             )
-            // A narrow page has no speed column.
-            .when(!self.narrow, |d| d.child(speed))
-            .child(mono(if remote { place } else { size_label(info) }, 12., c.graphite).w(px(80.)).flex_none())
-            .child(div().flex().flex_none().justify_end().w(px(150.)).child(action))
+            .child(div().flex().flex_none().justify_end().w(px(ACTION_W)).child(action))
     }
 
-    /// One group of the local catalog: a caption row, then the models.
-    fn group(&self, title: String, models: &[ModelInfo], cx: &mut Context<Self>) -> Div {
+    /// The "Use" menu of a streaming model: for the final text or for the preview.
+    fn use_menu(&self, id: ModelId, cx: &mut Context<Self>) -> impl IntoElement {
+        let items = vec![MenuItem::new(t!("models.row.for_final")), MenuItem::new(t!("models.row.for_preview"))];
+        let page = cx.entity().downgrade();
+        let pick = {
+            let page = page.clone();
+            move |i: usize, _: &mut Window, cx: &mut App| {
+                let id = id.clone();
+                let _ = page.update(cx, |this, cx| {
+                    this.menu = None;
+                    this.model.update(cx, |m, cx| if i == 0 { m.set_active_model(id, cx) } else { m.set_preview(Some(PreviewChoice::Model(id)), cx) });
+                });
+            }
+        };
+        div().absolute().top_full().right_0().w(px(200.)).child(kit::menu_items("use-menu", items, pick, Self::close_menu(page), cx))
+    }
+
+    /// A list of local models: a title, a note, column captions, then the rows.
+    fn group(&self, title: String, note: String, models: &[ModelInfo], cx: &mut Context<Self>) -> Div {
         let c = cx.paper().colors;
         let mut table = div().flex().flex_col().child(
             div()
                 .flex()
                 .flex_none()
-                .items_center()
+                .items_end()
                 .gap(px(16.))
-                .h(px(36.))
-                .child(caps(title, 12., c.graphite).flex_1())
-                .when(!self.narrow, |d| d.child(caps(t!("models.group.speed"), 12., c.graphite).w(px(120.)).flex_none()))
-                .child(caps(t!("models.group.size"), 12., c.graphite).w(px(80.)).flex_none())
-                .child(div().w(px(150.)).flex_none()),
+                .pb(px(10.))
+                .border_b_1()
+                .border_color(c.rule)
+                .child(div().flex().flex_col().flex_1().min_w_0().gap(px(3.)).child(text::title(title, 20., &c).line_height(px(26.))).child(ui(note, 13., 18., FontWeight::NORMAL, c.graphite)))
+                .when(!self.narrow, |d| {
+                    d.child(caps(t!("models.group.accuracy"), 11., c.graphite).w(px(ACCURACY_W)).flex_none()).child(caps(t!("models.group.speed"), 11., c.graphite).w(px(SPEED_W)).flex_none())
+                })
+                .child(caps(t!("models.group.size"), 11., c.graphite).w(px(SIZE_W)).flex_none())
+                .child(div().w(px(ACTION_W)).flex_none()),
         );
         for info in models {
             table = table.child(self.row(info, cx));
         }
-        table.child(div().h(px(1.)).bg(c.rule))
+        table
+    }
+
+    // -----------------------------------------------------------------------
+    // Details
+    // -----------------------------------------------------------------------
+
+    fn details_modal(&self, id: &ModelId, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let c = cx.paper().colors;
+        let m = self.model.read(cx);
+        let info = m.catalog().into_iter().find(|i| &i.id == id)?;
+        let status = m.status_of(&info.id);
+        let engine = m.services.engine.is_some();
+        let active = m.active_model();
+        let preview = m.preview_model().and_then(|p| sayso_core::models::find(&p));
+        let measured = m.measured_speed(&info.id);
+        let remote = info.is_remote();
+        let key = info.id.as_str().to_string();
+
+        let kind = if remote { t!("models.hero.cloud") } else if info.live_preview { t!("models.details.streaming") } else { t!("models.details.non_streaming") };
+        let close = kit::icon_button("close-details", Icon::Close, 10., cx).on_click(cx.listener(|this, _, _, cx| {
+            this.details = None;
+            cx.notify();
+        }));
+        let head = div()
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .pt(px(26.))
+            .pb(px(22.))
+            .px(px(30.))
+            .child(div().flex().items_center().justify_between().child(caps(format!("{kind} · {}", info.vendor), 12., c.graphite)).child(close))
+            .child(text::title(info.name.clone(), 34., &c).line_height(px(38.)))
+            .child(ui(info.description.clone(), 15., 22., FontWeight::NORMAL, c.graphite));
+
+        // Accuracy, on a scale from 1 in 10 to 1 in 20 wrong words.
+        let accuracy = info.wer_percent.map(|wer| {
+            const W: f32 = 560.;
+            let x = |wer: f32| ((10. - wer) / 5.).clamp(0., 1.) * W;
+            let mut scale = div().relative().w(px(W)).h(px(70.)).flex_none()
+                .child(mono("1 in 10", 11., c.graphite).absolute().left_0().top_0())
+                .child(mono("1 in 20", 11., c.graphite).absolute().right_0().top_0())
+                .child(div().absolute().left_0().top(px(28.)).w(px(W)).h(px(6.)).rounded_full().bg(c.deboss));
+            for other in m.catalog() {
+                if let Some(w) = other.wer_percent.filter(|_| other.id != info.id) {
+                    scale = scale.child(div().absolute().left(px(x(w) - 1.)).top(px(26.)).w(px(2.)).h(px(10.)).rounded(px(1.)).bg(c.deboss_shade));
+                }
+            }
+            let marker = |at: f32, name: String, ring: bool| {
+                div()
+                    .child(div().absolute().left(px(at - 6.)).top(px(25.)).size(px(12.)).rounded_full().map(|d| if ring { d.border_3().border_color(c.accent).bg(c.sheet_raised) } else { d.bg(c.accent) }))
+                    .child(ui(name, 12., 16., FontWeight::NORMAL, c.accent).absolute().top(px(46.)).left(px((at - 90.).clamp(0., W - 180.))).w(px(180.)).text_center())
+            };
+            if active.id != info.id && let Some(w) = active.wer_percent {
+                scale = scale.child(marker(x(w), active.name.clone(), false));
+            }
+            if let Some(p) = preview.as_ref().filter(|p| p.id != info.id && p.id != active.id) && let Some(w) = p.preview_wer_percent.or(p.wer_percent) {
+                scale = scale.child(marker(x(w), p.name.clone(), true));
+            }
+            scale = scale
+                .child(div().absolute().left(px(x(wer) - 7.)).top(px(24.)).size(px(14.)).rounded_full().bg(c.ink).border_2().border_color(c.sheet_raised))
+                .child(ui(t!("models.details.this_model"), 12., 14., FontWeight::SEMIBOLD, c.ink).absolute().top_0().left(px((x(wer) - 40.).clamp(56., W - 136.))).w(px(80.)).text_center());
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(14.))
+                .pt(px(20.))
+                .pb(px(18.))
+                .px(px(30.))
+                .border_t_1()
+                .border_color(c.rule)
+                .child(
+                    div()
+                        .flex()
+                        .items_baseline()
+                        .justify_between()
+                        .child(caps(t!("models.group.accuracy"), 12., c.graphite))
+                        .child(div().flex().items_baseline().gap(px(6.)).child(text::title(t!("models.setup.one_in", n = one_in(wer)), 22., &c)).child(ui(t!("models.setup.words_wrong"), 13., 18., FontWeight::NORMAL, c.graphite))),
+                )
+                .child(scale)
+        });
+
+        let fact = |label: String, value: String, muted: bool| {
+            div()
+                .flex()
+                .justify_between()
+                .items_baseline()
+                .py(px(10.))
+                .border_t_1()
+                .border_color(c.rule)
+                .child(ui(label, 13., 18., FontWeight::NORMAL, c.graphite))
+                .child(ui(value, 14., 18., FontWeight::MEDIUM, if muted { c.pencil } else { c.ink }))
+        };
+        let yes_no = |v: bool| if v { t!("models.details.yes") } else { t!("models.details.no") };
+        let speed = match measured {
+            Some((ms, dur)) => format!("{} {}", t!("models.hero.ms", ms = ms), t!("models.hero.for_speech", duration = kit::duration_words(dur))),
+            None => t!("models.details.speed_of_five", n = info.speed),
+        };
+        let interval = info.preview_interval_ms().map(|ms| t!("models.details.every", interval = interval_label(ms)));
+        let left = div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .child(fact(t!("models.group.speed"), speed, false))
+            .child(fact(t!("models.setup.preview"), interval.clone().unwrap_or_else(|| yes_no(info.live_preview)), !info.live_preview))
+            .child(fact(t!("models.details.languages"), info.language_label(), false).border_b_1());
+        let right = div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .child(fact(t!("models.details.punctuation"), yes_no(info.punctuation), !info.punctuation))
+            .child(fact(t!("models.details.dictionary"), if info.vocabulary { t!("models.details.used") } else { t!("models.details.not_used") }, !info.vocabulary))
+            .child(fact(t!("models.details.size"), if remote { t!("models.hero.cloud") } else { size_label(&info) }, false).border_b_1());
+        let facts = div().flex().gap(px(28.)).pt(px(4.)).pb(px(16.)).px(px(30.)).child(left).child(right);
+        let source = info.wer_percent.map(|wer| ui(t!("models.details.source", wer = format!("{wer:.2}")), 12., 17., FontWeight::NORMAL, c.graphite).px(px(30.)).pb(px(18.)));
+
+        // The action bar.
+        let is_final = active.id == info.id;
+        let is_preview = preview.as_ref().is_some_and(|p| p.id == info.id);
+        let confirm = self.confirm_delete.as_deref() == Some(key.as_str());
+        let can_delete = !remote && status.is_on_disk() && info.engine != EngineKind::AppleSpeech;
+        let mut bar = div().flex().items_center().gap(px(10.)).py(px(14.)).px(px(30.)).border_t_1().border_color(c.rule).bg(c.sheet);
+        if can_delete {
+            let (id, k) = (info.id.clone(), key.clone());
+            bar = bar.child(if confirm {
+                Button::new("details-delete-yes", t!("models.row.delete")).small().danger().on_click(cx.listener(move |this, _, _, cx| {
+                    let id = id.clone();
+                    this.confirm_delete = None;
+                    this.details = None;
+                    this.model.update(cx, |m, cx| m.delete_model(id, cx));
+                }))
+            } else {
+                Button::new("details-delete", t!("models.row.delete")).small().ghost().on_click(cx.listener(move |this, _, _, cx| {
+                    this.confirm_delete = Some(k.clone());
+                    cx.notify();
+                }))
+            });
+        }
+        if let Some(url) = info.card_url.clone() {
+            bar = bar.child(kit::link("model-card", t!("models.details.model_card"), 13., cx).on_click(move |_, _, _| AppModel::open_url(&url)));
+        }
+        bar = bar.child(div().flex_1());
+        match &status {
+            ModelStatus::NotDownloaded if !remote => {
+                let id = info.id.clone();
+                bar = bar.child(Button::new("details-download", t!("models.download_size", size = format_size(info.size_bytes))).primary().icon(Icon::Download).disabled(!engine).on_click(cx.listener(move |this, _, _, cx| {
+                    let id = id.clone();
+                    this.model.update(cx, |m, cx| m.download_model(id, cx));
+                })));
+            }
+            ModelStatus::Downloading { fraction, .. } => bar = bar.child(div().w(px(200.)).child(Progress::new(*fraction))),
+            _ => {
+                if info.live_preview {
+                    bar = bar.child(if is_preview {
+                        role_pill(t!("models.setup.preview"), &c).into_any_element()
+                    } else {
+                        let id = info.id.clone();
+                        Button::new("details-use-preview", t!("models.details.use_preview"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let id = id.clone();
+                                this.model.update(cx, |m, cx| m.set_preview(Some(PreviewChoice::Model(id)), cx));
+                            }))
+                            .into_any_element()
+                    });
+                }
+                if info.final_pass {
+                    bar = bar.child(if is_final {
+                        role_pill(t!("models.setup.final"), &c).into_any_element()
+                    } else {
+                        let id = info.id.clone();
+                        Button::new("details-use-final", t!("models.details.use_final"))
+                            .primary()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let id = id.clone();
+                                this.model.update(cx, |m, cx| m.set_active_model(id, cx));
+                            }))
+                            .into_any_element()
+                    });
+                }
+            }
+        }
+
+        let panel = div()
+            .id("model-details")
+            .w(px(620.))
+            .max_h_full()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .rounded(px(18.))
+            .bg(c.sheet_raised)
+            .shadow(sayso_ui::paper::floating(&c))
+            .occlude()
+            .child(head)
+            .children(accuracy)
+            .child(facts)
+            .children(source)
+            .child(bar);
+        let scrim = div().id("details-scrim").absolute().inset_0().bg(c.ground.opacity(0.55)).occlude().on_click(cx.listener(|this, _, _, cx| {
+            this.details = None;
+            cx.notify();
+        }));
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .track_focus(&self.focus)
+                .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                    if ev.keystroke.key == "escape" {
+                        this.details = None;
+                        cx.notify();
+                    }
+                }))
+                .flex()
+                .items_center()
+                .justify_center()
+                .p(px(24.))
+                .child(scrim)
+                .child(panel)
+                .into_any_element(),
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -720,19 +1224,24 @@ impl Render for ModelsPage {
             Some(disk),
             cx,
         );
-        let local = |family: Family| -> Vec<ModelInfo> {
-            catalog.iter().filter(|i| i.id != active && !i.is_remote() && i.engine.family() == family).cloned().collect()
+        // Each list in order of accuracy. Models without a figure go last.
+        let list = |streaming: bool| -> Vec<ModelInfo> {
+            let mut list: Vec<ModelInfo> = catalog.iter().filter(|i| !i.is_remote() && i.live_preview == streaming).cloned().collect();
+            list.sort_by(|a, b| a.wer_percent.unwrap_or(f32::MAX).total_cmp(&b.wer_percent.unwrap_or(f32::MAX)));
+            list
         };
-        let mut tables = div().flex().flex_col().gap(px(20.));
-        for family in LOCAL_GROUPS {
-            let models = local(family);
-            if !models.is_empty() {
-                tables = tables.child(self.group(group_title(family), &models, cx));
-            }
+        let (non_streaming, streaming) = (list(false), list(true));
+        let mut tables = div().flex().flex_col().gap(px(36.));
+        if !non_streaming.is_empty() {
+            tables = tables.child(self.group(t!("models.group.non_streaming"), t!("models.group.non_streaming_note"), &non_streaming, cx));
+        }
+        if !streaming.is_empty() {
+            tables = tables.child(self.group(t!("models.group.streaming"), t!("models.group.streaming_note"), &streaming, cx));
         }
         let cloud = self.cloud(&active, cx);
-        let hero = self.hero(cx);
-        div().id("models").absolute().inset_0().overflow_y_scroll().text_color(c.ink).child(
+        let setup = self.setup(cx);
+        let details = self.details.clone().and_then(|id| self.details_modal(&id, cx));
+        div().absolute().inset_0().child(div().id("models").absolute().inset_0().overflow_y_scroll().text_color(c.ink).child(
             div()
                 .flex()
                 .flex_col()
@@ -747,9 +1256,9 @@ impl Render for ModelsPage {
                         t!("models.page.engine_down"),
                     ))
                 })
-                .child(hero)
+                .child(setup)
                 .child(div().pt(px(8.)).child(tables))
                 .child(div().pt(px(8.)).child(cloud)),
-        )
+        )).children(details)
     }
 }
