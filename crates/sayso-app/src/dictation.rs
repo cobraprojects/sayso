@@ -55,6 +55,8 @@ pub struct Session {
     pub enhance: Option<EnhanceOutcome>,
     pub final_text: Option<String>,
     pub insert: Option<InsertOutcome>,
+    /// Press Enter after the insert (`--push-to-talk-up-submit`).
+    pub submit: bool,
     /// Incognito was on when the dictation started.
     pub incognito: bool,
     /// The time of each step so far.
@@ -484,6 +486,7 @@ impl AppModel {
         // History and the failure notice keep the text without the trailing space.
         let to_insert = self.config.insertion.text_to_insert(&text);
         let inserter = self.services.platform.inserter.clone();
+        let submit = self.session(session).submit;
         log::debug!(
             "insert into {:?}; frontmost now {:?}",
             target.as_ref().map(|a| &a.bundle_id),
@@ -494,7 +497,7 @@ impl AppModel {
             let (result, timings) = cx
                 .background_spawn(async move {
                     let started = Instant::now();
-                    let result = inserter.insert(&t, method);
+                    let result = if submit { inserter.insert_and_submit(&t, method) } else { inserter.insert(&t, method) };
                     let timings = InsertTimings {
                         elapsed_ms: started.elapsed().as_millis() as u64,
                         method: if typed { "type" } else { "paste" }.into(),
@@ -713,6 +716,12 @@ impl AppModel {
             HotkeyEvent::Toggle => self.dispatch(Event::Toggle, cx),
             HotkeyEvent::PushToTalkDown => self.dispatch(Event::PushToTalkDown, cx),
             HotkeyEvent::PushToTalkUp => self.dispatch(Event::PushToTalkUp, cx),
+            HotkeyEvent::PushToTalkUpSubmit => {
+                if let State::Recording { session, .. } = self.machine.state {
+                    self.session(session).submit = true;
+                }
+                self.dispatch(Event::PushToTalkUp, cx)
+            }
             HotkeyEvent::Cancel => self.dispatch(Event::Cancel, cx),
             HotkeyEvent::PasteLast => self.paste_last(cx),
             HotkeyEvent::CycleStyle => self.cycle_style(cx),

@@ -48,6 +48,8 @@ pub enum HotkeyEvent {
     Toggle,
     PushToTalkDown,
     PushToTalkUp,
+    /// Push-to-talk released, and Enter once the text is in: dictate a chat message and send it.
+    PushToTalkUpSubmit,
     /// Esc (once or twice, per the bindings) while recording.
     Cancel,
     PasteLast,
@@ -151,6 +153,16 @@ pub trait TextInserter: Send + Sync {
     /// a dictation. None on a system that has one way only.
     fn backend(&self) -> Option<String> {
         None
+    }
+    /// Insert, then press Enter once the text is in. A failed Enter still counts as inserted.
+    fn insert_and_submit(&self, text: &str, method: InsertMethod) -> Result<InsertResult, InsertError> {
+        let result = self.insert(text, method)?;
+        let _ = self.press_enter();
+        Ok(result)
+    }
+    /// Press Enter in the focused app.
+    fn press_enter(&self) -> Result<(), InsertError> {
+        Err(InsertError::Failed("Sayso cannot press Enter on this system".into()))
     }
 }
 

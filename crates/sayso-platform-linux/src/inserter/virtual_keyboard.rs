@@ -160,11 +160,11 @@ impl VirtualKeyboard {
     pub fn new(session: &'static Session) -> Self {
         Self { session }
     }
-}
 
-impl KeyInjector for VirtualKeyboard {
-    fn paste_key(&self, key: PasteKey) -> Result<(), InsertError> {
-        let device = Device::open(self.session)?;
+    /// The paste key, and with `enter_after` an Enter on the same keyboard once the
+    /// app has the text. One keymap holds both keys, so no app sees a keymap change between them.
+    fn paste(&self, key: PasteKey, enter_after: Option<&dyn Fn() -> bool>) -> Result<(), InsertError> {
+        let mut device = Device::open(self.session)?;
         let modifiers = key.modifiers();
         let mut syms: Vec<u32> = modifiers.iter().map(|m| m.keysym).collect();
         syms.push(key.key().keysym);
@@ -178,6 +178,10 @@ impl KeyInjector for VirtualKeyboard {
             syms.push(keys::keysym::SHIFT_L);
             names.push((syms.len() - 1, "Shift"));
         }
+        let enter = enter_after.is_some().then(|| {
+            syms.push(keys::keysym::RETURN);
+            syms.len() - 1
+        });
         device.upload(&keymap(&syms, &names))?;
         let main = modifiers.len();
         let mut mask = 0;
@@ -192,7 +196,24 @@ impl KeyInjector for VirtualKeyboard {
             device.key(i, false);
         }
         device.keyboard.modifiers(0, 0, 0, 0);
+        if let (Some(delivered), Some(enter)) = (enter_after, enter) {
+            device.queue.roundtrip(&mut Ignore).map_err(failed)?; // the compositor has the paste key
+            if delivered() {
+                device.key(enter, true);
+                device.key(enter, false);
+            }
+        }
         device.finish()
+    }
+}
+
+impl KeyInjector for VirtualKeyboard {
+    fn paste_key(&self, key: PasteKey) -> Result<(), InsertError> {
+        self.paste(key, None)
+    }
+
+    fn paste_key_and_enter(&self, key: PasteKey, delivered: &dyn Fn() -> bool) -> Result<(), InsertError> {
+        self.paste(key, Some(delivered))
     }
 
     fn type_text(&self, text: &str) -> Result<(), InsertError> {
