@@ -70,7 +70,7 @@ In short:
 
 ## Accuracy data
 
-The catalog shows the word error rate (WER) on LibriSpeech test-clean today. On that set almost every model scores 2.1 to 2.3%, so a small streaming model looks as accurate as a large model. The new accuracy figure is the average WER on the eight English test sets of the Open ASR Leaderboard (AMI, Earnings22, GigaSpeech, LibriSpeech clean and other, SPGISpeech, TED-LIUM, VoxPopuli), from the snapshot of 26 March 2026 (`scripts/data/en_shortform.csv` in `huggingface/open_asr_leaderboard`) or from the model card when it uses the same eight sets. The page shows it as "1 in N words wrong" (N = 100 / WER). Punctuation and capitals do not count in this figure.
+The catalog shows the word error rate (WER) on LibriSpeech test-clean today. On that set almost every model scores 2.1 to 2.3%, so a small streaming model looks as accurate as a large model. The new accuracy figure is the average WER on the eight English test sets of the Open ASR Leaderboard (AMI, Earnings22, GigaSpeech, LibriSpeech clean and other, SPGISpeech, TED-LIUM, VoxPopuli), from the snapshot of 26 March 2026 (`scripts/data/en_shortform.csv` in `huggingface/open_asr_leaderboard`) or from the model card when it uses the same eight sets. The page shows it as accuracy, 100 − WER, with one decimal ("94.1%"). Punctuation and capitals do not count in this figure.
 
 | Model | Avg WER | 1 in N | Source |
 |---|---|---|---|

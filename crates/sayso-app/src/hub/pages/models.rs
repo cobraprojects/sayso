@@ -64,9 +64,9 @@ pub fn accuracy_level(wer: f32) -> u8 {
     }
 }
 
-/// One wrong word in this many.
-pub fn one_in(wer: f32) -> u32 {
-    (100. / wer).round() as u32
+/// "94.1%": the share of words the model gets right.
+pub fn accuracy_label(wer: f32) -> String {
+    t!("models.accuracy_percent", value = format!("{:.1}", 100. - wer))
 }
 
 /// "160 ms" or "1.1 s".
@@ -407,7 +407,7 @@ impl ModelsPage {
 
         let mut stats = div().flex().flex_none().items_end().gap(px(24.));
         if let Some(wer) = info.wer_percent {
-            stats = stats.child(stat(t!("models.setup.one_in", n = one_in(wer)), t!("models.setup.words_wrong"), &c));
+            stats = stats.child(stat(accuracy_label(wer), t!("models.setup.accuracy"), &c));
         }
         stats = stats.child(match measured {
             Some((ms, dur)) => stat(t!("models.hero.ms", ms = ms), t!("models.hero.for_speech", duration = kit::duration_words(dur)), &c),
@@ -504,7 +504,7 @@ impl ModelsPage {
             .map(|i| {
                 let item = MenuItem::new(i.name.clone()).selected(i.id == active);
                 match i.wer_percent {
-                    Some(wer) => item.detail(t!("models.setup.one_in", n = one_in(wer))),
+                    Some(wer) => item.detail(accuracy_label(wer)),
                     None => item,
                 }
             })
@@ -583,7 +583,7 @@ impl ModelsPage {
         let mut stats = div().flex().flex_none().items_end().gap(px(24.));
         if let PreviewSlot::Same(info) | PreviewSlot::Model(info) = &state {
             if let Some(wer) = info.preview_wer_percent.or(info.wer_percent) {
-                stats = stats.child(stat(t!("models.setup.one_in", n = one_in(wer)), t!("models.setup.words_wrong"), &c));
+                stats = stats.child(stat(accuracy_label(wer), t!("models.setup.accuracy"), &c));
             }
             if let Some(ms) = info.preview_interval_ms() {
                 stats = stats.child(stat(interval_label(ms), t!("models.setup.between_updates"), &c));
@@ -735,7 +735,7 @@ impl ModelsPage {
                 .items_center()
                 .gap(px(12.))
                 .child(meter(accuracy_level(wer), &c))
-                .child(ui(t!("models.row.one_in_wrong", n = one_in(wer)), 13., 16., FontWeight::NORMAL, c.graphite)),
+                .child(ui(accuracy_label(wer), 13., 16., FontWeight::NORMAL, c.graphite)),
             None => ui(t!("models.row.not_measured"), 13., 16., FontWeight::NORMAL, c.pencil),
         };
         let open_id = info.id.clone();
@@ -853,8 +853,8 @@ impl ModelsPage {
             const W: f32 = 560.;
             let x = |wer: f32| ((10. - wer) / 5.).clamp(0., 1.) * W;
             let mut scale = div().relative().w(px(W)).h(px(70.)).flex_none()
-                .child(mono("1 in 10", 11., c.graphite).absolute().left_0().top_0())
-                .child(mono("1 in 20", 11., c.graphite).absolute().right_0().top_0())
+                .child(mono(accuracy_label(10.), 11., c.graphite).absolute().left_0().top_0())
+                .child(mono(accuracy_label(5.), 11., c.graphite).absolute().right_0().top_0())
                 .child(div().absolute().left_0().top(px(28.)).w(px(W)).h(px(6.)).rounded_full().bg(c.deboss));
             for other in m.catalog() {
                 if let Some(w) = other.wer_percent.filter(|_| other.id != info.id) {
@@ -890,7 +890,7 @@ impl ModelsPage {
                         .items_baseline()
                         .justify_between()
                         .child(caps(t!("models.group.accuracy"), 12., c.graphite))
-                        .child(div().flex().items_baseline().gap(px(6.)).child(text::title(t!("models.setup.one_in", n = one_in(wer)), 22., &c)).child(ui(t!("models.setup.words_wrong"), 13., 18., FontWeight::NORMAL, c.graphite))),
+                        .child(text::title(accuracy_label(wer), 22., &c)),
                 )
                 .child(scale)
         });

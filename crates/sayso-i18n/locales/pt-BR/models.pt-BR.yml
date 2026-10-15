@@ -1,6 +1,7 @@
 _version: 1
 
 models:
+  accuracy_percent: "%{value}%"
   group_more: "Mais modelos locais"
   download: "Baixar"
   download_size: "Baixar %{size}"
@@ -19,8 +20,7 @@ models:
     use_automatic: "Usar Automático"
     automatic: "Automático"
     no_preview: "Sem prévia ao vivo"
-    one_in: "1 a cada %{n}"
-    words_wrong: "palavras erradas"
+    accuracy: "precisão"
     between_updates: "entre atualizações"
     on_disk: "no disco"
   hero:
@@ -49,7 +49,6 @@ models:
     in_use: "Em uso"
     for_final: "Para o texto final"
     for_preview: "Para a prévia ao vivo"
-    one_in_wrong: "1 a cada %{n} errada"
     not_measured: "Não medido"
     no_punctuation: "Sem pontuação"
   group:
