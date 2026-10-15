@@ -173,6 +173,7 @@ fn real_sidecar_transcribes_and_streams() {
     client.end_stream(1);
 
     let mut partials = 0;
+    let mut tails = 0;
     let mut last = String::new();
     let mut first_partial_ms = None;
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -183,10 +184,10 @@ fn real_sidecar_transcribes_and_streams() {
             tentative,
         }) = events.recv_timeout(Duration::from_secs(5))
         {
-            assert!(tentative.is_empty());
             partials += 1;
+            tails += usize::from(!tentative.is_empty());
             first_partial_ms.get_or_insert(t.elapsed().as_millis());
-            last = committed;
+            last = [committed, tentative].join(" ").trim().to_string();
         }
     }
     println!(
@@ -195,6 +196,7 @@ fn real_sidecar_transcribes_and_streams() {
         t.elapsed().as_millis()
     );
     assert!(partials > 5);
+    assert!(tails > 0, "no partial had a just-heard tail");
     assert!(last.to_lowercase().contains("dictation test"), "{last}");
     assert_eq!(client.dropped_audio_frames(), 0);
 }

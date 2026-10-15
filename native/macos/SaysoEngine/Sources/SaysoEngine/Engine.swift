@@ -100,21 +100,24 @@ private struct StreamSession {
     let tracker: PartialTracker
 }
 
-/// Remembers the last partial text of a stream, so the end of the stream does not repeat it.
+/// The `PreviewTail` of one stream. The partial callback and the end of the stream
+/// run on different threads.
 final class PartialTracker: @unchecked Sendable {
     private let lock = NSLock()
-    private var text = ""
+    private var tail = PreviewTail()
 
-    var last: String {
+    /// The committed text and the tail to send for a partial, or nil when nothing changed.
+    func update(_ text: String) -> (committed: String, tentative: String)? {
         lock.lock()
         defer { lock.unlock() }
-        return text
+        return tail.update(text, at: ProcessInfo.processInfo.systemUptime)
     }
 
-    func set(_ value: String) {
+    /// The text to send, all committed, at the end of the stream, or nil when it was sent.
+    func finish(_ text: String) -> String? {
         lock.lock()
-        text = value
-        lock.unlock()
+        defer { lock.unlock() }
+        return tail.finish(text)
     }
 }
 
@@ -663,9 +666,9 @@ actor Engine {
         let out = self.out
         let tracker = PartialTracker()
         try await streamer.begin(language: language) { text in
-            // The streaming decoders only append. There is no tentative tail to report.
-            tracker.set(text)
-            out.send("partial", ["session": session, "committed": text, "tentative": ""])
+            // The tentative tail is the words heard last (see `PreviewTail`).
+            guard let split = tracker.update(text) else { return }
+            out.send("partial", ["session": session, "committed": split.committed, "tentative": split.tentative])
         }
         sessions[session] = StreamSession(streamer: streamer, model: model, tracker: tracker)
     }
@@ -687,8 +690,8 @@ actor Engine {
         // same manager waits for it.
         defer { sessions[session] = nil }
         let text = try await info.streamer.finish()
-        if text != info.tracker.last {
-            out.send("partial", ["session": session, "committed": text, "tentative": ""])
+        if let committed = info.tracker.finish(text) {
+            out.send("partial", ["session": session, "committed": committed, "tentative": ""])
         }
         return text
     }

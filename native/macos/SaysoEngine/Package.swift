@@ -22,6 +22,11 @@ let package = Package(
             // non-Sendable types (AVAudioPCMBuffer, WhisperKit), so Swift 6 strict
             // checking would force `@unchecked` wrappers around every call.
             swiftSettings: [.swiftLanguageMode(.v5)]
-        )
+        ),
+        .testTarget(
+            name: "SaysoEngineTests",
+            dependencies: ["SaysoEngine"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

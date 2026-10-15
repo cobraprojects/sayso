@@ -121,9 +121,9 @@ fn run_model(client: &EngineClient, events: &crossbeam_channel::Receiver<EngineE
         let deadline = Instant::now() + Duration::from_secs(60);
         while Instant::now() < deadline {
             match events.recv_timeout(Duration::from_secs(4)) {
-                Ok(EngineEvent::Partial { session: s, committed, .. }) if s == session => {
+                Ok(EngineEvent::Partial { session: s, committed, tentative }) if s == session => {
                     partials += 1;
-                    last = committed;
+                    last = [committed, tentative].join(" ").trim().to_string();
                 }
                 Ok(_) => {}
                 Err(_) => break, // No partial for 4 s: the stream is done.

@@ -680,7 +680,7 @@ fn preview_slip(committed: &str, tentative: &str, size: OverlaySize, c: &sayso_u
     let mut text = committed.clone();
     let mut highlights = Vec::new();
     if !tentative.is_empty() {
-        if !text.is_empty() {
+        if needs_space(&text, tentative) {
             text.push(' ');
         }
         let start = text.len();
@@ -722,6 +722,26 @@ fn tail(s: &str, max: usize) -> String {
     }
 }
 
+/// True when the committed text and the tentative tail need a space between
+/// them: not when either side is empty, and not next to a script without
+/// spaces between words.
+fn needs_space(committed: &str, tentative: &str) -> bool {
+    match (committed.chars().next_back(), tentative.chars().next()) {
+        (Some(a), Some(b)) => !(is_unspaced(a) || is_unspaced(b)),
+        _ => false,
+    }
+}
+
+/// A character of a script that has no spaces between words (Chinese, Japanese,
+/// Thai, Lao, Myanmar, Khmer). Keep the same ranges as `PreviewTail.isUnspaced`
+/// in `native/macos/SaysoEngine`.
+fn is_unspaced(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x0E00..=0x0EFF | 0x1000..=0x109F | 0x1780..=0x17FF | 0x3000..=0x30FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF
+    )
+}
+
 /// The Undo countdown: a ring that empties as the window closes.
 fn countdown_ring(left: f32, color: Hsla) -> Canvas<()> {
     canvas(
@@ -755,3 +775,17 @@ fn countdown_ring(left: f32, color: Hsla) -> Canvas<()> {
 }
 
 use gpui_kit::prelude::FluentBuilder as _;
+
+#[cfg(test)]
+mod tests {
+    use super::needs_space;
+
+    #[test]
+    fn space_between_the_committed_text_and_the_tail() {
+        assert!(needs_space("hello", "world"));
+        assert!(!needs_space("", "world"));
+        assert!(!needs_space("今日は", "いい天気"));
+        assert!(!needs_space("I said", "こんにちは"));
+        assert!(!needs_space("สวัสดี", "ครับ"));
+    }
+}
