@@ -23,6 +23,8 @@ settings:
     cancel_detail: "Só durante a gravação."
     cancel_double: "Esc duas vezes"
     cancel_single: "Esc uma vez"
+    enter_sends: "Enviar com Enter"
+    enter_sends_detail: "Pressione Enter enquanto dita para inserir o texto e enviá-lo. Para chats e terminais."
     paste_last: "Colar o último texto"
     paste_last_detail: "Cola o seu último ditado de novo."
     next_style: "Próximo estilo"

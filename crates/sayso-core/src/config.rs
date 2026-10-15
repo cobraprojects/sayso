@@ -85,6 +85,10 @@ pub struct Hotkeys {
     /// Turns incognito on and off. It has no default.
     #[serde(with = "optional_hotkey")]
     pub incognito: Option<Hotkey>,
+    /// Enter while recording stops the dictation, and Sayso presses Enter
+    /// after the insert. Sayso then takes that Enter from the app. macOS and
+    /// Windows; off by default.
+    pub enter_sends: bool,
 }
 
 /// A hotkey with no key is the empty string in the file. TOML has no null, and
@@ -109,6 +113,15 @@ mod optional_hotkey {
     }
 }
 
+impl Hotkeys {
+    /// Whether Send with Enter can work: it is on, and the toggle and
+    /// push-to-talk hotkeys do not use Return, which it takes while recording.
+    pub fn enter_sends_usable(&self) -> bool {
+        let uses_return = |h: &Option<Hotkey>| matches!(h, Some(Hotkey::Chord { key: crate::hotkey::Key::Return, .. }));
+        self.enter_sends && !uses_return(&self.toggle) && !uses_return(&self.push_to_talk)
+    }
+}
+
 impl Default for Hotkeys {
     fn default() -> Self {
         Self {
@@ -119,6 +132,7 @@ impl Default for Hotkeys {
             paste_last: Some(Hotkey::paste_last_default()),
             cycle_style: "ctrl+opt+s".parse().ok(),
             incognito: None,
+            enter_sends: false,
         }
     }
 }
@@ -907,6 +921,18 @@ mod tests {
     }
 
     #[test]
+    fn send_with_enter_steps_aside_for_a_hotkey_on_return() {
+        let mut h = Hotkeys { enter_sends: true, ..Hotkeys::default() };
+        assert!(h.enter_sends_usable());
+        h.push_to_talk = Some("ctrl+return".parse().unwrap());
+        assert!(!h.enter_sends_usable());
+        h.push_to_talk = Some("right_option".parse().unwrap());
+        h.toggle = Some("cmd+return".parse().unwrap());
+        assert!(!h.enter_sends_usable());
+        assert!(!Hotkeys::default().enter_sends_usable(), "off by default");
+    }
+
+    #[test]
     fn defaults_match_the_plan() {
         let c = Config::default();
         assert!(c.updates.check);
@@ -921,6 +947,7 @@ mod tests {
         assert_eq!(c.hotkeys.toggle.unwrap().to_string(), toggle);
         assert_eq!(c.hotkeys.push_to_talk, None);
         assert_eq!(c.hotkeys.incognito, None);
+        assert!(!c.hotkeys.enter_sends);
         assert_eq!(c.hotkeys.cancel, CancelMode::DoubleEscape);
         assert_eq!(c.hotkeys.paste_last.unwrap().to_string(), paste_last);
         assert!(c.history.enabled);

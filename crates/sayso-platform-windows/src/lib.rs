@@ -9,6 +9,7 @@
 pub mod audio;
 pub mod conflicts;
 pub mod context;
+pub mod enter_send;
 pub mod esc;
 pub mod hook;
 pub mod hook_logic;

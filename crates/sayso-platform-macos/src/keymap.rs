@@ -19,6 +19,8 @@ pub const CARBON_ALL: u32 = CARBON_CMD | CARBON_SHIFT | CARBON_OPTION | CARBON_C
 pub const CG_MODIFIER_MASK: u64 = FLAG_SHIFT | FLAG_CONTROL | FLAG_ALT | FLAG_COMMAND;
 
 pub const KC_ESCAPE: u16 = 53;
+pub const KC_RETURN: u16 = 36;
+pub const KC_KEYPAD_ENTER: u16 = 76;
 
 /// ANSI letter key codes, `a` to `z`.
 const LETTER_CODES: [u16; 26] = [
@@ -37,7 +39,7 @@ pub fn keycode(key: Key) -> Option<u16> {
     match key {
         Key::Space => Some(49),
         Key::Escape => Some(KC_ESCAPE),
-        Key::Return => Some(36),
+        Key::Return => Some(KC_RETURN),
         Key::Tab => Some(48),
         Key::Backspace => Some(51),
         Key::Letter(c) if c.is_ascii_alphabetic() => {

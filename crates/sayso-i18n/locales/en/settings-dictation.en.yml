@@ -23,6 +23,8 @@ settings:
     cancel_detail: "Only while recording."
     cancel_double: "Double Esc"
     cancel_single: "Single Esc"
+    enter_sends: "Send with Enter"
+    enter_sends_detail: "Press Enter while you dictate to insert the text and send it. For chats and terminals."
     paste_last: "Paste last text"
     paste_last_detail: "Pastes your last dictation again."
     next_style: "Next style"

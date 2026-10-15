@@ -139,6 +139,11 @@ impl DictationSettings {
             model.update(cx, |m, cx| m.edit_config(cx, |c| c.hotkeys.cancel = mode));
         });
 
+        let model = self.model.clone();
+        let enter_switch = Switch::new("enter-sends", config.hotkeys.enter_sends).on_toggle(move |on, _, cx| {
+            model.update(cx, |m, cx| m.edit_config(cx, |c| c.hotkeys.enter_sends = on));
+        });
+
         let mut g = group(&t!("settings.dictation.hotkeys"), cx)
             .child(row(&t!("settings.dictation.toggle"), &t!("settings.dictation.toggle_detail"), toggle_field, cx))
             .child(row(&t!("settings.dictation.push_to_talk"), &t!("settings.dictation.push_to_talk_detail"), ptt_field, cx));
@@ -172,8 +177,13 @@ impl DictationSettings {
         if let Some(note) = &self.recorder.note {
             g = g.child(banner(BannerKind::Warning, note.text(), cx));
         }
-        g.child(row(&t!("settings.dictation.cancel"), &t!("settings.dictation.cancel_detail"), cancel_control, cx))
-            .child(row(&t!("settings.dictation.paste_last"), &t!("settings.dictation.paste_last_detail"), paste_field, cx))
+        g = g.child(row(&t!("settings.dictation.cancel"), &t!("settings.dictation.cancel_detail"), cancel_control, cx));
+        // Linux has the --push-to-talk-up-submit command instead: its key
+        // sources cannot keep Enter from the app.
+        if cfg!(any(target_os = "macos", windows)) {
+            g = g.child(row(&t!("settings.dictation.enter_sends"), &t!("settings.dictation.enter_sends_detail"), enter_switch, cx));
+        }
+        g.child(row(&t!("settings.dictation.paste_last"), &t!("settings.dictation.paste_last_detail"), paste_field, cx))
             .child(row(&t!("settings.dictation.next_style"), &t!("settings.dictation.next_style_detail"), cycle_field, cx))
             .child(row(&t!("settings.dictation.incognito"), &t!("settings.dictation.incognito_detail"), incognito_field, cx))
     }

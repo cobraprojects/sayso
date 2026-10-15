@@ -7,7 +7,7 @@ use crate::model::{AppEvent, AppModel, NoticeIcon, OverlayNotice};
 use gpui_kit::*;
 use sayso_i18n::t;
 use parking_lot::Mutex;
-use sayso_core::dictation::{Effect, Event, SessionId, Sound, State};
+use sayso_core::dictation::{Effect, Event, SessionId, Sound, State, Trigger};
 use sayso_core::dictionary::AppliedReplacement;
 use sayso_core::enhance::EnhanceError;
 use sayso_core::history::{
@@ -721,6 +721,17 @@ impl AppModel {
                     self.session(session).submit = true;
                 }
                 self.dispatch(Event::PushToTalkUp, cx)
+            }
+            HotkeyEvent::Submit => {
+                if let State::Recording { session, trigger, .. } = self.machine.state {
+                    self.session(session).submit = true;
+                    // Stop the way the trigger of the dictation stops it.
+                    let stop = match trigger {
+                        Trigger::Toggle => Event::Toggle,
+                        Trigger::PushToTalk => Event::PushToTalkUp,
+                    };
+                    self.dispatch(stop, cx)
+                }
             }
             HotkeyEvent::Cancel => self.dispatch(Event::Cancel, cx),
             HotkeyEvent::PasteLast => self.paste_last(cx),

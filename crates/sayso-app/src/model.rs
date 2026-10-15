@@ -535,6 +535,7 @@ impl AppModel {
             paste_last: h.paste_last,
             cycle_style: h.cycle_style,
             incognito: h.incognito,
+            enter_sends: h.enter_sends_usable(),
             single_escape: h.cancel == sayso_core::config::CancelMode::SingleEscape,
             double_escape_window: Duration::from_millis(h.double_escape_ms),
         };

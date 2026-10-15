@@ -22,7 +22,7 @@ pub mod tap_logic;
 pub mod window;
 
 // The portable modules, under the paths this crate always had.
-pub use sayso_platform_common::{audio, esc, paste_receipt, resample, sounds};
+pub use sayso_platform_common::{audio, enter_send, esc, paste_receipt, resample, sounds};
 
 use sayso_platform::Platform;
 use std::path::PathBuf;

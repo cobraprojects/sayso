@@ -38,6 +38,8 @@ pub struct HotkeyBindings {
     pub paste_last: Option<Hotkey>,
     pub cycle_style: Option<Hotkey>,
     pub incognito: Option<Hotkey>,
+    /// Enter while recording sends `Submit`, and no app gets that Enter.
+    pub enter_sends: bool,
     /// Cancel on one Esc instead of two.
     pub single_escape: bool,
     pub double_escape_window: Duration,
@@ -52,6 +54,8 @@ pub enum HotkeyEvent {
     PushToTalkUpSubmit,
     /// Esc (once or twice, per the bindings) while recording.
     Cancel,
+    /// Enter while recording, with `enter_sends` on: stop, insert, and press Enter.
+    Submit,
     PasteLast,
     CycleStyle,
     /// Turn incognito on or off.
@@ -85,7 +89,8 @@ pub struct HotkeyRegistration {
 pub trait HotkeySource {
     /// Replace all bindings. Main thread.
     fn register(&self, bindings: &HotkeyBindings) -> HotkeyRegistration;
-    /// While true, Esc presses produce `Cancel`. Main thread.
+    /// While true, Esc presses produce `Cancel`, and with `enter_sends` an
+    /// Enter produces `Submit`. Main thread.
     fn set_recording(&self, recording: bool);
     fn events(&self) -> Receiver<HotkeyEvent>;
     fn conflicts(&self, hotkey: &Hotkey) -> Vec<HotkeyConflict>;

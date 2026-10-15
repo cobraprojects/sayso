@@ -23,6 +23,8 @@ settings:
     cancel_detail: "録音中のみ。"
     cancel_double: "Esc を2回"
     cancel_single: "Esc を1回"
+    enter_sends: "Enter で送信"
+    enter_sends_detail: "音声入力中に Enter を押すと、テキストを挿入して送信します。チャットやターミナル向けです。"
     paste_last: "最後のテキストをペースト"
     paste_last_detail: "最後の音声入力をもう一度ペーストします。"
     next_style: "次のスタイル"

@@ -13,6 +13,9 @@ A key that starts a dictation on the first press and stops it on the second pres
 **Push-to-talk hotkey**
 A key that records while you hold it and stops when you release it. It has no default.
 
+**Send with Enter**
+A setting on macOS and Windows, off by default (`hotkeys.enter_sends`). While a dictation records, Enter stops it, and Sayso presses Enter after the insert, so a chat sends the message. Sayso takes that first Enter from the app. It is the only key, apart from the hotkeys of Sayso, that Sayso takes. It does not work when the toggle or push-to-talk hotkey uses Return. On Linux the command `sayso --push-to-talk-up-submit` does the same for push-to-talk.
+
 **Transcript**
 The raw text from the speech model, before any changes.
 

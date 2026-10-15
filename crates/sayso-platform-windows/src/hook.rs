@@ -1,11 +1,13 @@
-//! The listen-only low-level keyboard hook (`WH_KEYBOARD_LL`) on its own
-//! thread with its own message loop.
+//! The low-level keyboard hook (`WH_KEYBOARD_LL`) on its own thread with its
+//! own message loop.
 //!
-//! The hook serves three jobs: push-to-talk (solo modifiers and chords), Esc
-//! cancel while recording, and the key recorder. It always passes each event
-//! on with `CallNextHookEx` and never swallows one, so it cannot break other
-//! shortcuts. It needs no permission. It is installed only while one of the
-//! three jobs needs it, and removed again after.
+//! The hook serves four jobs: push-to-talk (solo modifiers and chords), Esc
+//! cancel while recording, the key recorder, and Send with Enter. It passes
+//! each event on with `CallNextHookEx`, so it cannot break other shortcuts.
+//! The one exception is Send with Enter: with the setting on, Enter while
+//! recording goes to no app (see [`crate::enter_send`]). It needs no
+//! permission. It is installed only while one of its jobs needs it, and
+//! removed again after.
 //!
 //! Windows removes a hook without notice when its callback is slow (the
 //! `LowLevelHooksTimeout`, about one second). So the callback only reads the
@@ -106,11 +108,12 @@ impl HookController {
         }
     }
 
-    /// Apply push-to-talk and Esc settings. Installs or removes the hook.
-    pub fn configure(&self, ptt: Option<Hotkey>, single_esc: bool, window: Duration) -> Result<(), String> {
+    /// Apply the push-to-talk, Esc, and Enter settings. Installs or removes the hook.
+    pub fn configure(&self, ptt: Option<Hotkey>, single_esc: bool, window: Duration, enter_sends: bool) -> Result<(), String> {
         let released = {
             let mut logic = self.shared.logic.lock();
             logic.configure_esc(single_esc, window);
+            logic.set_enter_sends(enter_sends);
             logic.set_ptt(ptt)
         };
         if let Some(event) = released {
@@ -275,6 +278,7 @@ fn stop_if_idle(shared: &Shared, me: u32) -> bool {
 }
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    let mut swallow = false;
     if code == HC_ACTION as i32 {
         // A panic must not unwind into Windows.
         let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
@@ -282,12 +286,16 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             let info = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
             CONTEXT.with(|c| {
                 if let Some(shared) = c.borrow().as_ref() {
-                    handle(shared, info, wparam.0 as u32);
+                    swallow = handle(shared, info, wparam.0 as u32);
                 }
             });
         }));
     }
-    // Listen only: every event goes on to the next hook and the app.
+    if swallow {
+        // Send with Enter: no hook after us and no app gets this event.
+        return LRESULT(1);
+    }
+    // Every other event goes on to the next hook and the app.
     // SAFETY: passes the arguments through unchanged.
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
@@ -307,12 +315,13 @@ fn held_modifiers(skip: u16) -> ModKeys {
 #[cfg(test)]
 static INJECTED_SEEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-fn handle(shared: &Shared, info: &KBDLLHOOKSTRUCT, message: u32) {
+/// Handle one event. True when the app must not get it.
+fn handle(shared: &Shared, info: &KBDLLHOOKSTRUCT, message: u32) -> bool {
     let flags = info.flags.0;
     if flags & LLKHF_INJECTED != 0 {
         #[cfg(test)]
         INJECTED_SEEN.fetch_add(1, Ordering::SeqCst);
-        return;
+        return false;
     }
     let vk = keymap::sided_vk(info.vkCode as u16, info.scanCode, flags & LLKHF_EXTENDED != 0);
     let event = RawEvent {
@@ -323,6 +332,12 @@ fn handle(shared: &Shared, info: &KBDLLHOOKSTRUCT, message: u32) {
         held: held_modifiers(vk),
     };
     let outcome = shared.logic.lock().handle(event, Instant::now());
+    let swallow = outcome.swallow;
+    if swallow && !event.down {
+        // A taken Enter is up: it may have been the last reason for the hook.
+        // SAFETY: posting to our own thread's queue.
+        let _ = unsafe { PostThreadMessageW(GetCurrentThreadId(), WM_APP_IDLE, WPARAM(0), LPARAM(0)) };
+    }
     for event in outcome.events {
         let _ = shared.sink.events.send(event);
     }
@@ -339,6 +354,7 @@ fn handle(shared: &Shared, info: &KBDLLHOOKSTRUCT, message: u32) {
         // The recorder may have been the only reason for the hook.
         let _ = post(WM_APP_IDLE);
     }
+    swallow
 }
 
 #[cfg(test)]
@@ -354,9 +370,9 @@ mod tests {
         assert!(hook.is_installed());
         hook.set_recording(false).unwrap();
         assert!(!hook.is_installed());
-        hook.configure(Some("right_shift".parse().unwrap()), false, Duration::from_millis(400)).unwrap();
+        hook.configure(Some("right_shift".parse().unwrap()), false, Duration::from_millis(400), false).unwrap();
         assert!(hook.is_installed());
-        hook.configure(None, false, Duration::from_millis(400)).unwrap();
+        hook.configure(None, false, Duration::from_millis(400), false).unwrap();
         assert!(!hook.is_installed());
     }
 
@@ -364,7 +380,7 @@ mod tests {
     fn a_ptt_with_fn_does_not_install_the_hook() {
         let (tx, _rx) = crossbeam_channel::unbounded();
         let hook = HookController::new(tx, Arc::default());
-        hook.configure(Some("fn".parse().unwrap()), false, Duration::from_millis(400)).unwrap();
+        hook.configure(Some("fn".parse().unwrap()), false, Duration::from_millis(400), false).unwrap();
         assert!(!hook.is_installed());
     }
 
@@ -376,7 +392,7 @@ mod tests {
         assert!(window.wait_in_front(), "the test window could not come to the front; no keys were sent");
         let (tx, rx) = crossbeam_channel::unbounded();
         let hook = HookController::new(tx, Arc::default());
-        hook.configure(Some("right_option".parse().unwrap()), false, Duration::from_millis(400)).unwrap();
+        hook.configure(Some("right_option".parse().unwrap()), false, Duration::from_millis(400), false).unwrap();
         let before = INJECTED_SEEN.load(Ordering::SeqCst);
         assert!(window.is_in_front());
         let right_alt = keymap::VK_RMENU;
@@ -385,7 +401,7 @@ mod tests {
         while INJECTED_SEEN.load(Ordering::SeqCst) < before + 2 && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
-        hook.configure(None, false, Duration::from_millis(400)).unwrap();
+        hook.configure(None, false, Duration::from_millis(400), false).unwrap();
         assert!(INJECTED_SEEN.load(Ordering::SeqCst) >= before + 2, "the hook saw both events");
         assert!(rx.try_recv().is_err(), "Sayso's own keys never trigger push-to-talk");
     }

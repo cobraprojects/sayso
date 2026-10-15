@@ -2,8 +2,8 @@
 //!
 //! - Chords (toggle, paste last, cycle style) go through `RegisterHotKey`
 //!   with the `global-hotkey` crate. No permission is needed.
-//! - Push-to-talk, Esc, and the key recorder go through our own listen-only
-//!   keyboard hook (see [`crate::hook`]). It needs no permission either.
+//! - Push-to-talk, Esc, the key recorder, and Send with Enter go through our
+//!   own keyboard hook (see [`crate::hook`]). It needs no permission either.
 //!
 //! `global-hotkey` makes a hidden window on the thread of the first
 //! `register` call, and Windows posts `WM_HOTKEY` to that thread. So that
@@ -141,13 +141,14 @@ impl HotkeySource for WinHotkeys {
             }
         }
 
-        // Push-to-talk and Esc through the hook.
+        // Push-to-talk, Esc, and Enter through the hook.
         let mut ptt = bindings.push_to_talk;
         if let Some(hotkey) = ptt.filter(uses_fn) {
             failed.push((hotkey, keymap::FN_UNSUPPORTED.into()));
             ptt = None;
         }
-        if let Err(reason) = self.hook.configure(ptt, bindings.single_escape, bindings.double_escape_window)
+        if let Err(reason) =
+            self.hook.configure(ptt, bindings.single_escape, bindings.double_escape_window, bindings.enter_sends)
             && let Some(ptt) = ptt
         {
             failed.push((ptt, reason));
@@ -206,6 +207,7 @@ mod tests {
             paste_last: None,
             cycle_style: None,
             incognito: None,
+            enter_sends: false,
             single_escape: false,
             double_escape_window: Duration::from_millis(400),
         }

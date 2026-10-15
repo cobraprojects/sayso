@@ -44,6 +44,7 @@ unsafe extern "C" {
 
 pub const kCGSessionEventTap: u32 = 1;
 pub const kCGHeadInsertEventTap: u32 = 0;
+pub const kCGEventTapOptionDefault: u32 = 0;
 pub const kCGEventTapOptionListenOnly: u32 = 1;
 
 pub const kCGEventKeyDown: u32 = 10;

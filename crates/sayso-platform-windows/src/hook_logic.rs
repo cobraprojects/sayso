@@ -13,8 +13,9 @@
 //!   ignores that Ctrl, so Right Alt works as a solo push-to-talk key and the
 //!   key recorder does not record Ctrl+Alt.
 
+use crate::enter_send::EnterSend;
 use crate::esc::EscDetector;
-use crate::keymap::{self, ModKeys, VK_ESCAPE, VK_LCONTROL};
+use crate::keymap::{self, ModKeys, VK_ESCAPE, VK_LCONTROL, VK_RETURN};
 use sayso_core::hotkey::{Hotkey, Key, Modifiers, SoloModifier};
 use sayso_platform::HotkeyEvent;
 use std::time::Instant;
@@ -49,6 +50,8 @@ pub struct Outcome {
     /// Send the mask key now: an Alt or Win key that Sayso uses is down, and
     /// its release must not open the menu bar or the Start menu.
     pub mask: bool,
+    /// Keep the event from the app (Send with Enter).
+    pub swallow: bool,
 }
 
 /// The push-to-talk binding as the hook sees it.
@@ -89,6 +92,7 @@ pub struct HookLogic {
     pressed: KeySet,
     /// The fake Left Ctrl of AltGr is down.
     altgr_ctrl: bool,
+    enter: EnterSend,
 }
 
 /// Whether this is the fake Left Ctrl that the keyboard layout sends with AltGr.
@@ -107,12 +111,14 @@ impl HookLogic {
             solo_candidate: None,
             pressed: KeySet::default(),
             altgr_ctrl: false,
+            enter: EnterSend::default(),
         }
     }
 
-    /// True when the hook has any reason to be installed.
+    /// True when the hook has any reason to be installed. A taken Enter that
+    /// is still down keeps it, so its repeats and release reach no app.
     pub fn is_needed(&self) -> bool {
-        self.ptt.is_some() || self.recording || self.capturing
+        self.ptt.is_some() || self.recording || self.capturing || self.enter.is_held()
     }
 
     /// Set the push-to-talk binding. Returns a release event when a held
@@ -135,6 +141,11 @@ impl HookLogic {
     pub fn set_recording(&mut self, recording: bool) {
         self.recording = recording;
         self.esc.reset();
+        self.enter.set_recording(recording);
+    }
+
+    pub fn set_enter_sends(&mut self, on: bool) {
+        self.enter.set_on(on);
     }
 
     pub fn set_capturing(&mut self, capturing: bool) {
@@ -174,6 +185,14 @@ impl HookLogic {
             return self.capture(&event, repeat, held);
         }
         let mut out = Outcome::default();
+        // Return and keypad Enter; the logic below still sees the event.
+        if event.vk == VK_RETURN {
+            let decision = self.enter.key(event.down, repeat);
+            out.swallow = decision.swallow;
+            if decision.submit {
+                out.events.push(HotkeyEvent::Submit);
+            }
+        }
         if keymap::is_modifier(event.vk) {
             match self.ptt {
                 Some(Ptt::Solo { vk }) if vk == event.vk => {
@@ -491,6 +510,62 @@ mod tests {
         l.handle(altgr_ctrl(true, &[]), now);
         l.handle(down(VK_RMENU, &[VK_LCONTROL]), now);
         assert!(l.handle(down(VK_ESCAPE, &[VK_LCONTROL, VK_RMENU]), now).events.is_empty());
+    }
+
+    #[test]
+    fn enter_while_recording_submits_and_reaches_no_app() {
+        let mut l = solo_logic(SoloModifier::RightOption);
+        l.set_enter_sends(true);
+        let now = Instant::now();
+        l.handle(down(VK_RMENU, &[]), now);
+        l.set_recording(true);
+        // Right Alt of push-to-talk is still down.
+        let pressed = l.handle(down(VK_RETURN, &[VK_RMENU]), now);
+        assert_eq!(pressed.events, vec![HotkeyEvent::Submit]);
+        assert!(pressed.swallow);
+        let repeat = l.handle(down(VK_RETURN, &[VK_RMENU]), now);
+        assert!(repeat.events.is_empty());
+        assert!(repeat.swallow);
+        let released = l.handle(up(VK_RETURN, &[VK_RMENU]), now);
+        assert!(released.swallow);
+        assert_eq!(l.handle(up(VK_RMENU, &[VK_RMENU]), now).events, vec![HotkeyEvent::PushToTalkUp]);
+    }
+
+    #[test]
+    fn a_taken_enter_keeps_the_hook_until_it_is_up() {
+        let mut l = logic();
+        l.set_enter_sends(true);
+        l.set_recording(true);
+        let now = Instant::now();
+        assert_eq!(l.handle(down(VK_RETURN, &[]), now).events, vec![HotkeyEvent::Submit]);
+        l.set_recording(false);
+        assert!(l.is_needed(), "Enter is still down");
+        assert!(l.handle(down(VK_RETURN, &[]), now).swallow, "auto-repeat after the stop");
+        assert!(l.handle(up(VK_RETURN, &[]), now).swallow);
+        assert!(!l.is_needed());
+    }
+
+    #[test]
+    fn enter_goes_to_the_app_with_the_setting_off_or_when_not_recording() {
+        let mut l = logic();
+        l.set_recording(true);
+        let now = Instant::now();
+        let off = l.handle(down(VK_RETURN, &[]), now);
+        assert!(off.events.is_empty() && !off.swallow);
+        l.handle(up(VK_RETURN, &[]), now);
+        l.set_enter_sends(true);
+        l.set_recording(false);
+        let idle = l.handle(down(VK_RETURN, &[]), now);
+        assert!(idle.events.is_empty() && !idle.swallow);
+    }
+
+    #[test]
+    fn our_own_enter_is_never_swallowed() {
+        let mut l = logic();
+        l.set_enter_sends(true);
+        l.set_recording(true);
+        let injected = RawEvent { vk: VK_RETURN, scan: 0, flags: LLKHF_INJECTED, down: true, held: ModKeys::of(&[]) };
+        assert_eq!(l.handle(injected, Instant::now()), Outcome::default());
     }
 
     #[test]

@@ -5,6 +5,7 @@
 //! on every system.
 
 pub mod audio;
+pub mod enter_send;
 pub mod esc;
 pub mod paste_receipt;
 pub mod resample;

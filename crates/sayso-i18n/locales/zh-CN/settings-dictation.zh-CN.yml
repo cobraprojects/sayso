@@ -23,6 +23,8 @@ settings:
     cancel_detail: "仅在录音时有效。"
     cancel_double: "按两次 Esc"
     cancel_single: "按一次 Esc"
+    enter_sends: "按 Enter 发送"
+    enter_sends_detail: "听写时按 Enter，插入文字并发送。适用于聊天和终端。"
     paste_last: "粘贴上次文本"
     paste_last_detail: "再次粘贴你上一次的听写。"
     next_style: "下一个风格"
