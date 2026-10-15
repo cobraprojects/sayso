@@ -225,6 +225,7 @@ The Linux engine, `sayso-engine`, runs the models on the CPU with sherpa-onnx. T
 | `SAYSO_UI_BACKEND` | `x11` or `wayland` forces the display server of the UI. |
 | `SAYSO_ENGINE_PATH` | Selects another engine binary. |
 | `SAYSO_PASTE_KEY` | `shift+insert` (default), `ctrl+v`, or `ctrl+shift+v`. |
+| `SAYSO_SETTLE_MS` | Milliseconds between taking the clipboard and the paste key (default 50), so that clipboard managers that read at once do not look like the paste. 0 suits a manager that polls. |
 | `SAYSO_CLIPBOARD` | `x11`, `ext`, or `wlr` forces the clipboard method, for tests. |
 
 ## Known limits
