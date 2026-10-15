@@ -811,7 +811,8 @@ impl ModelsPage {
         let is_preview = preview.as_ref().is_some_and(|p| p.id == info.id);
         let confirm = self.confirm_delete.as_deref() == Some(key.as_str());
         let can_delete = !remote && status.is_on_disk() && info.engine != EngineKind::AppleSpeech;
-        let mut bar = div().flex().items_center().gap(px(10.)).py(px(14.)).px(px(30.)).border_t_1().border_color(c.rule).bg(c.sheet);
+        // Its own bottom corners: the panel clips to a rectangle, not to its rounded corners.
+        let mut bar = div().flex().items_center().gap(px(10.)).py(px(14.)).px(px(30.)).border_t_1().border_color(c.rule).bg(c.sheet).rounded_b(px(18.));
         if can_delete {
             let (id, k) = (info.id.clone(), key.clone());
             bar = bar.child(if confirm {
