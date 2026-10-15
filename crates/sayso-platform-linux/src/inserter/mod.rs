@@ -27,9 +27,9 @@
 //! also when no X11 window has focus. The bridge reads the X11 selection when
 //! a Wayland app pastes, so that read is a real receipt too. Clipboard
 //! managers can read each new clipboard at once. Sayso waits
-//! [`SETTLE_BEFORE_KEY`] before the paste key, so that such reads come before
-//! the key and do not count, and it offers [`PASSWORD_HINT`] so that managers
-//! that know the marker do not read at all.
+//! [`SETTLE_BEFORE_KEY`] before the paste key (`SAYSO_SETTLE_MS` changes it),
+//! so that such reads come before the key and do not count, and it offers
+//! [`PASSWORD_HINT`] so that managers that know the marker do not read at all.
 //!
 //! **Limits.**
 //! - The restore works only while Sayso runs: Sayso serves the old content
@@ -64,6 +64,24 @@ const RECEIPT_POLL: Duration = Duration::from_millis(10);
 /// managers and Mutter read a new clipboard at once; their reads must come
 /// before the key, so that they do not look like the receipt.
 pub const SETTLE_BEFORE_KEY: Duration = Duration::from_millis(50);
+
+/// [`SETTLE_BEFORE_KEY`], or `SAYSO_SETTLE_MS` when it is a number of
+/// milliseconds. A clipboard manager that polls instead of reading at once
+/// gains nothing from the wait, so it can be 0.
+pub fn settle_before_key() -> Duration {
+    match std::env::var("SAYSO_SETTLE_MS") {
+        Ok(value) => parse_settle(&value).unwrap_or_else(|| {
+            log::warn!("SAYSO_SETTLE_MS={value:?} is not a number of milliseconds; Sayso waits {} ms", SETTLE_BEFORE_KEY.as_millis());
+            SETTLE_BEFORE_KEY
+        }),
+        Err(_) => SETTLE_BEFORE_KEY,
+    }
+}
+
+/// A `SAYSO_SETTLE_MS` value as a wait. None when it is not a number of milliseconds.
+pub fn parse_settle(value: &str) -> Option<Duration> {
+    value.trim().parse().ok().map(Duration::from_millis)
+}
 /// The marker that tells clipboard managers to skip an entry (Klipper,
 /// CopyQ, and `wl-paste --watch` know it).
 pub const PASSWORD_HINT: &str = "x-kde-passwordManagerHint";
@@ -428,7 +446,7 @@ impl TextInserter for LinuxInserter {
                 };
                 let key = PasteKey::from_env();
                 self.with_injector(|keys| {
-                    paste_with_receipt(clipboard, text, restore_clipboard, restore_delay, SETTLE_BEFORE_KEY, || {
+                    paste_with_receipt(clipboard, text, restore_clipboard, restore_delay, settle_before_key(), || {
                         keys.paste_key(key)
                     })
                 })
@@ -658,6 +676,15 @@ mod tests {
         assert_eq!(result, Err(InsertError::NotTrusted));
         assert_eq!(board.peek(Selection::Clipboard).as_deref(), Some("dictated text"));
         assert!(!board.has_marker());
+    }
+
+    #[test]
+    fn the_settle_time_is_a_number_of_milliseconds() {
+        assert_eq!(parse_settle("0"), Some(Duration::ZERO));
+        assert_eq!(parse_settle(" 120 "), Some(Duration::from_millis(120)));
+        assert_eq!(parse_settle("50ms"), None);
+        assert_eq!(parse_settle("-1"), None);
+        assert_eq!(parse_settle(""), None);
     }
 
     #[test]
