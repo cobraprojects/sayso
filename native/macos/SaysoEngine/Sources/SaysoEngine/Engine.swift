@@ -312,10 +312,19 @@ actor Engine {
                 _ = try await ModelUtilities.loadTokenizer(
                     for: tokenizer.model, tokenizerFolder: store.root)
             }
+        case .parakeetTdt(.fluidMini):
+            // FluidAudio cannot download this repo. `modelsExist` does not know its folder.
+            guard let folder = store.ownFolder(spec) else { throw EngineError("the model has no folder") }
+            try await FluidSpeechMini.download(to: folder) { reporter.report($0) }
+            guard FluidSpeechMini.isComplete(in: folder) else {
+                throw EngineError(
+                    "download finished but the files are incomplete", reason: "incomplete_download")
+            }
         case .parakeetTdt(let version):
+            guard let repo = version.repo else { throw EngineError("the model has no FluidAudio repo") }
             // The v3 repo holds several encoders. The variant selects the int8 one.
             try await ModelHub.download(
-                version.repo, to: store.root, variant: version == .v3 ? "int8" : nil,
+                repo, to: store.root, variant: version == .v3 ? "int8" : nil,
                 progressHandler: reporter.stage(base: 0, weight: 1))
             guard let folder = store.ownFolder(spec),
                 AsrModels.modelsExist(at: folder, version: version.fluid)
@@ -466,6 +475,15 @@ actor Engine {
                 tokenizerFolder: store.root, verbose: false, logLevel: .none,
                 load: true, download: false)
             return .whisper(try await WhisperKit(config))
+        case .parakeetTdt(.fluidMini):
+            // `AsrModels.load` takes the files from FluidAudio's own repo folder and downloads
+            // them there. `loadLocal` reads this folder only, and never uses the network.
+            let dir = try folder(spec)
+            try FluidSpeechMini.linkJointDecision(in: dir)
+            let models = try AsrModels.loadLocal(from: dir, version: TdtVersion.fluidMini.fluid)
+            let manager = AsrManager()
+            try await manager.loadModels(models)
+            return .parakeetTdt(manager)
         case .parakeetTdt(let version):
             // The fused preprocessor and encoder of the 110M model returns only blanks on
             // the Neural Engine (seen on an M5 Pro with macOS 27: empty text, no error).

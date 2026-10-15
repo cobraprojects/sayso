@@ -1,0 +1,26 @@
+# Fluid Speech Mini
+
+Status: built on 2026-10-15. S1-mini by Superwhisper was looked at and dropped: it is a fixed cleanup model that cannot run a style prompt.
+
+## The model
+
+An English speech model by FluidVoice, released on 2026-10-13. It is a quantized Parakeet Ultra (a post-trained Parakeet TDT 0.6B v3). It does batch transcription only, so it can be a final model but not a preview model.
+
+- Core ML build: `FluidVoice-Labs/fluid-speech-mini-coreml`, revision `d81c3160dfe5a5e1f8f7267164a07d30617a3a1a`, 253 MB, macOS 15 or later.
+- macOS only. The ONNX build uses `MatMulNBits` 2-bit and 4-bit weights, which the Windows and Linux engines do not run.
+
+## License
+
+CC BY 4.0, and the parent models are also CC BY 4.0. Commercial use and a download at runtime are allowed. Model details shows the credit that the license asks for: "Fluid Speech Mini by FluidVoice. Built on NVIDIA Parakeet TDT 0.6B v3 and Moondream Parakeet Ultra."
+
+## Accuracy
+
+FluidVoice reports a 4.54% average WER. Their table replaces TED-LIUM with Voice Arena Monsoon, and on the same table Parakeet TDT v3 gets 4.86% where the Models page gives 6.32%. So the figure is not comparable with the rest of the page, and the model shows "Not measured".
+
+## How it runs
+
+FluidAudio 0.17.5 has no repository entry for the model. Only a fork (`altic-dev/FluidAudio`) has one. The sidecar handles it with upstream FluidAudio:
+
+- **Download:** its own downloader fetches the files at the pinned revision, because `ModelHub.download` takes only FluidAudio's own repositories.
+- **Load:** `AsrModels.loadLocal(from:version: .ultra)`, with a link `JointDecisionv3.mlmodelc` to `JointDecision.mlmodelc`. Do not use `AsrModels.load(from:version:)`: it ignores the folder and downloads the real Parakeet Ultra.
+- **Result:** a 14 s clip takes about 0.07 s, with punctuation and capitals. The first load takes about 10 s.

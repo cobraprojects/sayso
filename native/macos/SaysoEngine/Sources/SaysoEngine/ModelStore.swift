@@ -33,7 +33,8 @@ struct ModelStore {
     func ownFolder(_ spec: EngineSpec) -> URL? {
         switch spec {
         case .parakeetUnified, .parakeetEou, .whisper, .appleSpeech: return nil
-        case .parakeetTdt(let version): return repoDir(version.repo)
+        case .parakeetTdt(let version):
+            return root.appendingPathComponent(version.folderName, isDirectory: true)
         case .nemotron(let chunkMs): return repoDir(Self.nemotronRepo(chunkMs: chunkMs))
         case .nemotronMultilingual(let chunkMs):
             return repoDir(.nemotronMultilingual)
@@ -230,10 +231,12 @@ extension TdtVersion {
         case .phonon2: return .phonon2
         case .tdtCtc110m: return .tdtCtc110m
         case .ja: return .tdtJa
+        case .fluidMini: return .ultra  // The decoder is the one of Parakeet Ultra.
         }
     }
 
-    var repo: Repo {
+    /// The FluidAudio repo. Nil for Fluid Speech Mini, which has its own downloader.
+    var repo: Repo? {
         switch self {
         case .v2: return .parakeetV2
         case .v3: return .parakeetV3
@@ -242,6 +245,10 @@ extension TdtVersion {
         case .phonon2: return .phonon2
         case .tdtCtc110m: return .parakeetTdtCtc110m
         case .ja: return .parakeetJa
+        case .fluidMini: return nil
         }
     }
+
+    /// The folder name under the models directory.
+    var folderName: String { repo?.folderName ?? FluidSpeechMini.folderName }
 }

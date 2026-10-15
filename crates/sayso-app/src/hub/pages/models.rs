@@ -722,7 +722,8 @@ impl ModelsPage {
             .px(px(30.))
             .child(div().flex().items_center().justify_between().child(caps(format!("{kind} · {}", info.vendor), 12., c.graphite)).child(close))
             .child(text::title(info.name.clone(), 34., &c).line_height(px(38.)))
-            .child(ui(info.description.clone(), 15., 22., FontWeight::NORMAL, c.graphite));
+            .child(ui(info.description.clone(), 15., 22., FontWeight::NORMAL, c.graphite))
+            .when_some(info.credit.clone(), |d, credit| d.child(ui(credit, 12., 17., FontWeight::NORMAL, c.graphite)));
 
         // Accuracy, on a scale from 1 in 10 to 1 in 20 wrong words.
         let accuracy = info.wer_percent.map(|wer| {

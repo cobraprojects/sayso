@@ -199,6 +199,7 @@ impl SpeechProvider {
             preview_wer_percent: None,
             punctuation: true,
             card_url: None,
+            credit: None,
             recommended: false,
             min_macos: 14,
         };

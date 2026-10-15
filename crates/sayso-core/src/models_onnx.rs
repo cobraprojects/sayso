@@ -64,6 +64,7 @@ impl Entry {
             preview_wer_percent: p.preview_wer,
             punctuation: p.punctuation,
             card_url: p.card_url(),
+            credit: p.credit.map(Into::into),
             recommended: false,
             min_macos: 0,
         }

@@ -11,6 +11,7 @@ core:
   model:
     parakeet_unified_en: "Fast and accurate for English. One model for the live preview and the final text."
     parakeet_ultra: "The best local model for European languages. As fast as Parakeet v3 and more accurate."
+    fluid_speech_mini: "A small, fast English Parakeet."
     parakeet_tdt_v3: "European languages. A smaller download than Ultra."
     parakeet_redux: "The smallest multilingual Parakeet. The first start takes about six minutes."
     parakeet_tdt_v2: "The earlier English Parakeet."

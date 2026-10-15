@@ -141,6 +141,8 @@ pub struct ModelInfo {
     pub punctuation: bool,
     /// The page of the upstream model.
     pub card_url: Option<String>,
+    /// The credit that the license of the model asks for.
+    pub credit: Option<String>,
     pub recommended: bool,
     /// The first macOS version that can run the model. Zero on other systems.
     pub min_macos: u32,
@@ -253,6 +255,7 @@ impl Entry {
             preview_wer_percent: p.preview_wer,
             punctuation: p.punctuation,
             card_url: p.card_url(),
+            credit: p.credit.map(Into::into),
             recommended: false,
             min_macos: 14,
         }
@@ -271,6 +274,8 @@ pub(crate) struct Published {
     pub punctuation: bool,
     /// The Hugging Face repository.
     pub card: Option<&'static str>,
+    /// The credit that the license asks for. It stays in English.
+    pub credit: Option<&'static str>,
 }
 
 impl Published {
@@ -294,6 +299,7 @@ pub(crate) fn published(id: &str) -> Published {
         "whisper-large-v2" => (Some(7.84), None, Some("openai/whisper-large-v2")),
         "parakeet-eou-120m" => (Some(9.30), None, Some("nvidia/parakeet_realtime_eou_120m-v1")),
         "parakeet-ultra" => (None, None, Some("moondream/parakeet-ultra")),
+        "fluid-speech-mini" => (None, None, Some("FluidVoice-Labs/fluid-speech-mini-coreml")),
         "parakeet-redux" => (None, None, Some("moondream/parakeet-redux")),
         "phonon-2" => (None, None, Some("FermionResearch/Phonon-2")),
         "parakeet-ja" => (None, None, Some("nvidia/parakeet-tdt_ctc-0.6b-ja")),
@@ -310,6 +316,9 @@ pub(crate) fn published(id: &str) -> Published {
         preview_wer,
         punctuation: id != "parakeet-eou-120m",
         card,
+        // CC BY 4.0 asks for this text.
+        credit: (id == "fluid-speech-mini")
+            .then_some("Fluid Speech Mini by FluidVoice. Built on NVIDIA Parakeet TDT 0.6B v3 and Moondream Parakeet Ultra."),
     }
 }
 
@@ -364,6 +373,21 @@ fn apple_catalog() -> Vec<ModelInfo> {
             speed: 5,
         }
         .build(),
+        ModelInfo {
+            // The Core ML build needs macOS 15.
+            min_macos: 15,
+            ..Entry {
+                id: "fluid-speech-mini",
+                name: "Fluid Speech Mini",
+                vendor: "FluidVoice",
+                description: t!("core.model.fluid_speech_mini"),
+                engine: tdt("fluid_mini"),
+                size_mb: 253,
+                languages: en(),
+                speed: 5,
+            }
+            .build()
+        },
         Entry {
             id: "parakeet-tdt-v3",
             name: "Parakeet TDT v3",

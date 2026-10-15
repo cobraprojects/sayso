@@ -134,6 +134,7 @@ enum TdtVersion: String {
     case v2, v3, ultra, redux, phonon2
     case tdtCtc110m = "tdt_ctc_110m"
     case ja
+    case fluidMini = "fluid_mini"
 }
 
 /// One parsed request line.
