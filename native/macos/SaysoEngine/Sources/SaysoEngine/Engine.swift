@@ -353,8 +353,12 @@ actor Engine {
                 progressHandler: reporter.stage(base: 0, weight: 1))
         case .senseVoice:
             try await ModelHub.download(
-                .senseVoiceSmall, to: store.root, variant: SenseVoiceEncoderPrecision.int8.rawValue,
+                .senseVoiceSmall, to: store.root, variant: SenseVoice.precision.rawValue,
                 progressHandler: reporter.stage(base: 0, weight: 1))
+            // The int8 encoder of earlier versions is not used any more.
+            if let folder = store.ownFolder(spec) {
+                try? FileManager.default.removeItem(at: folder.appendingPathComponent(SenseVoice.oldEncoder))
+            }
         case .paraformer:
             try await ModelHub.download(
                 .paraformerLargeZh, to: store.root,
@@ -513,7 +517,7 @@ actor Engine {
         case .canary:
             return .canary(CanaryManager(models: try CanaryModels.load(from: try folder(spec), precision: .int4)))
         case .senseVoice:
-            return .senseVoice(try SenseVoiceModels.load(from: try folder(spec), precision: .int8))
+            return .senseVoice(try SenseVoiceModels.load(from: try folder(spec), precision: SenseVoice.precision))
         case .paraformer:
             return .paraformer(ParaformerManager(models: try ParaformerModels.load(from: try folder(spec))))
         case .appleSpeech:
@@ -566,12 +570,9 @@ actor Engine {
         case .canary(let manager):
             text = try await manager.transcribe(audio: samples)
         case .senseVoice(let models):
-            // Text norm 14 is "with ITN": the model writes punctuation, capitals, and digits.
-            let manager = SenseVoiceManager(
-                models: models, language: Self.senseVoiceLanguage(language), textNorm: 14)
             var parts: [String] = []
-            for chunk in AudioChunks.split(samples, maxSeconds: 25) {
-                parts.append(try await manager.transcribe(audio: chunk))
+            for chunk in AudioChunks.split(samples, maxSeconds: SenseVoice.maxSeconds) {
+                parts.append(try SenseVoice.transcribe(models: models, audio: chunk, language: SenseVoice.language(language)))
             }
             text = AudioChunks.join(parts)
         case .paraformer(let manager):
@@ -591,18 +592,6 @@ actor Engine {
         out.send(
             "final", id: id,
             ["text": text.trimmingCharacters(in: .whitespacesAndNewlines), "elapsed_ms": Int(nowMs() - start)])
-    }
-
-    /// The language id of SenseVoice. Zero lets the model detect the language.
-    private static func senseVoiceLanguage(_ code: String) -> Int32 {
-        switch code {
-        case "zh": return 3
-        case "en": return 4
-        case "yue": return 7
-        case "ja": return 11
-        case "ko": return 12
-        default: return SenseVoiceConfig.defaultLanguage
-        }
     }
 
     /// Final pass with a streaming model: feed the whole recording through its stream.

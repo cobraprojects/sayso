@@ -152,7 +152,10 @@ struct ModelStore {
             return eouComplete()
         case .whisper(let variant):
             return whisperComplete(variant)
-        case .parakeetTdt, .nemotron, .nemotronMultilingual, .cohere, .canary, .senseVoice, .paraformer:
+        case .senseVoice:
+            // A folder from before the fp32 encoder needs a new download.
+            return isMarked(spec) && ownFolder(spec).map(SenseVoice.encoderExists) == true
+        case .parakeetTdt, .nemotron, .nemotronMultilingual, .cohere, .canary, .paraformer:
             return isMarked(spec)
         case .appleSpeech:
             return false  // macOS holds the assets. The engine asks macOS (see `Engine.onDisk`).
@@ -169,7 +172,9 @@ struct ModelStore {
             return eouComplete()
         case .whisper(let variant):
             return whisperComplete(variant)
-        case .parakeetTdt, .nemotron, .nemotronMultilingual, .cohere, .canary, .senseVoice, .paraformer:
+        case .senseVoice:
+            return isMarked(spec) && ownFolder(spec).map(SenseVoice.encoderExists) == true
+        case .parakeetTdt, .nemotron, .nemotronMultilingual, .cohere, .canary, .paraformer:
             return isMarked(spec)
         case .appleSpeech:
             return false

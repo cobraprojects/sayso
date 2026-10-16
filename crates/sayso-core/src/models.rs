@@ -641,7 +641,7 @@ fn apple_catalog() -> Vec<ModelInfo> {
             vendor: "Alibaba",
             description: t!("core.model.sensevoice_small"),
             engine: EngineKind::SenseVoice,
-            size_mb: 240,
+            size_mb: 945,
             languages: languages::sensevoice(),
             speed: 5,
         }
