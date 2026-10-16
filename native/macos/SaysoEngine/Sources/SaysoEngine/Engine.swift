@@ -594,6 +594,13 @@ actor Engine {
             ["text": text.trimmingCharacters(in: .whitespacesAndNewlines), "elapsed_ms": Int(nowMs() - start)])
     }
 
+    /// One second of silence before and after the audio of a streaming final pass. The
+    /// cache-aware decoders gave no text for many short dictations ("yes", "okay")
+    /// without it. In the benchmark it cut empty results and lowered the WER of every
+    /// streaming model. The live preview gets none: the preview of Parakeet Unified got
+    /// worse with lead-in silence.
+    static let streamSilence = [Float](repeating: 0, count: 16_000)
+
     /// Final pass with a streaming model: feed the whole recording through its stream.
     private func transcribeStreaming(
         model: String, streamer: Streamer, samples: [Float], language: String
@@ -608,7 +615,7 @@ actor Engine {
         finalPasses.insert(model)
         defer { finalPasses.remove(model) }
         try await streamer.begin(language: language, onPartial: { _ in })
-        try await streamer.feed(samples)
+        try await streamer.feed(Self.streamSilence + samples + Self.streamSilence)
         return try await streamer.finish()
     }
 
