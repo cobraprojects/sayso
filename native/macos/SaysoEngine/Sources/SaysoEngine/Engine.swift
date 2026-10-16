@@ -661,6 +661,15 @@ actor Engine {
         let detect = language.isEmpty || language == "auto"
         var options = DecodingOptions(
             language: detect ? nil : language, detectLanguage: detect)
+        // WhisperKit skips the last `windowClipTime` seconds (1 s) to stop "Thank you."
+        // hallucinations after the speech. A recording of 1 s or less then gives no text at
+        // all, so the clip is at most half of the recording.
+        let seconds = Float(samples.count) / Float(WhisperKit.sampleRate)
+        options.windowClipTime = min(options.windowClipTime, seconds / 2)
+        // A first token below this log probability starts the temperature fallback, and
+        // sampling near temperature 1 can end with no text. OpenAI's Whisper has no such
+        // check, and clear speech failed it.
+        options.firstTokenLogProbThreshold = nil
         // Dictionary words go in as prompt text. Whisper has no hard boosting.
         if !vocabulary.isEmpty, let tokenizer = kit.tokenizer {
             let prompt = " " + vocabulary.joined(separator: ", ")
