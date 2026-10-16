@@ -20,6 +20,38 @@
 #   url = "https://…"
 
 [[release]]
+version = "0.9.0"
+title = "Pick the right model"
+
+[[release.item]]
+icon = "models"
+title = "Measured accuracy and speed"
+text = "The Models page shows accuracy that Sayso measured on 1400 English clips, with the builds that it ships. On a Mac it also shows the speed. Search and sort the lists, and open a model for its details."
+
+[[release.item]]
+icon = "overlay"
+title = "Choose the live preview model"
+text = "Choose one model for the final text and one for the live preview, or turn the preview off. Each streaming model can also write the final text."
+
+[[release.item]]
+icon = "keyboard"
+title = "Send with Enter"
+text = "Press Enter while you dictate to insert the text and send it, for chats and terminals. Turn it on in Settings › Dictation."
+systems = ["macos", "windows"]
+
+[[release.item]]
+icon = "download"
+title = "Fluid Speech Mini"
+text = "A small, fast English model (253 MB) by FluidVoice, for macOS 15 and later."
+systems = ["macos"]
+
+[[release.item]]
+icon = "mic"
+title = "Fewer empty dictations"
+text = "Whisper, SenseVoice, Nemotron, and Parakeet EOU now give text for short dictations. SenseVoice needs a new download (941 MB)."
+systems = ["macos"]
+
+[[release]]
 version = "0.8.0"
 title = "Sayso speaks your language"
 
