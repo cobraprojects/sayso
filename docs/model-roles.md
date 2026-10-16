@@ -43,16 +43,16 @@ The preview choice of a new install. Sayso uses the final model when it streams.
 
 Current design: artboard "A2 · Split card" on the Paper page "Models · Rethink".
 
-- The top card has two slots, **Final text** and **Live preview**. Each slot shows the model, its accuracy ("1 in 13 words wrong"), a speed figure, and a **Change** menu.
+- The top card has two slots, **Final text** and **Live preview**. Each slot shows the model, its accuracy ("91.6%"), a speed figure, and a **Change** menu.
 - Below the card are two lists: **Non-streaming models** first ("They write your text after you stop talking."), then **Streaming models** ("They work as you talk, so they can also show the live preview."). Each list is sorted by accuracy.
-- Every row has the same columns: an accuracy meter with "1 in N wrong", a speed meter, the size, and one action. A non-streaming row shows **Use**. A streaming row shows **Use** with a menu (for final text, for live preview). A model in use shows a **Final text** or **Live preview** tag. A model that is not downloaded shows **Download**.
+- Every row has the same columns: an accuracy meter with the percentage, a speed meter, the size, and one action. A non-streaming row shows **Use**. A streaming row shows **Use** with a menu (for final text, for live preview). A model in use shows a **Final text** or **Live preview** tag. A model that is not downloaded shows **Download**.
 - A note under the lists says what the accuracy figure measures, and that punctuation does not count.
 - A click on a row (outside its action button) opens **Model details**, a modal. Design: artboard "A2 · Model details".
 
 ### Model details
 
 - **Head:** the kind ("Streaming model" or "Non-streaming model") and the vendor, the name, and two sentences about the model (a new catalog text per model).
-- **Accuracy:** "1 in N words wrong", and a scale from 1 in 10 to 1 in 20. The scale marks this model, the current final model, and the current preview model. Faint ticks mark the other models with a figure. One sentence compares this model with the current choices, for example "A little more accurate than your final text model, and much more accurate than your live preview." A model with no figure shows "Not measured" and no scale.
+- **Accuracy:** the percentage, and a scale from 85% to 95%. The scale marks this model, the current final model, and the current preview model. Faint ticks mark the other models with a figure. One sentence compares this model with the current choices, for example "A little more accurate than your final text model, and much more accurate than your live preview." A model with no figure shows "Not measured" and no scale.
 - **Facts:** speed, live preview (the update interval, or "No"), languages, punctuation and capitals, dictionary words (used or not), and the size on disk. When Sayso measured the model on this computer, speed shows the measured time ("58 ms for 8 s of speech") in the place of the rating.
 - **Source:** the WER, the test sets, the chunk size of a streaming model, and that punctuation does not count.
 - **Action bar:** Delete (when downloaded, with the confirmation of today) and Model card (opens the upstream page) on the left. On the right, **Use for live preview** (streaming models only) and **Use for final text**. A model that is not downloaded shows one **Download** button. A role that the model already has shows as a tag in the place of its button.
@@ -70,27 +70,9 @@ In short:
 
 ## Accuracy data
 
-The catalog shows the word error rate (WER) on LibriSpeech test-clean today. On that set almost every model scores 2.1 to 2.3%, so a small streaming model looks as accurate as a large model. The new accuracy figure is the average WER on the eight English test sets of the Open ASR Leaderboard (AMI, Earnings22, GigaSpeech, LibriSpeech clean and other, SPGISpeech, TED-LIUM, VoxPopuli), from the snapshot of 26 March 2026 (`scripts/data/en_shortform.csv` in `huggingface/open_asr_leaderboard`) or from the model card when it uses the same eight sets. The page shows it as accuracy, 100 − WER, with one decimal ("94.1%"). Punctuation and capitals do not count in this figure.
+Sayso measures accuracy and speed itself, on the builds that it ships: see `docs/benchmark.md`. The page shows accuracy as 100 − WER, with one decimal ("93.7%"). Punctuation and capitals do not count in this figure. Models that cannot be measured on English speech (Parakeet Japanese, Paraformer) and cloud models show "Not measured".
 
-| Model | Avg WER | 1 in N | Source |
-|---|---|---|---|
-| Cohere Transcribe | 5.42 | 18 | leaderboard |
-| Parakeet Unified EN, final pass | 5.91 | 17 | NVIDIA card |
-| Parakeet TDT v2 | 6.05 | 17 | leaderboard |
-| Parakeet TDT v3 | 6.32 | 16 | leaderboard |
-| Parakeet Unified EN, preview (320 ms) | 6.92 | 14 | NVIDIA card |
-| Nemotron Streaming EN (1120 ms) | 6.93 | 14 | NVIDIA card |
-| Canary 1B v2 | 7.15 | 14 | leaderboard |
-| Whisper large-v3 | 7.44 | 13 | leaderboard |
-| Parakeet TDT-CTC 110M | 7.49 | 13 | leaderboard |
-| Distil-Whisper large-v3 | 7.52 | 13 | leaderboard |
-| Whisper large-v3 turbo | 7.83 | 13 | leaderboard |
-| Whisper large-v2 | 7.84 | 13 | leaderboard |
-| Parakeet EOU 120M (160 ms) | 9.30 | 11 | NVIDIA card |
-
-No figure on the same eight sets: Parakeet Ultra, Parakeet Redux, and Phonon-2 (vendor numbers on seven sets only), Whisper medium, small, base, and tiny (only the English-only `.en` models are on the leaderboard), Nemotron Multilingual, Parakeet JA, Apple Speech, SenseVoice, and Paraformer. These models show "Not measured" and no meter. The Sayso builds are compressed (Core ML, int8, 2-bit). Nobody published scores for the compressed builds, so the figures are for the upstream checkpoints.
-
-The accuracy meter has five steps: under 6.0%, 6.0 to 6.6, 6.6 to 8.0, 8.0 to 9.0, and over 9.0.
+The accuracy meter has five steps by WER: under 6.5%, 6.5 to 7.0, 7.0 to 8.5, 8.5 to 10, and 10 or more. The speed meter has five steps by real-time factor: 120× or more, 60×, 30×, 12×, and under 12×.
 
 ## Work
 

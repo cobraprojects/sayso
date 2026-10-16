@@ -22,6 +22,7 @@ models:
     no_preview: "ライブプレビューなし"
     accuracy: "精度"
     between_updates: "更新の間隔"
+    faster: "リアルタイムより速い"
     on_disk: "ディスク上"
   hero:
     provider_not_set_up: "プロバイダ未設定"
@@ -79,7 +80,8 @@ models:
     used: "使用する"
     not_used: "使用しない"
     size: "ディスク上"
-    source: "英語の8つのテストセットで単語の%{wer}%が誤り（Open ASR Leaderboard）。句読点は数えません。"
+    source: "7 つの英語テストセットで単語の %{wer}% が誤り（Sayso による測定）。句読点は数えません。"
+    rtfx: "リアルタイムの %{x} 倍"
     model_card: "モデルカード"
     use_preview: "ライブプレビューに使用"
     use_final: "最終テキストに使用"

@@ -22,6 +22,7 @@ models:
     no_preview: "Sin vista previa en vivo"
     accuracy: "precisión"
     between_updates: "entre actualizaciones"
+    faster: "más rápido que el tiempo real"
     on_disk: "en el disco"
   hero:
     provider_not_set_up: "Proveedor sin configurar"
@@ -79,7 +80,8 @@ models:
     used: "Se usan"
     not_used: "No se usan"
     size: "En el disco"
-    source: "%{wer}% de palabras erróneas en ocho conjuntos de prueba en inglés (Open ASR Leaderboard). La puntuación no cuenta."
+    source: "%{wer} % de palabras incorrectas en siete conjuntos de prueba en inglés, medido por Sayso. La puntuación no cuenta."
+    rtfx: "%{x}× tiempo real"
     model_card: "Ficha del modelo"
     use_preview: "Usar para la vista previa en vivo"
     use_final: "Usar para el texto final"

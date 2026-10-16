@@ -29,7 +29,7 @@ core:
     apple_speech: "macOS 的语音模型。速度快。首次使用某种语言时，macOS 会下载该语言。"
     nemotron_multilingual: "一个模型同时完成实时预览和最终转录，支持多种语言。"
     nemotron_en: "一个流式模型同时完成实时预览和最终转录。"
-    cohere_transcribe: "最准确的本地模型。下载后的首次听写大约需要一分钟。请在“设置”中设置语言。"
+    cohere_transcribe: "支持 14 种语言，非常准确。下载后的首次听写大约需要一分钟。请在“设置”中设置语言。"
     canary_1b_v2: "测试版转换。比 Parakeet 慢。"
     sensevoice_small: "非常快。最擅长中文、粤语、英语、日语和韩语。"
     paraformer_zh: "仅限普通话。非常快。"

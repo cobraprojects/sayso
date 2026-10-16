@@ -198,6 +198,7 @@ impl SpeechProvider {
             wer_percent: None,
             preview_wer_percent: None,
             punctuation: true,
+            rtfx: None,
             card_url: None,
             credit: None,
             recommended: false,

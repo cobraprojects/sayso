@@ -47,7 +47,7 @@ struct Entry {
 impl Entry {
     /// A batch model: final pass only, no dictionary words.
     fn build(self) -> ModelInfo {
-        let p = crate::models::published(self.id);
+        let p = crate::models::facts(self.id);
         ModelInfo {
             id: ModelId::new(self.id),
             name: self.name.into(),
@@ -63,6 +63,8 @@ impl Entry {
             wer_percent: p.wer,
             preview_wer_percent: p.preview_wer,
             punctuation: p.punctuation,
+            // The speeds were measured on a Mac.
+            rtfx: None,
             card_url: p.card_url(),
             credit: p.credit.map(Into::into),
             recommended: false,

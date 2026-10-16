@@ -30,7 +30,7 @@ core:
     apple_speech: "The speech model of macOS. Fast. macOS downloads a language when you first use it."
     nemotron_multilingual: "Live preview and final pass with one model, in many languages."
     nemotron_en: "Live preview and final pass with one streaming model."
-    cohere_transcribe: "The most accurate local model. The first dictation after a download takes about a minute. Set the language in Settings."
+    cohere_transcribe: "Very accurate, in 14 languages. The first dictation after a download takes about a minute. Set the language in Settings."
     canary_1b_v2: "A beta conversion. Slower than Parakeet."
     sensevoice_small: "Very fast. Strongest in Chinese, Cantonese, English, Japanese, and Korean."
     paraformer_zh: "Mandarin only. Very fast."

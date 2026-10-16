@@ -1,0 +1,338 @@
+{
+  "apple-speech": {
+    "wer": 8.05,
+    "rtfx": 49,
+    "failed": 0,
+    "per_set": {
+      "ami": 12.86,
+      "earnings22": 12.02,
+      "gigaspeech": 9.85,
+      "librispeech_clean": 1.86,
+      "librispeech_other": 4.59,
+      "spgispeech": 5.37,
+      "voxpopuli": 9.77
+    }
+  },
+  "canary-1b-v2": {
+    "wer": 8.51,
+    "rtfx": 5,
+    "failed": 0,
+    "per_set": {
+      "ami": 16.25,
+      "earnings22": 13.5,
+      "gigaspeech": 11.71,
+      "librispeech_clean": 2.71,
+      "librispeech_other": 4.73,
+      "spgispeech": 3.22,
+      "voxpopuli": 7.46
+    }
+  },
+  "cohere-transcribe": {
+    "wer": 6.32,
+    "rtfx": 15,
+    "failed": 0,
+    "per_set": {
+      "ami": 8.2,
+      "earnings22": 10.41,
+      "gigaspeech": 11.07,
+      "librispeech_clean": 1.26,
+      "librispeech_other": 3.8,
+      "spgispeech": 3.22,
+      "voxpopuli": 6.31
+    }
+  },
+  "fluid-speech-mini": {
+    "wer": 6.61,
+    "rtfx": 159,
+    "failed": 0,
+    "per_set": {
+      "ami": 8.78,
+      "earnings22": 10.57,
+      "gigaspeech": 9.49,
+      "librispeech_clean": 1.7,
+      "librispeech_other": 3.74,
+      "spgispeech": 4.48,
+      "voxpopuli": 7.51
+    }
+  },
+  "nemotron-en": {
+    "wer": 7.57,
+    "rtfx": 61,
+    "failed": 0,
+    "per_set": {
+      "ami": 11.26,
+      "earnings22": 11.08,
+      "gigaspeech": 10.1,
+      "librispeech_clean": 2.43,
+      "librispeech_other": 5.94,
+      "spgispeech": 3.59,
+      "voxpopuli": 8.59
+    }
+  },
+  "nemotron-multilingual": {
+    "wer": 9.37,
+    "rtfx": 52,
+    "failed": 0,
+    "per_set": {
+      "ami": 15.62,
+      "earnings22": 13.42,
+      "gigaspeech": 11.8,
+      "librispeech_clean": 3.23,
+      "librispeech_other": 7.84,
+      "spgispeech": 3.94,
+      "voxpopuli": 9.77
+    }
+  },
+  "parakeet-eou-120m": {
+    "wer": 14.08,
+    "rtfx": 18,
+    "failed": 0,
+    "per_set": {
+      "ami": 18.53,
+      "earnings22": 21.56,
+      "gigaspeech": 18.06,
+      "librispeech_clean": 7.66,
+      "librispeech_other": 13.01,
+      "spgispeech": 7.16,
+      "voxpopuli": 12.6
+    }
+  },
+  "parakeet-redux": {
+    "wer": 6.94,
+    "rtfx": 93,
+    "failed": 0,
+    "per_set": {
+      "ami": 9.17,
+      "earnings22": 10.35,
+      "gigaspeech": 9.97,
+      "librispeech_clean": 2.32,
+      "librispeech_other": 5.06,
+      "spgispeech": 5.04,
+      "voxpopuli": 6.7
+    }
+  },
+  "parakeet-tdt-ctc-110m": {
+    "wer": 7.97,
+    "rtfx": 111,
+    "failed": 0,
+    "per_set": {
+      "ami": 15.04,
+      "earnings22": 12.91,
+      "gigaspeech": 10.17,
+      "librispeech_clean": 2.43,
+      "librispeech_other": 5.01,
+      "spgispeech": 2.81,
+      "voxpopuli": 7.44
+    }
+  },
+  "parakeet-tdt-v2": {
+    "wer": 6.37,
+    "rtfx": 151,
+    "failed": 0,
+    "per_set": {
+      "ami": 9.02,
+      "earnings22": 10.59,
+      "gigaspeech": 10.19,
+      "librispeech_clean": 1.88,
+      "librispeech_other": 3.74,
+      "spgispeech": 2.89,
+      "voxpopuli": 6.29
+    }
+  },
+  "parakeet-tdt-v3": {
+    "wer": 6.91,
+    "rtfx": 132,
+    "failed": 0,
+    "per_set": {
+      "ami": 9.51,
+      "earnings22": 11.8,
+      "gigaspeech": 10.03,
+      "librispeech_clean": 1.91,
+      "librispeech_other": 3.93,
+      "spgispeech": 4.62,
+      "voxpopuli": 6.57
+    }
+  },
+  "parakeet-ultra": {
+    "wer": 6.54,
+    "rtfx": 148,
+    "failed": 0,
+    "per_set": {
+      "ami": 10.09,
+      "earnings22": 10.24,
+      "gigaspeech": 9.67,
+      "librispeech_clean": 1.68,
+      "librispeech_other": 3.55,
+      "spgispeech": 4.21,
+      "voxpopuli": 6.31
+    }
+  },
+  "parakeet-unified-en": {
+    "wer": 6.29,
+    "rtfx": 145,
+    "failed": 0,
+    "per_set": {
+      "ami": 8.64,
+      "earnings22": 11.16,
+      "gigaspeech": 10.42,
+      "librispeech_clean": 1.78,
+      "librispeech_other": 3.08,
+      "spgispeech": 2.44,
+      "voxpopuli": 6.5
+    }
+  },
+  "parakeet-unified-en.preview": {
+    "wer": 7.61,
+    "rtfx": 3,
+    "failed": 0,
+    "per_set": {
+      "ami": 10.63,
+      "earnings22": 12.56,
+      "gigaspeech": 10.78,
+      "librispeech_clean": 2.32,
+      "librispeech_other": 5.17,
+      "spgispeech": 3.66,
+      "voxpopuli": 8.17
+    }
+  },
+  "phonon-2": {
+    "wer": 7.33,
+    "rtfx": 143,
+    "failed": 0,
+    "per_set": {
+      "ami": 8.35,
+      "earnings22": 11.35,
+      "gigaspeech": 11.66,
+      "librispeech_clean": 2.25,
+      "librispeech_other": 4.95,
+      "spgispeech": 4.93,
+      "voxpopuli": 7.83
+    }
+  },
+  "sensevoice-small": {
+    "wer": 8.88,
+    "rtfx": 30,
+    "failed": 0,
+    "per_set": {
+      "ami": 10.04,
+      "earnings22": 13.42,
+      "gigaspeech": 15.21,
+      "librispeech_clean": 3.48,
+      "librispeech_other": 7.18,
+      "spgispeech": 3.28,
+      "voxpopuli": 9.55
+    }
+  },
+  "whisper-base": {
+    "wer": 11.62,
+    "rtfx": 63,
+    "failed": 0,
+    "per_set": {
+      "ami": 19.17,
+      "earnings22": 17.61,
+      "gigaspeech": 12.63,
+      "librispeech_clean": 4.59,
+      "librispeech_other": 12.57,
+      "spgispeech": 4.38,
+      "voxpopuli": 10.39
+    }
+  },
+  "whisper-distil-large-v3": {
+    "wer": 9.72,
+    "rtfx": 12,
+    "failed": 0,
+    "per_set": {
+      "ami": 18.44,
+      "earnings22": 15.3,
+      "gigaspeech": 11.5,
+      "librispeech_clean": 2.68,
+      "librispeech_other": 6.19,
+      "spgispeech": 4.73,
+      "voxpopuli": 9.17
+    }
+  },
+  "whisper-large-v2": {
+    "wer": 8.57,
+    "rtfx": 4,
+    "failed": 0,
+    "per_set": {
+      "ami": 17.42,
+      "earnings22": 13.12,
+      "gigaspeech": 10.4,
+      "librispeech_clean": 2.5,
+      "librispeech_other": 5.58,
+      "spgispeech": 3.47,
+      "voxpopuli": 7.51
+    }
+  },
+  "whisper-large-v3-turbo": {
+    "wer": 8.19,
+    "rtfx": 12,
+    "failed": 0,
+    "per_set": {
+      "ami": 16.98,
+      "earnings22": 11.91,
+      "gigaspeech": 10.67,
+      "librispeech_clean": 2.22,
+      "librispeech_other": 3.82,
+      "spgispeech": 3.2,
+      "voxpopuli": 8.53
+    }
+  },
+  "whisper-large-v3": {
+    "wer": 8.41,
+    "rtfx": 4,
+    "failed": 0,
+    "per_set": {
+      "ami": 17.37,
+      "earnings22": 12.99,
+      "gigaspeech": 11.1,
+      "librispeech_clean": 1.81,
+      "librispeech_other": 4.35,
+      "spgispeech": 3.53,
+      "voxpopuli": 7.74
+    }
+  },
+  "whisper-medium": {
+    "wer": 9.15,
+    "rtfx": 8,
+    "failed": 0,
+    "per_set": {
+      "ami": 16.35,
+      "earnings22": 14.06,
+      "gigaspeech": 11.34,
+      "librispeech_clean": 2.86,
+      "librispeech_other": 6.96,
+      "spgispeech": 4.56,
+      "voxpopuli": 7.89
+    }
+  },
+  "whisper-small": {
+    "wer": 9.77,
+    "rtfx": 18,
+    "failed": 0,
+    "per_set": {
+      "ami": 17.27,
+      "earnings22": 13.5,
+      "gigaspeech": 11.86,
+      "librispeech_clean": 4.05,
+      "librispeech_other": 8.11,
+      "spgispeech": 4.52,
+      "voxpopuli": 9.04
+    }
+  },
+  "whisper-tiny": {
+    "wer": 14.7,
+    "rtfx": 92,
+    "failed": 0,
+    "per_set": {
+      "ami": 22.61,
+      "earnings22": 22.08,
+      "gigaspeech": 14.62,
+      "librispeech_clean": 6.25,
+      "librispeech_other": 16.91,
+      "spgispeech": 7.97,
+      "voxpopuli": 12.5
+    }
+  }
+}

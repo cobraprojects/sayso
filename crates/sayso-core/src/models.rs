@@ -5,6 +5,7 @@
 //! the sherpa-onnx models ([`crate::models_onnx`]) on Linux. Cloud models
 //! come from the configured speech providers (see [`crate::speech`]).
 
+mod benchmark;
 mod portable;
 
 use crate::config::PreviewChoice;
@@ -132,13 +133,15 @@ pub struct ModelInfo {
     pub vocabulary: bool,
     /// 1 (slow) to 5 (fast), for the speed meter in Models.
     pub speed: u8,
-    /// Published word error rate in percent (see [`published`]). None when no
-    /// figure on the same test sets exists.
+    /// Word error rate in percent, measured by Sayso (`models/benchmark.rs`). None
+    /// for a model that was not measured.
     pub wer_percent: Option<f32>,
     /// The word error rate of the live preview, when it differs from the final pass.
     pub preview_wer_percent: Option<f32>,
     /// The text has punctuation and capitals.
     pub punctuation: bool,
+    /// Measured speed on a Mac: seconds of audio per second of processing.
+    pub rtfx: Option<u32>,
     /// The page of the upstream model.
     pub card_url: Option<String>,
     /// The credit that the license of the model asks for.
@@ -238,7 +241,9 @@ struct Entry {
 impl Entry {
     /// A batch model: final pass only, no dictionary words, macOS 14.
     fn build(self) -> ModelInfo {
-        let p = published(self.id);
+        let p = facts(self.id);
+        // The speeds were measured on a Mac. Other systems run other builds.
+        let rtfx = if cfg!(target_os = "macos") { p.rtfx } else { None };
         ModelInfo {
             id: ModelId::new(self.id),
             name: self.name.into(),
@@ -250,10 +255,11 @@ impl Entry {
             final_pass: true,
             live_preview: false,
             vocabulary: false,
-            speed: self.speed,
+            speed: rtfx.map_or(self.speed, speed_level),
             wer_percent: p.wer,
             preview_wer_percent: p.preview_wer,
             punctuation: p.punctuation,
+            rtfx,
             card_url: p.card_url(),
             credit: p.credit.map(Into::into),
             recommended: false,
@@ -262,15 +268,23 @@ impl Entry {
     }
 }
 
-/// What the authors of a model published about it, by model id. The ids are
-/// the same on all systems, and the figures are for the upstream checkpoint.
-pub(crate) struct Published {
-    /// The average word error rate on the eight English sets of the Open ASR
-    /// Leaderboard (AMI, Earnings22, GigaSpeech, LibriSpeech clean and other,
-    /// SPGISpeech, TED-LIUM, VoxPopuli). Punctuation does not count. Sources
-    /// are in `docs/model-roles.md`.
+/// The speed meter level for a measured speed (audio time over processing time).
+fn speed_level(rtfx: u32) -> u8 {
+    match rtfx {
+        x if x >= 120 => 5,
+        x if x >= 60 => 4,
+        x if x >= 30 => 3,
+        x if x >= 12 => 2,
+        _ => 1,
+    }
+}
+
+/// What Sayso knows about a model, by model id. The ids are the same on all systems.
+pub(crate) struct Facts {
+    /// From `models/benchmark.rs`. Punctuation does not count.
     pub wer: Option<f32>,
     pub preview_wer: Option<f32>,
+    pub rtfx: Option<u32>,
     pub punctuation: bool,
     /// The Hugging Face repository.
     pub card: Option<&'static str>,
@@ -278,42 +292,44 @@ pub(crate) struct Published {
     pub credit: Option<&'static str>,
 }
 
-impl Published {
+impl Facts {
     pub fn card_url(&self) -> Option<String> {
         self.card.map(|repo| format!("https://huggingface.co/{repo}"))
     }
 }
 
-pub(crate) fn published(id: &str) -> Published {
-    let (wer, preview_wer, card) = match id {
-        "cohere-transcribe" => (Some(5.42), None, Some("CohereLabs/cohere-transcribe-03-2026")),
-        "parakeet-unified-en" => (Some(5.91), Some(6.92), Some("nvidia/parakeet-unified-en-0.6b")),
-        "parakeet-tdt-v2" => (Some(6.05), None, Some("nvidia/parakeet-tdt-0.6b-v2")),
-        "parakeet-tdt-v3" => (Some(6.32), None, Some("nvidia/parakeet-tdt-0.6b-v3")),
-        "nemotron-en" => (Some(6.93), None, Some("nvidia/nemotron-speech-streaming-en-0.6b")),
-        "canary-1b-v2" => (Some(7.15), None, Some("nvidia/canary-1b-v2")),
-        "whisper-large-v3" => (Some(7.44), None, Some("openai/whisper-large-v3")),
-        "parakeet-tdt-ctc-110m" => (Some(7.49), None, Some("nvidia/parakeet-tdt_ctc-110m")),
-        "whisper-distil-large-v3" => (Some(7.52), None, Some("distil-whisper/distil-large-v3")),
-        "whisper-large-v3-turbo" => (Some(7.83), None, Some("openai/whisper-large-v3-turbo")),
-        "whisper-large-v2" => (Some(7.84), None, Some("openai/whisper-large-v2")),
-        "parakeet-eou-120m" => (Some(9.30), None, Some("nvidia/parakeet_realtime_eou_120m-v1")),
-        "parakeet-ultra" => (None, None, Some("moondream/parakeet-ultra")),
-        "fluid-speech-mini" => (None, None, Some("FluidVoice-Labs/fluid-speech-mini-coreml")),
-        "parakeet-redux" => (None, None, Some("moondream/parakeet-redux")),
-        "phonon-2" => (None, None, Some("FermionResearch/Phonon-2")),
-        "parakeet-ja" => (None, None, Some("nvidia/parakeet-tdt_ctc-0.6b-ja")),
-        "nemotron-multilingual" => (None, None, Some("nvidia/nemotron-3.5-asr-streaming-0.6b")),
-        "whisper-medium" => (None, None, Some("openai/whisper-medium")),
-        "whisper-small" => (None, None, Some("openai/whisper-small")),
-        "whisper-base" => (None, None, Some("openai/whisper-base")),
-        "whisper-tiny" => (None, None, Some("openai/whisper-tiny")),
-        "sensevoice-small" => (None, None, Some("FunAudioLLM/SenseVoiceSmall")),
-        _ => (None, None, None),
+pub(crate) fn facts(id: &str) -> Facts {
+    let card = match id {
+        "cohere-transcribe" => Some("CohereLabs/cohere-transcribe-03-2026"),
+        "parakeet-unified-en" => Some("nvidia/parakeet-unified-en-0.6b"),
+        "parakeet-tdt-v2" => Some("nvidia/parakeet-tdt-0.6b-v2"),
+        "parakeet-tdt-v3" => Some("nvidia/parakeet-tdt-0.6b-v3"),
+        "nemotron-en" => Some("nvidia/nemotron-speech-streaming-en-0.6b"),
+        "canary-1b-v2" => Some("nvidia/canary-1b-v2"),
+        "whisper-large-v3" => Some("openai/whisper-large-v3"),
+        "parakeet-tdt-ctc-110m" => Some("nvidia/parakeet-tdt_ctc-110m"),
+        "whisper-distil-large-v3" => Some("distil-whisper/distil-large-v3"),
+        "whisper-large-v3-turbo" => Some("openai/whisper-large-v3-turbo"),
+        "whisper-large-v2" => Some("openai/whisper-large-v2"),
+        "parakeet-eou-120m" => Some("nvidia/parakeet_realtime_eou_120m-v1"),
+        "parakeet-ultra" => Some("moondream/parakeet-ultra"),
+        "fluid-speech-mini" => Some("FluidVoice-Labs/fluid-speech-mini-coreml"),
+        "parakeet-redux" => Some("moondream/parakeet-redux"),
+        "phonon-2" => Some("FermionResearch/Phonon-2"),
+        "parakeet-ja" => Some("nvidia/parakeet-tdt_ctc-0.6b-ja"),
+        "nemotron-multilingual" => Some("nvidia/nemotron-3.5-asr-streaming-0.6b"),
+        "whisper-medium" => Some("openai/whisper-medium"),
+        "whisper-small" => Some("openai/whisper-small"),
+        "whisper-base" => Some("openai/whisper-base"),
+        "whisper-tiny" => Some("openai/whisper-tiny"),
+        "sensevoice-small" => Some("FunAudioLLM/SenseVoiceSmall"),
+        _ => None,
     };
-    Published {
-        wer,
-        preview_wer,
+    let measured = benchmark::MEASURED.iter().find(|(m, _, _)| *m == id);
+    Facts {
+        wer: measured.map(|(_, wer, _)| *wer),
+        preview_wer: benchmark::PREVIEW.iter().find(|(m, _)| *m == id).map(|(_, wer)| *wer),
+        rtfx: measured.map(|(_, _, rtfx)| *rtfx),
         punctuation: id != "parakeet-eou-120m",
         card,
         // CC BY 4.0 asks for this text.
@@ -841,9 +857,10 @@ mod tests {
     }
 
     #[test]
-    fn every_published_figure_has_a_page() {
+    fn every_measured_model_has_a_page() {
         for m in catalog() {
-            if m.wer_percent.is_some() {
+            // Apple Speech is part of macOS and has no model page.
+            if m.wer_percent.is_some() && m.engine != EngineKind::AppleSpeech {
                 assert!(m.card_url.is_some(), "{}", m.id);
             }
             assert!(m.preview_wer_percent.is_none() || m.live_preview, "{}", m.id);

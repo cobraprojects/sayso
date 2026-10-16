@@ -1,0 +1,108 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["jiwer", "whisper-normalizer"]
+# ///
+"""Score the benchmark: WER per set, the mean over the sets, and speed.
+
+The text of the model and the reference both go through Whisper's English
+normalizer, as on the Open ASR Leaderboard, so punctuation and case do not
+count. WER per set is over all words of the set. The mean gives each set the
+same weight. Speed is audio time over processing time (RTFx).
+
+    uv run scripts/benchmark/score.py [--dir ~/.cache/sayso-bench] [--json out.json]
+        [--rust crates/sayso-core/src/models/benchmark.rs --machine "Apple M5 Pro, macOS 27.0"]
+
+`--rust` writes the figures that the Models page shows. A result file named
+`<id>.preview.jsonl` is the live preview of that model (see the
+`benchmark_preview` test).
+"""
+import datetime
+import argparse
+import json
+from collections import defaultdict
+from pathlib import Path
+
+import jiwer
+from whisper_normalizer.english import EnglishTextNormalizer
+
+norm = EnglishTextNormalizer()
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dir", default=str(Path.home() / ".cache/sayso-bench"))
+    ap.add_argument("--json")
+    ap.add_argument("--rust")
+    ap.add_argument("--machine", default="")
+    args = ap.parse_args()
+    d = Path(args.dir).expanduser()
+    clips = {}
+    for line in open(d / "manifest.jsonl"):
+        m = json.loads(line)
+        clips[m["id"]] = m
+    sets = sorted({m["set"] for m in clips.values()})
+    report = {}
+    for path in sorted((d / "results").glob("*.jsonl")):
+        refs, hyps = defaultdict(list), defaultdict(list)
+        audio = elapsed = 0.0
+        failed = 0
+        for line in open(path):
+            r = json.loads(line)
+            clip = clips.get(r["id"])
+            if clip is None:
+                continue
+            ref = norm(clip["text"])
+            if not ref.strip():
+                continue
+            if "error" in r and "text" not in r:
+                failed += 1
+                hyp = ""
+            else:
+                hyp = norm(r["text"])
+                audio += r["seconds"]
+                elapsed += r["elapsed_ms"] / 1000
+            refs[clip["set"]].append(ref)
+            hyps[clip["set"]].append(hyp)
+        if any(len(refs[s]) == 0 for s in sets):
+            print(f"{path.stem}: incomplete, skipped")
+            continue
+        per_set = {s: 100 * jiwer.wer(refs[s], hyps[s]) for s in sets}
+        mean = sum(per_set.values()) / len(per_set)
+        report[path.stem] = {"wer": round(mean, 2), "rtfx": round(audio / max(elapsed, 1e-9)), "failed": failed, "per_set": {s: round(v, 2) for s, v in per_set.items()}}
+    width = max(map(len, report), default=10)
+    print(f"{'model':{width}}  {'WER':>6} {'acc':>6} {'RTFx':>6}  " + " ".join(f"{s[:10]:>10}" for s in sets))
+    for name, r in sorted(report.items(), key=lambda kv: kv[1]["wer"]):
+        print(f"{name:{width}}  {r['wer']:6.2f} {100 - r['wer']:6.1f} {r['rtfx']:6d}  " + " ".join(f"{r['per_set'][s]:10.2f}" for s in sets) + (f"  ({r['failed']} failed)" if r["failed"] else ""))
+    if args.json:
+        Path(args.json).write_text(json.dumps(report, indent=2) + "\n")
+    if args.rust:
+        write_rust(Path(args.rust), report, clips, args.machine)
+
+
+def write_rust(path, report, clips, machine):
+    hours = sum(m["seconds"] for m in clips.values()) / 3600
+    final = sorted((k, r) for k, r in report.items() if not k.endswith(".preview"))
+    preview = sorted((k.removesuffix(".preview"), r) for k, r in report.items() if k.endswith(".preview"))
+    lines = [
+        "//! Measured with `scripts/benchmark` on " + datetime.date.today().isoformat() + (f", {machine}" if machine else "") + ".",
+        f"//! {len(clips)} clips ({hours:.1f} h) from seven English test sets of the Open ASR",
+        "//! Leaderboard. Written by `scripts/benchmark/score.py --rust`. Do not edit by hand.",
+        "",
+        "/// Model id, word error rate in percent, and speed (audio time over processing time).",
+        "pub(crate) const MEASURED: &[(&str, f32, u32)] = &[",
+        *[f'    ("{k}", {r["wer"]:.2f}, {r["rtfx"]}),' for k, r in final],
+        "];",
+        "",
+        "/// The word error rate of the live preview, for a model whose preview runs another",
+        "/// decoder than its final pass.",
+        "pub(crate) const PREVIEW: &[(&str, f32)] = &[",
+        *[f'    ("{k}", {r["wer"]:.2f}),' for k, r in preview],
+        "];",
+        "",
+    ]
+    path.write_text("\n".join(lines))
+    print(f"wrote {path}")
+
+
+if __name__ == "__main__":
+    main()

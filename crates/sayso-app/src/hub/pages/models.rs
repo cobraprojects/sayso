@@ -56,10 +56,10 @@ pub fn speed_meter(speed: u8, c: &Colors) -> Div {
 /// `docs/model-roles.md`.
 pub fn accuracy_level(wer: f32) -> u8 {
     match wer {
-        w if w < 6.0 => 5,
-        w if w < 6.6 => 4,
-        w if w < 8.0 => 3,
-        w if w < 9.0 => 2,
+        w if w < 6.5 => 5,
+        w if w < 7.0 => 4,
+        w if w < 8.5 => 3,
+        w if w < 10.0 => 2,
         _ => 1,
     }
 }
@@ -409,9 +409,11 @@ impl ModelsPage {
         if let Some(wer) = info.wer_percent {
             stats = stats.child(stat(accuracy_label(wer), t!("models.setup.accuracy"), &c));
         }
-        stats = stats.child(match measured {
-            Some((ms, dur)) => stat(t!("models.hero.ms", ms = ms), t!("models.hero.for_speech", duration = kit::duration_words(dur)), &c),
-            None => stat(format!("{}/5", info.speed), t!("models.hero.speed"), &c),
+        stats = stats.child(match (measured, info.rtfx) {
+            // A time from this computer beats the benchmark.
+            (Some((ms, dur)), _) => stat(t!("models.hero.ms", ms = ms), t!("models.hero.for_speech", duration = kit::duration_words(dur)), &c),
+            (None, Some(x)) => stat(format!("{x}×"), t!("models.setup.faster"), &c),
+            (None, None) => stat(format!("{}/5", info.speed), t!("models.hero.speed"), &c),
         });
         stats = stats.child(if remote {
             stat(t!("models.hero.cloud"), t!("models.hero.audio_goes_to", vendor = info.vendor), &c)
@@ -848,12 +850,12 @@ impl ModelsPage {
             .child(ui(info.description.clone(), 15., 22., FontWeight::NORMAL, c.graphite))
             .when_some(info.credit.clone(), |d, credit| d.child(ui(credit, 12., 17., FontWeight::NORMAL, c.graphite)));
 
-        // Accuracy, on a scale from 1 in 10 to 1 in 20 wrong words.
+        // Accuracy, on a scale from 85% to 95%.
         let accuracy = info.wer_percent.map(|wer| {
             const W: f32 = 560.;
-            let x = |wer: f32| ((10. - wer) / 5.).clamp(0., 1.) * W;
+            let x = |wer: f32| ((15. - wer) / 10.).clamp(0., 1.) * W;
             let mut scale = div().relative().w(px(W)).h(px(70.)).flex_none()
-                .child(mono(accuracy_label(10.), 11., c.graphite).absolute().left_0().top_0())
+                .child(mono(accuracy_label(15.), 11., c.graphite).absolute().left_0().top_0())
                 .child(mono(accuracy_label(5.), 11., c.graphite).absolute().right_0().top_0())
                 .child(div().absolute().left_0().top(px(28.)).w(px(W)).h(px(6.)).rounded_full().bg(c.deboss));
             for other in m.catalog() {
@@ -907,9 +909,10 @@ impl ModelsPage {
                 .child(ui(value, 14., 18., FontWeight::MEDIUM, if muted { c.pencil } else { c.ink }))
         };
         let yes_no = |v: bool| if v { t!("models.details.yes") } else { t!("models.details.no") };
-        let speed = match measured {
-            Some((ms, dur)) => format!("{} {}", t!("models.hero.ms", ms = ms), t!("models.hero.for_speech", duration = kit::duration_words(dur))),
-            None => t!("models.details.speed_of_five", n = info.speed),
+        let speed = match (info.rtfx, measured) {
+            (Some(x), _) => t!("models.details.rtfx", x = x),
+            (None, Some((ms, dur))) => format!("{} {}", t!("models.hero.ms", ms = ms), t!("models.hero.for_speech", duration = kit::duration_words(dur))),
+            (None, None) => t!("models.details.speed_of_five", n = info.speed),
         };
         let interval = info.preview_interval_ms().map(|ms| t!("models.details.every", interval = interval_label(ms)));
         let left = div()

@@ -22,6 +22,7 @@ models:
     no_preview: "No live preview"
     accuracy: "accuracy"
     between_updates: "between updates"
+    faster: "faster than real time"
     on_disk: "on disk"
   hero:
     provider_not_set_up: "Provider not set up"
@@ -79,7 +80,8 @@ models:
     used: "Used"
     not_used: "Not used"
     size: "On disk"
-    source: "%{wer}% of words wrong on eight English test sets (Open ASR Leaderboard). Punctuation does not count."
+    source: "%{wer}% of words wrong on seven English test sets, measured by Sayso. Punctuation does not count."
+    rtfx: "%{x}× real time"
     model_card: "Model card"
     use_preview: "Use for live preview"
     use_final: "Use for final text"

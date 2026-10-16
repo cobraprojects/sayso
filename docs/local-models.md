@@ -15,7 +15,7 @@ CC BY 4.0, and the parent models are also CC BY 4.0. Commercial use and a downlo
 
 ## Accuracy
 
-FluidVoice reports a 4.54% average WER. Their table replaces TED-LIUM with Voice Arena Monsoon, and on the same table Parakeet TDT v3 gets 4.86% where the Models page gives 6.32%. So the figure is not comparable with the rest of the page, and the model shows "Not measured".
+FluidVoice reports a 4.54% average WER on its own test sets. Sayso's benchmark (`docs/benchmark.md`) gives 6.61% WER (93.4%) at 159× real time, between Parakeet Ultra and Parakeet TDT v3.
 
 ## How it runs
 

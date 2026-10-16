@@ -22,6 +22,7 @@ models:
     no_preview: "无实时预览"
     accuracy: "准确率"
     between_updates: "更新间隔"
+    faster: "比实时更快"
     on_disk: "磁盘占用"
   hero:
     provider_not_set_up: "服务商未设置"
@@ -79,7 +80,8 @@ models:
     used: "会使用"
     not_used: "不使用"
     size: "磁盘占用"
-    source: "在八个英语测试集上，%{wer}% 的词有误（Open ASR Leaderboard）。不计标点。"
+    source: "在七个英语测试集上有 %{wer}% 的词出错（由 Sayso 测量）。标点不计入。"
+    rtfx: "实时的 %{x} 倍"
     model_card: "模型卡"
     use_preview: "用于实时预览"
     use_final: "用于最终文本"
