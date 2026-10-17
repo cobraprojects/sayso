@@ -67,6 +67,7 @@ impl OnboardingView {
     fn all_models_row(&self, info: &ModelInfo, active: &ModelId, cx: &mut Context<Self>) -> Stateful<Div> {
         let c = cx.paper().colors;
         let selected = info.id == *active;
+        let recommended = info.id == super::model_step::suggested(&self.model.read(cx).config.dictation.language);
         let state = match self.model.read(cx).status_of(&info.id) {
             ModelStatus::Downloading { .. } => Some(t!("onboarding.all_models.downloading")),
             s if s.is_on_disk() => Some(t!("onboarding.all_models.downloaded")),
@@ -103,7 +104,7 @@ impl OnboardingView {
                             .items_center()
                             .gap(px(8.))
                             .child(text::title(info.name.clone(), 16., &c).line_height(px(20.)))
-                            .when(info.recommended, |d| d.child(Badge::new(t!("onboarding.model.recommended"), BadgeTone::Accent)))
+                            .when(recommended, |d| d.child(Badge::new(t!("onboarding.model.recommended"), BadgeTone::Accent)))
                             .when_some(state, |d, s| d.child(Badge::new(s, BadgeTone::Muted))),
                     )
                     .child(

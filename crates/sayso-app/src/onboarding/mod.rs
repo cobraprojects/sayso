@@ -48,6 +48,8 @@ pub struct OnboardingView {
     all_models: all_models::AllModels,
     practice: practice::Practice,
     show_why: bool,
+    /// The open language list of the welcome step.
+    language_menu: Option<welcome::LanguageMenu>,
     /// The locale of the placeholders of the inputs, which keep their text.
     locale: String,
     /// The window has no room for two columns (set at each render).
@@ -87,6 +89,7 @@ impl OnboardingView {
             all_models,
             practice,
             show_why: false,
+            language_menu: None,
             locale: sayso_i18n::locale(),
             narrow: false,
             _observe: observe,

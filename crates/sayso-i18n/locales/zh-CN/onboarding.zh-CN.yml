@@ -25,6 +25,8 @@ onboarding:
     fact_engine_other: "在这台电脑上运行"
     fact_every_app: "适用于所有 App"
     fact_setup_time: "设置约需 3 分钟"
+    interface_language: "界面语言"
+    dictation_language: "听写语言"
   done:
     title: "一切就绪"
     lead_toggle: "在任意 App 中按下 %{keys} 即可听写。以下是 Sayso 所在的位置。"

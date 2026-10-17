@@ -255,6 +255,29 @@ pub fn all() -> Vec<String> {
     list.into_iter().map(|(c, _)| c.to_string()).collect()
 }
 
+/// The dictation language for the languages of the system, in the order of
+/// preference: the first one Sayso knows, else English. A tag such as
+/// "zh-Hans-CN" or "pt_BR" gives its language ("zh", "pt").
+pub fn from_system(system: &[String]) -> String {
+    system
+        .iter()
+        .filter_map(|tag| {
+            let primary = tag.split(['-', '_', '.', '@']).next()?.to_ascii_lowercase();
+            // Old and other codes for languages Sayso has under one code.
+            let code = match primary.as_str() {
+                "nb" => "no",
+                "fil" => "tl",
+                "iw" => "he",
+                "in" => "id",
+                "jv" => "jw",
+                other => other,
+            };
+            name(code).map(|_| code.to_string())
+        })
+        .next()
+        .unwrap_or_else(|| "en".into())
+}
+
 fn codes(list: &[&str]) -> Vec<String> {
     list.iter().map(|c| c.to_string()).collect()
 }
@@ -313,6 +336,18 @@ pub fn apple_speech() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_dictation_language_is_the_first_system_language_sayso_knows() {
+        let tags = |list: &[&str]| list.iter().map(|t| t.to_string()).collect::<Vec<_>>();
+        assert_eq!(from_system(&tags(&["zh-Hans-CN", "en-US"])), "zh");
+        assert_eq!(from_system(&tags(&["pt_BR.UTF-8"])), "pt");
+        assert_eq!(from_system(&tags(&["yue-Hant-HK"])), "yue");
+        assert_eq!(from_system(&tags(&["nb-NO"])), "no");
+        assert_eq!(from_system(&tags(&["xx-YY", "de-AT"])), "de");
+        assert_eq!(from_system(&tags(&["C"])), "en");
+        assert_eq!(from_system(&[]), "en");
+    }
 
     #[test]
     fn every_model_language_has_a_name() {

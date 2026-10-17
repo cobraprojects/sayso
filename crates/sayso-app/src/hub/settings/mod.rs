@@ -5,7 +5,7 @@ mod appearance;
 mod audio;
 mod dictation;
 pub mod ext;
-mod general;
+pub(crate) mod general;
 mod history_privacy;
 pub mod kit;
 mod overlay;

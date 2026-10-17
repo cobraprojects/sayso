@@ -8,7 +8,7 @@ use crate::hub::pages::models::size_label;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_i18n::t;
-use sayso_core::models::{ModelId, ModelInfo, default_model};
+use sayso_core::models::{ModelId, ModelInfo};
 use sayso_core::stt::ModelStatus;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
@@ -16,11 +16,27 @@ use sayso_ui::paper::{self, PaperStyled};
 use sayso_ui::{ActivePaper, Colors, text};
 use std::time::{Duration, Instant};
 
-/// The three models onboarding offers: the best for English, for European
-/// languages, and for every other language.
-fn choices() -> [ModelId; 3] {
-    let european = crate::shell::os_text!("parakeet-ultra", "parakeet-tdt-v3");
-    [default_model(), ModelId::new(european), ModelId::new("whisper-large-v3-turbo")]
+/// The model to suggest for the dictation language.
+pub(super) fn suggested(language: &str) -> ModelId {
+    sayso_core::models::suggested_for(language, crate::shell::model_runs_here)
+}
+
+/// The three models onboarding offers. The first is the suggested model for
+/// the dictation language. The others come from the best models for
+/// English, for European languages, and for every other language: first the
+/// ones that understand the dictation language.
+fn choices(language: &str) -> Vec<ModelId> {
+    let (english, european) = crate::shell::os_text!(("parakeet-unified-en", "parakeet-ultra"), ("parakeet-tdt-v2", "parakeet-tdt-v3"));
+    let mut rest = [english, european, "whisper-large-v3-turbo"].map(ModelId::new);
+    rest.sort_by_key(|id| !sayso_core::models::find(id).is_some_and(|m| m.understands(language)));
+    let mut list = vec![suggested(language)];
+    for id in rest {
+        if !list.contains(&id) {
+            list.push(id);
+        }
+    }
+    list.truncate(3);
+    list
 }
 
 impl OnboardingView {
@@ -77,8 +93,9 @@ impl OnboardingView {
         let c = cx.paper().colors;
         let m = self.model.read(cx);
         let active = m.config.dictation.model.clone();
+        let choices = choices(&m.config.dictation.language);
         let engine = m.services.engine.is_some();
-        let infos: Vec<ModelInfo> = choices().iter().filter_map(sayso_core::models::find).collect();
+        let infos: Vec<ModelInfo> = choices.iter().filter_map(sayso_core::models::find).collect();
         let status = m.status_of(&active);
         let active_info = m.active_model();
 
@@ -108,7 +125,7 @@ impl OnboardingView {
                             .justify_between()
                             .h(px(22.))
                             .child(radio_dot(selected, cx))
-                            .when(info.recommended, |d| d.child(Badge::new(t!("onboarding.model.recommended"), BadgeTone::Accent))),
+                            .when(i == 0, |d| d.child(Badge::new(t!("onboarding.model.recommended"), BadgeTone::Accent))),
                     )
                     .child(text::title(info.name.clone(), 20., &c).line_height(px(24.)))
                     .child(text::ui(info.description.clone(), 13., FontWeight::NORMAL, c.graphite).line_height(px(19.)))
@@ -122,7 +139,7 @@ impl OnboardingView {
 
         // The way to the list of all models. A model from that list shows here as the choice.
         let open = cx.listener(|this, _, window, cx| this.open_all_models(window, cx));
-        let more = if choices().contains(&active) {
+        let more = if choices.contains(&active) {
             div()
                 .flex()
                 .items_center()
@@ -247,4 +264,30 @@ pub(super) fn track(fraction: f32, height: f32, c: &Colors) -> Div {
         .bg(c.deboss_shade)
         .shadow(vec![BoxShadow::new(px(0.), px(1.), c.shadow(0.3)).blur_radius(px(2.)).inset()])
         .child(div().h_full().w(relative(fraction.clamp(0.0, 1.0))).rounded_full().bg(c.ink_fill))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{choices, suggested};
+    use sayso_core::models::{default_model, find};
+
+    #[test]
+    fn choices_are_three_different_models_with_the_suggested_one_first() {
+        for language in ["en", "de", "zh", "ja", "ko", "ar", "auto"] {
+            let ids = choices(language);
+            assert_eq!(ids.len(), 3, "{language}: {ids:?}");
+            assert!(ids.iter().all(|id| find(id).is_some()), "{language}: {ids:?}");
+            assert!(ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2], "{language}: {ids:?}");
+            assert_eq!(ids[0], suggested(language));
+        }
+        assert_eq!(choices("en")[0], default_model());
+    }
+
+    #[test]
+    fn the_second_choice_understands_the_dictation_language_when_one_can() {
+        for language in ["de", "zh", "ja"] {
+            let second = find(&choices(language)[1]).unwrap();
+            assert!(second.understands(language), "{language}: {}", second.id.as_str());
+        }
+    }
 }

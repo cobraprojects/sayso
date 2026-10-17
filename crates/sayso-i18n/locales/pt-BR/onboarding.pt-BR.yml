@@ -25,6 +25,8 @@ onboarding:
     fact_engine_other: "Roda neste computador"
     fact_every_app: "Funciona em todos os apps"
     fact_setup_time: "A configuração leva cerca de 3 minutos"
+    interface_language: "Idioma da interface"
+    dictation_language: "Idioma do ditado"
   done:
     title: "Tudo pronto"
     lead_toggle: "Pressione %{keys} em qualquer app para ditar. Veja onde o Sayso fica."

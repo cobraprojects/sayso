@@ -216,6 +216,40 @@ pub fn default_model() -> ModelId {
     }
 }
 
+/// The local model to suggest for a dictation language: the default model
+/// for English, a Parakeet model for the other European languages it
+/// knows, a model trained on Chinese, Cantonese, Japanese, or Korean where
+/// this system has one, and Whisper large-v3 turbo for every other
+/// language. For a language Whisper does not know, the first model that
+/// knows it and `runs_here`.
+pub fn suggested_for(language: &str, runs_here: impl Fn(&ModelInfo) -> bool) -> ModelId {
+    let european = languages::parakeet_v3().iter().any(|l| l == language);
+    let id = match language {
+        "en" | languages::AUTO => return default_model(),
+        _ if european => by_os("parakeet-ultra", "parakeet-tdt-v3", "parakeet-tdt-v3"),
+        "ja" => by_os("parakeet-ja", "whisper-large-v3-turbo", "sensevoice-small"),
+        "zh" | "yue" | "ko" => by_os("sensevoice-small", "whisper-large-v3-turbo", "sensevoice-small"),
+        _ => "whisper-large-v3-turbo",
+    };
+    let id = ModelId::new(id);
+    let usable = |m: &ModelInfo| m.final_pass && m.understands(language) && runs_here(m);
+    if find(&id).is_some_and(|m| usable(&m)) {
+        return id;
+    }
+    catalog().into_iter().find(usable).map_or(id, |m| m.id)
+}
+
+/// The text for macOS, for Windows, or for Linux.
+fn by_os(mac: &'static str, windows: &'static str, linux: &'static str) -> &'static str {
+    if cfg!(target_os = "macos") {
+        mac
+    } else if cfg!(windows) {
+        windows
+    } else {
+        linux
+    }
+}
+
 /// The small streaming model that gives a live preview to models without one.
 pub fn preview_fallback() -> ModelId {
     if cfg!(target_os = "macos") {
@@ -742,6 +776,20 @@ mod tests {
     fn default_model_is_in_catalog_and_recommended() {
         let m = find(&default_model()).unwrap();
         assert!(m.recommended && m.final_pass && m.live_preview);
+    }
+
+    #[test]
+    fn the_suggested_model_understands_each_language() {
+        let any = |_: &ModelInfo| true;
+        for code in languages::all() {
+            let id = suggested_for(&code, any);
+            let m = find(&id).unwrap_or_else(|| panic!("{id:?} for {code} is not in the catalog"));
+            let known = catalog().iter().any(|m| m.final_pass && m.understands(&code));
+            assert!(!known || (m.final_pass && m.understands(&code)), "{id:?} for {code}");
+        }
+        assert_eq!(suggested_for("en", any), default_model());
+        assert_eq!(suggested_for(languages::AUTO, any), default_model());
+        assert_eq!(suggested_for("zh", any), ModelId::new(by_os("sensevoice-small", "whisper-large-v3-turbo", "sensevoice-small")));
     }
 
     #[test]

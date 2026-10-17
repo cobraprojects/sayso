@@ -25,6 +25,8 @@ onboarding:
     fact_engine_other: "このコンピュータで実行"
     fact_every_app: "すべてのアプリで使用可能"
     fact_setup_time: "セットアップは約3分"
+    interface_language: "表示言語"
+    dictation_language: "音声入力の言語"
   done:
     title: "準備ができました"
     lead_toggle: "どのアプリでも %{keys} を押すと音声入力できます。Sayso はここにあります。"

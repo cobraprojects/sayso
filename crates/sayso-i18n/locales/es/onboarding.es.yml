@@ -25,6 +25,8 @@ onboarding:
     fact_engine_other: "Se ejecuta en este equipo"
     fact_every_app: "Funciona en todas las apps"
     fact_setup_time: "La configuración tarda unos 3 minutos"
+    interface_language: "Idioma de la interfaz"
+    dictation_language: "Idioma del dictado"
   done:
     title: "Todo listo"
     lead_toggle: "Pulsa %{keys} en cualquier app para dictar. Aquí vive Sayso."

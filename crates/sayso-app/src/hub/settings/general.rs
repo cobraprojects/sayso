@@ -4,6 +4,7 @@
 use super::kit::{self, group, row};
 use crate::model::AppModel;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::config::ConfigProblem;
 use sayso_platform::LoginItemState;
@@ -66,48 +67,63 @@ impl GeneralSettings {
     }
 }
 
+/// The lines of an interface language menu, for Settings and onboarding.
+/// Each language shows its name in that language, so a user who cannot read
+/// the current language still finds their own.
+pub(crate) struct InterfaceLanguages {
+    /// The `general.language` setting of each line.
+    pub codes: Vec<String>,
+    pub items: Vec<MenuItem>,
+    /// The text of the button: the current choice and the language "system" gives.
+    pub label: String,
+    pub detail: Option<String>,
+}
+
+pub(crate) fn interface_languages(setting: &str) -> InterfaceLanguages {
+    let system = sayso_i18n::resolve(sayso_i18n::SYSTEM, &sayso_i18n::system_locales());
+    let system_name = sayso_i18n::find(system).map_or("English", |l| l.name);
+    // Each line: the setting, the name in its own language, and the name in
+    // the interface language when that is another text.
+    let mut choices: Vec<(String, String, Option<String>)> = vec![(sayso_i18n::SYSTEM.into(), t!("settings.general.language_system"), Some(system_name.into()))];
+    choices.extend(sayso_i18n::available().map(|l| {
+        let here = sayso_i18n::language_name(l.code);
+        (l.code.to_string(), l.name.to_string(), (here.to_lowercase() != l.name.to_lowercase()).then_some(here))
+    }));
+    if sayso_i18n::HAS_PSEUDO {
+        choices.push((sayso_i18n::PSEUDO.into(), "Pseudo".into(), Some(sayso_i18n::PSEUDO.into())));
+    }
+    // An unknown setting acts as "system" (see `resolve`), so it shows so.
+    let current = choices.iter().position(|(code, _, _)| code == setting).unwrap_or(0);
+    let items = choices
+        .iter()
+        .enumerate()
+        .map(|(i, (code, name, here))| {
+            let mut item = MenuItem::new(name.clone()).selected(i == current);
+            if let Some(here) = here {
+                item = item.detail(here.clone());
+            }
+            if let Some(locale) = sayso_i18n::find(code) {
+                item = item.locale(locale.code);
+            }
+            if i == 0 { item.rule_after() } else { item }
+        })
+        .collect();
+    let label = choices[current].1.clone();
+    InterfaceLanguages { codes: choices.into_iter().map(|(code, _, _)| code).collect(), items, label, detail: (current == 0).then(|| system_name.to_string()) }
+}
+
 impl GeneralSettings {
-    /// The Language group. Each language shows its name in that language, so
-    /// a user who cannot read the current language still finds their own.
-    /// It shows only when there is more than English to choose, and in a
-    /// debug build, which also has the pseudo-locale.
+    /// The Language group. It shows only when there is more than English to
+    /// choose, and in a debug build, which also has the pseudo-locale.
     fn language(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         if sayso_i18n::available().count() < 2 && !sayso_i18n::HAS_PSEUDO {
             return None;
         }
         let setting = self.model.read(cx).config.general.language.clone();
-        let system = sayso_i18n::resolve(sayso_i18n::SYSTEM, &sayso_i18n::system_locales());
-        let system_name = sayso_i18n::find(system).map_or("English", |l| l.name);
-        // Each line: the setting, the name in its own language, and the name in
-        // the interface language when that is another text.
-        let mut choices: Vec<(String, String, Option<String>)> = vec![(sayso_i18n::SYSTEM.into(), t!("settings.general.language_system"), Some(system_name.into()))];
-        choices.extend(sayso_i18n::available().map(|l| {
-            let here = sayso_i18n::language_name(l.code);
-            (l.code.to_string(), l.name.to_string(), (here.to_lowercase() != l.name.to_lowercase()).then_some(here))
-        }));
-        if sayso_i18n::HAS_PSEUDO {
-            choices.push((sayso_i18n::PSEUDO.into(), "Pseudo".into(), Some(sayso_i18n::PSEUDO.into())));
-        }
-        // An unknown setting acts as "system" (see `resolve`), so it shows so.
-        let current = choices.iter().position(|(code, _, _)| *code == setting).unwrap_or(0);
-        let items: Vec<MenuItem> = choices
-            .iter()
-            .enumerate()
-            .map(|(i, (code, name, here))| {
-                let mut item = MenuItem::new(name.clone()).selected(i == current);
-                if let Some(here) = here {
-                    item = item.detail(here.clone());
-                }
-                if let Some(locale) = sayso_i18n::find(code) {
-                    item = item.locale(locale.code);
-                }
-                if i == 0 { item.rule_after() } else { item }
-            })
-            .collect();
-        let (_, name, _) = &choices[current];
-        let mut button = Button::new("interface-language", name.clone());
-        if current == 0 {
-            button = button.detail(system_name);
+        let InterfaceLanguages { codes, items, label, detail } = interface_languages(&setting);
+        let mut button = Button::new("interface-language", label);
+        if let Some(detail) = detail {
+            button = button.detail(detail);
         }
 
         let mut control = div().relative().flex_none().child(
@@ -122,7 +138,7 @@ impl GeneralSettings {
                 "interface-language-menu",
                 items,
                 move |i, _, cx| {
-                    let Some((code, _, _)) = choices.get(i).cloned() else { return };
+                    let Some(code) = codes.get(i).cloned() else { return };
                     pick.update(cx, |this, cx| {
                         this.language_menu = false;
                         this.model.update(cx, |m, cx| m.edit_config(cx, |c| c.general.language = code));
@@ -411,7 +427,6 @@ impl Render for GeneralSettings {
     }
 }
 
-use gpui_kit::prelude::FluentBuilder as _;
 
 /// The text of a problem in config.toml. The text of the TOML parser and of
 /// the system stays as it is.

@@ -26,7 +26,7 @@ pub fn run() {
     if let Err(e) = paths.create_all() {
         eprintln!("sayso: could not create {}: {e}", paths.data_dir.display());
     }
-    let loaded = Config::load(&paths.config_file()).unwrap_or_else(|e| {
+    let mut loaded = Config::load(&paths.config_file()).unwrap_or_else(|e| {
         eprintln!("sayso: {e}");
         // The file stays as it is, and Settings shows the problem.
         sayso_core::config::LoadedConfig::unreadable(&e)
@@ -37,6 +37,10 @@ pub fn run() {
         log::warn!("config: {}: {}", issue.field, issue.problem);
     }
     if loaded.created {
+        // The first start: dictation in the language of the system, with a model for it.
+        let language = sayso_core::languages::from_system(&sayso_i18n::system_locales());
+        loaded.config.dictation.model = sayso_core::models::suggested_for(&language, crate::shell::model_runs_here);
+        loaded.config.dictation.language = language;
         let _ = loaded.config.save(&paths.config_file());
     }
     // A staged update takes the place of this version now, before the engine starts.
