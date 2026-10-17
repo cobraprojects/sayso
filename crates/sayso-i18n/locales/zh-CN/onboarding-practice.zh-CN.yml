@@ -5,6 +5,7 @@ onboarding:
   practice:
     title: "试一试"
     placeholder: "点按此处，然后按下快捷键并朗读句子。"
+    field_label: "练习输入框"
     lead_toggle: "点按输入框，按下 %{keys}，朗读句子，然后再次按下 %{keys}。"
     lead_push: "点按输入框，按住你的按住说话按键，然后朗读句子。"
     read_this: "朗读这句话"

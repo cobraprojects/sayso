@@ -23,6 +23,7 @@ use sayso_core::stt::ModelStatus;
 use sayso_platform::{CaptureHandle, Permission, PermissionState};
 use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::ActivePaper;
+use sayso_ui::a11y::{A11yExt as _, LiveStatus, Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::texture::{Grain, grain};
@@ -238,9 +239,11 @@ impl OnboardingView {
                 trail = trail.child(div().w(px(36.)).h(px(1.5)).bg(if i <= self.step { c.ink_fill } else { c.rule }));
             }
             let dot = trail_dot(i.cmp(&self.step), &c);
+            // A step that is done is a button that goes back to it. The other
+            // dots only show the place.
             let dot = if i < self.step {
-                div()
-                    .id(("trail", i as usize))
+                Pressable::new(("trail", i as usize))
+                    .label(t!("onboarding.go_to_step", step = i + 1))
                     .cursor_pointer()
                     .child(dot)
                     .on_click(cx.listener(move |this, _, window, cx| this.go_to(i, window, cx)))
@@ -250,7 +253,16 @@ impl OnboardingView {
             };
             trail = trail.child(dot);
         }
-        let step = text::ui(t!("onboarding.step", step = self.step + 1, total = STEPS), 12., FontWeight::NORMAL, c.graphite).w(px(120.)).flex_none();
+        // A live node: a screen reader says the new step when the step changes.
+        let step_text = t!("onboarding.step", step = self.step + 1, total = STEPS);
+        let step = LiveStatus::new("onboarding-step", step_text.clone())
+            .font_family(sayso_ui::fonts::UI)
+            .text_size(px(12.))
+            .font_weight(FontWeight::NORMAL)
+            .text_color(c.graphite)
+            .w(px(120.))
+            .flex_none()
+            .child(step_text);
         let header = div().id("onboarding-title").flex().flex_none().items_center().h(px(52.)).px(px(18.));
         if crate::chrome::is_custom(window) {
             // The custom title bar (Linux): the header moves the window, and
@@ -348,19 +360,7 @@ fn heading(title: &str, lead: &str, c: &Colors) -> Div {
         .flex_col()
         .flex_none()
         .gap(px(8.))
-        .child(
-            div()
-                .relative()
-                .child(
-                    text::title(title.to_string(), 36., c)
-                        .line_height(px(44.))
-                        .text_color(c.highlight(0.85))
-                        .absolute()
-                        .top(px(1.))
-                        .left_0(),
-                )
-                .child(text::title(title.to_string(), 36., c).line_height(px(44.))),
-        )
+        .child(text::letterpress(title.to_string(), 36., 44., 1, c))
         .child(text::body(lead.to_string(), c))
 }
 
@@ -409,6 +409,85 @@ fn check_line_w(label: impl Into<SharedString>, weight: FontWeight, c: &Colors) 
         .child(text::ui(label, 13., weight, c.ink))
 }
 
+/// Text inside a control. It has no node: the control carries the name.
+fn plain(text: impl Into<SharedString>, size: f32, weight: FontWeight, color: Hsla) -> Div {
+    div().font_family(sayso_ui::fonts::UI).text_size(px(size)).font_weight(weight).text_color(color).child(text.into())
+}
+
+/// [`plain`] in the mono face.
+fn plain_mono(text: impl Into<SharedString>, size: f32, color: Hsla) -> Div {
+    div().font_family(sayso_ui::fonts::MONO).text_size(px(size)).font_weight(FontWeight::NORMAL).text_color(color).child(text.into())
+}
+
+/// [`plain`] as a title in the display face.
+fn plain_title(text: impl Into<SharedString>, size: f32, c: &Colors) -> Div {
+    div()
+        .font_family(sayso_ui::fonts::DISPLAY)
+        .locale_fonts(Face::Serif)
+        .text_size(px(size))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(c.ink)
+        .child(text.into())
+}
+
+/// Text that a screen reader reads when it shows and when it changes. The
+/// node holds the text, so the text inside has none.
+fn live_ui(id: impl Into<ElementId>, text: impl Into<SharedString>, size: f32, weight: FontWeight, color: Hsla, assertive: bool) -> Stateful<Div> {
+    let text = text.into();
+    plain(text.clone(), size, weight, color).id(id).role(Role::Status).a11y_live(text, assertive)
+}
+
+/// Text for a state that is on the page from the start. A screen reader reads
+/// it when the text changes, not when it shows. The node holds the text, so
+/// the text inside has none.
+fn status_ui(id: impl Into<ElementId>, text: impl Into<SharedString>, size: f32, weight: FontWeight, color: Hsla) -> LiveStatus {
+    let text = text.into();
+    LiveStatus::new(id, text.clone())
+        .font_family(sayso_ui::fonts::UI)
+        .text_size(px(size))
+        .font_weight(weight)
+        .text_color(color)
+        .child(text)
+}
+
+/// A text link in the accent color.
+fn link(id: impl Into<ElementId>, label: impl Into<SharedString>, size: f32, c: &Colors) -> Pressable {
+    let label = label.into();
+    Pressable::new(id)
+        .label(label.clone())
+        .a11y_role(Role::Link)
+        .flex_none()
+        .cursor_pointer()
+        .font_family(sayso_ui::fonts::UI)
+        .text_size(px(size))
+        .line_height(px(18.))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(c.accent)
+        .hover(|s| s.opacity(0.75))
+        .child(label)
+}
+
+/// What an arrow key does in a radio group of `count` choices: the index of
+/// the choice to select, and whether the focus moves forward. Right and Down
+/// go forward, Left and Up go back. With no choice selected, the first key
+/// picks the first or the last one.
+fn arrow_target(key: &str, selected: Option<usize>, count: usize) -> Option<(usize, bool)> {
+    match key {
+        "right" | "down" => {
+            let next = selected.map_or(0, |s| s + 1);
+            (next < count).then_some((next, true))
+        }
+        "left" | "up" => {
+            let next = match selected {
+                Some(s) => s.checked_sub(1)?,
+                None => count.checked_sub(1)?,
+            };
+            Some((next, false))
+        }
+        _ => None,
+    }
+}
+
 /// "1.3 GB", "626 MB".
 fn size_text(bytes: u64) -> String {
     if bytes >= 1_000_000_000 {
@@ -452,13 +531,13 @@ impl Render for OnboardingView {
             .font_family(sayso_ui::fonts::UI)
             .locale_fonts(Face::Sans)
             .text_color(c.ink)
-            .track_focus(&self.recorder.focus)
             .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {
                 let model = this.model.clone();
                 if recorder::on_key_down(rec, this, &model, e, cx) {
                     cx.stop_propagation();
                 }
             }))
+            .child(crate::hub::settings::kit::key_listener("onboarding-keys", &self.recorder.focus))
             .child(grain(Grain::Board, px(0.), cx))
             .child(
                 div()
@@ -487,5 +566,28 @@ impl Render for OnboardingView {
             .children(crate::caption::caption_bar(false, cx))
             .children(all_models);
         crate::layout::floor("onboarding-floor", crate::layout::ONBOARDING_FLOOR, view)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Not `super::*`: the glob of `gpui_kit` has its own `test` macro.
+    use super::arrow_target;
+
+    #[test]
+    fn arrow_keys_move_the_choice_and_stop_at_the_ends() {
+        assert_eq!(arrow_target("down", Some(0), 3), Some((1, true)));
+        assert_eq!(arrow_target("right", Some(1), 3), Some((2, true)));
+        assert_eq!(arrow_target("down", Some(2), 3), None);
+        assert_eq!(arrow_target("up", Some(2), 3), Some((1, false)));
+        assert_eq!(arrow_target("left", Some(0), 3), None);
+        assert_eq!(arrow_target("a", Some(0), 3), None);
+    }
+
+    #[test]
+    fn with_no_choice_the_first_key_picks_an_end() {
+        assert_eq!(arrow_target("down", None, 3), Some((0, true)));
+        assert_eq!(arrow_target("up", None, 3), Some((2, false)));
+        assert_eq!(arrow_target("up", None, 0), None);
     }
 }

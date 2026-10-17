@@ -1,10 +1,10 @@
 //! The list of all local models, over the model step. The step offers three
 //! models. This list is for the user who wants a different one.
 
-use super::OnboardingView;
-use crate::hub::pages::kit::{self, caps};
+use super::{OnboardingView, arrow_target, plain, plain_mono, plain_title};
+use crate::hub::pages::kit::caps;
 use crate::hub::pages::models::{LOCAL_GROUPS, group_title, size_label, speed_meter};
-use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -12,9 +12,10 @@ use sayso_i18n::t;
 use sayso_core::languages;
 use sayso_core::models::{ModelId, ModelInfo};
 use sayso_core::stt::ModelStatus;
+use sayso_ui::a11y::{A11yExt as _, A11yText, Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
-use sayso_ui::paper;
+use sayso_ui::paper::{self, PaperStyled};
 use sayso_ui::{ActivePaper, text};
 
 pub(super) struct AllModels {
@@ -64,7 +65,9 @@ impl OnboardingView {
         cx.notify();
     }
 
-    fn all_models_row(&self, info: &ModelInfo, active: &ModelId, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// One model of the list: a radio button. `index` of `count` is its place
+    /// among the models that the filter shows.
+    fn all_models_row(&self, info: &ModelInfo, active: &ModelId, index: usize, count: usize, cx: &mut Context<Self>) -> Pressable {
         let c = cx.paper().colors;
         let selected = info.id == *active;
         let recommended = info.id == super::model_step::suggested(&self.model.read(cx).config.dictation.language);
@@ -74,8 +77,16 @@ impl OnboardingView {
             _ => None,
         };
         let id = info.id.clone();
-        div()
-            .id(SharedString::from(format!("all-models-{}", info.id)))
+        let details = format!("{} · {} · {}", info.vendor, info.language_label(), info.description.trim_end_matches('.'));
+        // What the badges say, for a screen reader.
+        let spoken = [recommended.then(|| t!("onboarding.model.recommended")), state.clone(), Some(details.clone()), Some(size_label(info))]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(". ");
+        Pressable::new(SharedString::from(format!("all-models-{}", info.id)))
+            .a11y_radio(info.name.clone(), selected, index, count)
+            .aria_description(spoken)
             .flex()
             .flex_none()
             .items_center()
@@ -103,23 +114,14 @@ impl OnboardingView {
                             .flex()
                             .items_center()
                             .gap(px(8.))
-                            .child(text::title(info.name.clone(), 16., &c).line_height(px(20.)))
+                            .child(plain_title(info.name.clone(), 16., &c).line_height(px(20.)))
                             .when(recommended, |d| d.child(Badge::new(t!("onboarding.model.recommended"), BadgeTone::Accent)))
                             .when_some(state, |d, s| d.child(Badge::new(s, BadgeTone::Muted))),
                     )
-                    .child(
-                        text::ui(
-                            format!("{} · {} · {}", info.vendor, info.language_label(), info.description.trim_end_matches('.')),
-                            12.,
-                            FontWeight::NORMAL,
-                            c.graphite,
-                        )
-                        .line_height(px(16.))
-                        .truncate(),
-                    ),
+                    .child(plain(details, 12., FontWeight::NORMAL, c.graphite).line_height(px(16.)).truncate()),
             )
             .child(speed_meter(info.speed, &c))
-            .child(text::mono(size_label(info), 12., c.graphite).font_weight(FontWeight::NORMAL).w(px(64.)).flex_none().text_right())
+            .child(plain_mono(size_label(info), 12., c.graphite).w(px(64.)).flex_none().text_right())
     }
 
     /// The list over the step. Esc, the backdrop, or the close button dismiss it.
@@ -132,7 +134,27 @@ impl OnboardingView {
         let query = self.all_models.filter.read(cx).value().to_string();
         let models: Vec<ModelInfo> = self.local_models(cx).into_iter().filter(|i| matches(i, &query)).collect();
 
-        let mut list = div().id("all-models-list").flex().flex_col().flex_1().min_h_0().px(px(16.)).pb(px(16.));
+        let count = models.len();
+        let ids: Vec<ModelId> = models.iter().map(|i| i.id.clone()).collect();
+        let selected_index = ids.iter().position(|id| *id == active);
+        // One choice of a set: the rows are radio buttons, and the arrow keys
+        // move the choice.
+        let mut list = div()
+            .id("all-models-list")
+            .role(Role::RadioGroup)
+            .aria_label(t!("onboarding.all_models.title"))
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .px(px(16.))
+            .pb(px(16.))
+            .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
+                let Some((next, forward)) = arrow_target(&ev.keystroke.key, selected_index, count) else { return };
+                cx.stop_propagation();
+                this.choose_model(ids[next].clone(), cx);
+                if forward { window.focus_next(cx) } else { window.focus_prev(cx) }
+            }));
         if models.is_empty() {
             list = list.child(div().px(px(12.)).py(px(20.)).child(text::ui(
                 t!("onboarding.all_models.no_match"),
@@ -141,12 +163,22 @@ impl OnboardingView {
                 c.graphite,
             )));
         }
+        let mut index = 0;
         for family in LOCAL_GROUPS {
             let title = group_title(family);
             let group: Vec<&ModelInfo> = models.iter().filter(|i| i.engine.family() == family).collect();
             if group.is_empty() {
                 continue;
             }
+            // The family is a heading. The column captions only help the eye.
+            let heading = div()
+                .flex_1()
+                .font_family(sayso_ui::fonts::UI)
+                .text_size(px(11.))
+                .line_height(px(16.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(c.graphite)
+                .child(A11yText::new(title.to_uppercase()).heading(3).with_id(SharedString::from(format!("all-models-family-{title}"))));
             list = list.child(
                 div()
                     .flex()
@@ -155,12 +187,13 @@ impl OnboardingView {
                     .gap(px(14.))
                     .h(px(34.))
                     .px(px(12.))
-                    .child(caps(title, 11., c.graphite).flex_1())
+                    .child(heading)
                     .child(caps(t!("onboarding.all_models.speed"), 11., c.graphite).w(px(82.)).flex_none())
                     .child(caps(t!("onboarding.all_models.size"), 11., c.graphite).w(px(64.)).flex_none().text_right()),
             );
             for info in group {
-                list = list.child(self.all_models_row(info, &active, cx));
+                list = list.child(self.all_models_row(info, &active, index, count, cx));
+                index += 1;
             }
         }
 
@@ -184,7 +217,17 @@ impl OnboardingView {
                     )),
             )
             .child(
-                kit::icon_button("all-models-close", Icon::Close, 12., cx)
+                Pressable::new("all-models-close")
+                    .label(t!("onboarding.all_models.close"))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .size(px(22.))
+                    .rounded_full()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(c.deboss))
+                    .child(icon(Icon::Close, 12., c.graphite))
                     .on_click(cx.listener(|this, _, window, cx| this.close_all_models(window, cx))),
             );
 
@@ -204,10 +247,12 @@ impl OnboardingView {
                         this.close_all_models(window, cx);
                     }
                 }))
-                .on_click(cx.listener(|this, _, window, cx| this.close_all_models(window, cx)))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.close_all_models(window, cx)))
                 .child(
                     div()
                         .id("all-models")
+                        .role(Role::Dialog)
+                        .aria_label(t!("onboarding.all_models.title"))
                         .flex()
                         .flex_col()
                         .w(px(720.))
@@ -216,7 +261,7 @@ impl OnboardingView {
                         .bg(c.sheet_raised)
                         .shadow(paper::floating(&c))
                         // A click inside the sheet does not close it.
-                        .on_click(|_, _, cx| cx.stop_propagation())
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(
                             div()
                                 .flex()
@@ -227,7 +272,31 @@ impl OnboardingView {
                                 .px(px(28.))
                                 .pb(px(8.))
                                 .child(head)
-                                .child(kit::search_well(&self.all_models.filter, 38., None, cx)),
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_none()
+                                        .items_center()
+                                        .gap(px(10.))
+                                        .h(px(38.))
+                                        .px(px(12.))
+                                        .rounded(px(10.))
+                                        .debossed(&c)
+                                        .text_size(px(14.))
+                                        .child(icon(Icon::Search, 15., c.graphite))
+                                        .child(
+                                            div().flex_1().min_w_0().child(
+                                                Input::new(&self.all_models.filter)
+                                                    .appearance(false)
+                                                    .px_0()
+                                                    .py_0()
+                                                    .h(px(26.))
+                                                    .text_size(px(14.))
+                                                    .line_height(px(22.))
+                                                    .aria_label(t!("onboarding.all_models.filter_label")),
+                                            ),
+                                        ),
+                                ),
                         )
                         .child(list.overflow_y_scrollbar()),
                 )

@@ -7,10 +7,10 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_i18n::t;
 use sayso_ui::ActivePaper;
+use sayso_ui::a11y::{A11yExt as _, LiveStatus, Pressable};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
-use sayso_ui::paper::PaperStyled;
-use sayso_ui::text;
+use sayso_ui::paper::{self, PaperStyled};
 use sayso_update::{Failure, Manual, Package, Status};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -254,6 +254,22 @@ pub fn release_notes(version: &sayso_update::manifest::Version) -> String {
     format!("{}tag/v{version}", sayso_update::manifest::URL_PREFIX)
 }
 
+/// Text inside a control. It has no node: the control carries the name.
+fn plain(text: impl Into<SharedString>, size: f32, weight: FontWeight, color: Hsla) -> Div {
+    div().font_family(sayso_ui::fonts::UI).text_size(px(size)).font_weight(weight).text_color(color).child(text.into())
+}
+
+/// The status line of the Popover. It is a live node with a stable id, so a
+/// screen reader reads the new text when the status changes.
+fn status_line(text: String, size: f32, weight: FontWeight, color: Hsla) -> LiveStatus {
+    LiveStatus::new("update-line-status", text.clone())
+        .font_family(sayso_ui::fonts::UI)
+        .text_size(px(size))
+        .font_weight(weight)
+        .text_color(color)
+        .child(text)
+}
+
 /// The slip in the Hub sidebar, below the engine status.
 /// The slip on the rail: one square button. The text is in the tooltip.
 pub fn rail_slip(model: &Entity<AppModel>, cx: &App) -> Option<AnyElement> {
@@ -263,24 +279,30 @@ pub fn rail_slip(model: &Entity<AppModel>, cx: &App) -> Option<AnyElement> {
     let (headline, label, action) = v.short?;
     let can_restart = m.can_restart_to_update();
     let model = model.clone();
-    let slip = div()
-        .id("update-slip")
+    let name = t!("update.tooltip", headline = headline, label = label.text());
+    // A live node: a screen reader reads the new status when it changes.
+    let slip = Pressable::new("update-slip")
+        .label(name.clone())
+        .a11y_live(headline.clone(), false)
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
         .size(px(36.))
         .rounded(px(9.))
-        .tooltip(text_tooltip(t!("update.tooltip", headline = headline, label = label.text())));
+        .tooltip(text_tooltip(name));
     Some(if action == Action::Restart {
-        slip.ink_button(&c)
+        slip.bg(c.ink_fill)
+            .shadows(paper::ink_button(&c))
+            .disabled(!can_restart)
             .when(can_restart, |d| d.cursor_pointer().on_click(move |_, _, cx| perform(Action::Restart, &model, cx)))
             .when(!can_restart, |d| d.opacity(0.6))
             .child(icon(Icon::Download, 16., c.on_ink))
             .into_any_element()
     } else {
         let fg = if v.tone == Tone::Danger { c.danger } else { c.ink };
-        slip.raised_small(&c)
+        slip.bg(c.sheet_raised)
+            .shadows(paper::raised_small(&c))
             .cursor_pointer()
             .on_click(move |_, _, cx| perform(Action::OpenSettings, &model, cx))
             .child(icon(Icon::Download, 16., fg))
@@ -295,14 +317,17 @@ pub fn sidebar_slip(model: &Entity<AppModel>, cx: &App) -> Option<AnyElement> {
     let (headline, label, action) = v.short?;
     let can_restart = m.can_restart_to_update();
     let model = model.clone();
-    let slip = div().id("update-slip").flex().w_full().rounded(px(10.)).py(px(9.)).pl(px(10.)).pr(px(8.));
+    let slip = Pressable::new("update-slip").a11y_live(headline.clone(), false).flex().w_full().rounded(px(10.)).py(px(9.)).pl(px(10.)).pr(px(8.));
     // Ready: the slip is the button.
     if action == Action::Restart {
         return Some(
-            slip.items_center()
+            slip.label(format!("{}. {headline}", label.text()))
+                .items_center()
                 .gap(px(10.))
                 .pl(px(12.))
-                .ink_button(&c)
+                .bg(c.ink_fill)
+                .shadows(paper::ink_button(&c))
+                .disabled(!can_restart)
                 .when(can_restart, |d| d.cursor_pointer().on_click(move |_, _, cx| perform(Action::Restart, &model, cx)))
                 .when(!can_restart, |d| d.opacity(0.6))
                 .child(
@@ -312,16 +337,17 @@ pub fn sidebar_slip(model: &Entity<AppModel>, cx: &App) -> Option<AnyElement> {
                         .flex_1()
                         .min_w_0()
                         .gap(px(1.))
-                        .child(text::ui(label.text(), 13., FontWeight::SEMIBOLD, c.on_ink))
-                        .child(text::ui(headline, 12., FontWeight::NORMAL, c.on_ink.opacity(0.7))),
+                        .child(plain(label.text(), 13., FontWeight::SEMIBOLD, c.on_ink))
+                        .child(plain(headline, 12., FontWeight::NORMAL, c.on_ink.opacity(0.7))),
                 )
                 .into_any_element(),
         );
     }
-    let slip = slip.raised_small(&c).cursor_pointer().on_click(move |_, _, cx| perform(Action::OpenSettings, &model, cx));
+    let slip = slip.bg(c.sheet_raised).shadows(paper::raised_small(&c)).cursor_pointer().on_click(move |_, _, cx| perform(Action::OpenSettings, &model, cx));
     if let Some(progress) = v.progress {
         return Some(
-            slip.flex_col()
+            slip.label(headline.clone())
+                .flex_col()
                 .gap(px(7.))
                 .pr(px(10.))
                 .child(
@@ -329,10 +355,10 @@ pub fn sidebar_slip(model: &Entity<AppModel>, cx: &App) -> Option<AnyElement> {
                         .flex()
                         .items_center()
                         .gap(px(8.))
-                        .child(text::ui(headline, 13., FontWeight::SEMIBOLD, c.ink).flex_1().truncate())
-                        .child(text::mono(format!("{}%", (progress * 100.) as u32), 12., c.graphite).font_weight(FontWeight::NORMAL)),
+                        .child(plain(headline.clone(), 13., FontWeight::SEMIBOLD, c.ink).flex_1().truncate())
+                        .child(crate::hub::pages::kit::plain_mono(format!("{}%", (progress * 100.) as u32), 12., c.graphite)),
                 )
-                .child(Progress::new(progress).height(4.))
+                .child(Progress::new(progress).height(4.).label(headline))
                 .into_any_element(),
         );
     }
@@ -347,8 +373,10 @@ pub fn sidebar_slip(model: &Entity<AppModel>, cx: &App) -> Option<AnyElement> {
         Tone::Accent => Some(c.accent),
         Tone::Plain => None,
     };
+    let name = if detail.is_empty() { title.clone() } else { format!("{title}. {detail}") };
     Some(
-        slip.items_center()
+        slip.label(name)
+            .items_center()
             .gap(px(10.))
             .when_some(dot, |d, color| d.child(status_dot(color, 8.)))
             .child(
@@ -358,8 +386,8 @@ pub fn sidebar_slip(model: &Entity<AppModel>, cx: &App) -> Option<AnyElement> {
                     .flex_1()
                     .min_w_0()
                     .gap(px(1.))
-                    .child(text::ui(title, 13., FontWeight::SEMIBOLD, c.ink).truncate())
-                    .when(!detail.is_empty(), |d| d.child(text::ui(detail, 12., FontWeight::NORMAL, c.graphite))),
+                    .child(plain(title, 13., FontWeight::SEMIBOLD, c.ink).truncate())
+                    .when(!detail.is_empty(), |d| d.child(plain(detail, 12., FontWeight::NORMAL, c.graphite))),
             )
             .child(icon(Icon::ChevronRight, 12., c.pencil))
             .into_any_element(),
@@ -373,8 +401,8 @@ pub fn popover_line(model: &Entity<AppModel>, hide: fn(&mut App), cx: &App) -> O
     let line = || div().flex().flex_1().items_center().gap(px(10.)).h(px(38.)).pl(px(12.)).pr(px(4.)).rounded(px(9.));
     let wrap = |inner: Div| div().flex().px(px(4.)).pt(px(8.)).pb(px(6.)).child(inner).into_any_element();
     let button = |id: &'static str, label: String, color: Hsla| {
-        div()
-            .id(id)
+        Pressable::new(id)
+            .label(label.clone())
             .flex()
             .flex_none()
             .items_center()
@@ -383,7 +411,7 @@ pub fn popover_line(model: &Entity<AppModel>, hide: fn(&mut App), cx: &App) -> O
             .rounded(px(6.))
             .cursor_pointer()
             .hover(move |s| s.bg(color.opacity(0.08)))
-            .child(text::ui(label, 13., FontWeight::SEMIBOLD, color))
+            .child(plain(label, 13., FontWeight::SEMIBOLD, color))
     };
     let Some((headline, label, action)) = view(&m.update).short else {
         // Nothing to do. Say one time that an update happened.
@@ -395,7 +423,7 @@ pub fn popover_line(model: &Entity<AppModel>, hide: fn(&mut App), cx: &App) -> O
                 .raised_small(&c)
                 .pr(px(6.))
                 .child(icon(Icon::Check, 14., c.graphite))
-                .child(text::ui(t!("update.now_version", version = version), 13., FontWeight::MEDIUM, c.ink).flex_1().truncate())
+                .child(status_line(t!("update.now_version", version = version), 13., FontWeight::MEDIUM, c.ink).flex_1().truncate())
                 .child(button("update-notes", t!("update.whats_new"), c.accent).on_click({
                     let model = model.clone();
                     move |_, _, cx| {
@@ -409,8 +437,8 @@ pub fn popover_line(model: &Entity<AppModel>, hide: fn(&mut App), cx: &App) -> O
                     }
                 }))
                 .child(
-                    div()
-                        .id("update-notice-dismiss")
+                    Pressable::new("update-notice-dismiss")
+                        .label(t!("update.dismiss"))
                         .flex()
                         .flex_none()
                         .items_center()
@@ -430,13 +458,13 @@ pub fn popover_line(model: &Entity<AppModel>, hide: fn(&mut App), cx: &App) -> O
             line()
                 .debossed(&c)
                 .pr(px(12.))
-                .child(text::ui(headline, 13., FontWeight::MEDIUM, c.ink).flex_1().truncate())
-                .child(div().flex_none().w(px(96.)).child(Progress::new(progress).height(4.)))
-                .child(text::mono(format!("{}%", (progress * 100.) as u32), 12., c.graphite).font_weight(FontWeight::NORMAL)),
+                .child(status_line(headline.clone(), 13., FontWeight::MEDIUM, c.ink).flex_1().truncate())
+                .child(div().flex_none().w(px(96.)).child(Progress::new(progress).height(4.).label(headline)))
+                .child(crate::hub::pages::kit::plain_mono(format!("{}%", (progress * 100.) as u32), 12., c.graphite)),
         ));
     }
     if label == Label::None {
-        return Some(wrap(line().debossed(&c).pr(px(12.)).child(text::ui(headline, 13., FontWeight::MEDIUM, c.ink).flex_1().truncate())));
+        return Some(wrap(line().debossed(&c).pr(px(12.)).child(status_line(headline, 13., FontWeight::MEDIUM, c.ink).flex_1().truncate())));
     }
     let (wash, ink, strong) = match v.tone {
         Tone::Danger => (c.danger_wash, c.danger, c.danger),
@@ -450,7 +478,7 @@ pub fn popover_line(model: &Entity<AppModel>, hide: fn(&mut App), cx: &App) -> O
             .border_1()
             .border_color(strong.opacity(0.14))
             .child(div().flex_none().size(px(7.)).rounded_full().bg(strong))
-            .child(text::ui(headline, 13., FontWeight::MEDIUM, ink).flex_1().truncate())
+            .child(status_line(headline, 13., FontWeight::MEDIUM, ink).flex_1().truncate())
             .child(button("update-action", label.text(), strong).when(off, |d| d.opacity(0.5)).on_click(move |_, _, cx| {
                 if off {
                     return;

@@ -1,6 +1,7 @@
 //! Static pieces: keycaps, tags, badges, seals, banners, app badges, dots.
 
 use crate::ActivePaper;
+use crate::a11y::{self, A11yExt as _, A11yText, Role};
 use crate::assets::Icon;
 use crate::fonts::{MONO, UI};
 use crate::paper::{self, PaperStyled};
@@ -23,6 +24,7 @@ pub enum KeySize {
 /// A row of keycaps, for example ⌥ + Space.
 #[derive(IntoElement)]
 pub struct Keycaps {
+    id: ElementId,
     caps: Vec<SharedString>,
     size: KeySize,
     /// Show the key that is held down now as pressed ink.
@@ -31,11 +33,14 @@ pub struct Keycaps {
 }
 
 impl Keycaps {
+    #[track_caller]
     pub fn new(caps: impl IntoIterator<Item = impl Into<SharedString>>) -> Self {
         let caps: Vec<SharedString> = caps.into_iter().map(Into::into).collect();
         let pressed = vec![false; caps.len()];
-        Self { caps, size: KeySize::Medium, pressed, plus: false }
+        let id = a11y::call_site_id(&caps.join(" "));
+        Self { id, caps, size: KeySize::Medium, pressed, plus: false }
     }
+    #[track_caller]
     pub fn hotkey(hotkey: &Hotkey) -> Self {
         Self::new(hotkey.keycaps())
     }
@@ -63,7 +68,9 @@ impl RenderOnce for Keycaps {
             KeySize::Large => (52., 18., 18., 10., 10.),
         };
         let n = self.caps.len();
-        let mut row = div().flex().items_center().gap(px(gap));
+        // One node for the whole hotkey, in words.
+        let spoken = a11y::spoken_keys(&self.caps);
+        let mut row = div().id(self.id).role(Role::Label).aria_value(spoken).flex().items_center().gap(px(gap));
         for (i, cap) in self.caps.into_iter().enumerate() {
             let is_pressed = self.pressed.get(i).copied().unwrap_or(false);
             let wide = cap.chars().count() > 1;
@@ -99,14 +106,17 @@ impl RenderOnce for Keycaps {
 /// A debossed tag with a colored dot: the style tag in rows.
 #[derive(IntoElement)]
 pub struct StyleTag {
+    id: ElementId,
     label: SharedString,
     dot: Option<Hsla>,
     width: Option<f32>,
 }
 
 impl StyleTag {
+    #[track_caller]
     pub fn new(label: impl Into<SharedString>, dot: Option<Hsla>) -> Self {
-        Self { label: label.into(), dot, width: None }
+        let label: SharedString = label.into();
+        Self { id: a11y::call_site_id(&label), label, dot, width: None }
     }
     pub fn width(mut self, w: f32) -> Self {
         self.width = Some(w);
@@ -130,7 +140,7 @@ impl RenderOnce for StyleTag {
             .when(self.dot.is_none(), |d| {
                 d.child(div().size(px(6.)).rounded_full().border_1().border_color(c.pencil))
             })
-            .child(div().font_family(UI).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(c.graphite).child(self.label));
+            .child(div().font_family(UI).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(c.graphite).child(A11yText::new(self.label).with_id(self.id)));
         if let Some(w) = self.width {
             d = d.w(px(w));
         }
@@ -148,14 +158,17 @@ pub enum BadgeTone {
 /// A small caps badge: "CLOUD", "RECOMMENDED", "ACTIVE".
 #[derive(IntoElement)]
 pub struct Badge {
+    id: ElementId,
     label: SharedString,
     tone: BadgeTone,
     icon: Option<Icon>,
 }
 
 impl Badge {
+    #[track_caller]
     pub fn new(label: impl Into<SharedString>, tone: BadgeTone) -> Self {
-        Self { label: label.into(), tone, icon: None }
+        let label: SharedString = label.into();
+        Self { id: a11y::call_site_id(&label), label, tone, icon: None }
     }
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
@@ -187,7 +200,7 @@ impl RenderOnce for Badge {
                     .text_size(px(11.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(fg)
-                    .child(SharedString::from(self.label.to_uppercase())),
+                    .child(A11yText::new(self.label.to_uppercase()).with_id(self.id)),
             )
     }
 }
@@ -259,14 +272,20 @@ pub enum BannerKind {
 
 /// A notice row: a hotkey conflict, a permission hint.
 #[derive(IntoElement)]
+///
+/// A banner is a live node: a screen reader reads it when it shows and when
+/// its text changes. A warning interrupts; an info waits.
 pub struct Banner {
+    id: ElementId,
     kind: BannerKind,
     text: SharedString,
 }
 
 impl Banner {
+    #[track_caller]
     pub fn new(kind: BannerKind, text: impl Into<SharedString>) -> Self {
-        Self { kind, text: text.into() }
+        // The id stays the same when the text changes, so a new text is read.
+        Self { id: a11y::call_site_id(""), kind, text: text.into() }
     }
 }
 
@@ -277,7 +296,12 @@ impl RenderOnce for Banner {
             BannerKind::Warning => (c.danger_wash, c.danger, c.danger.opacity(0.18), Icon::Warning),
             BannerKind::Info => (gpui_kit::transparent_black(), c.graphite, c.rule, Icon::Info),
         };
+        let warning = self.kind == BannerKind::Warning;
         div()
+            .id(self.id)
+            .role(if warning { Role::Alert } else { Role::Status })
+            .aria_label(self.text.clone())
+            .a11y_live(self.text.clone(), warning)
             .flex()
             .items_start()
             .gap(px(12.))

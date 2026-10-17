@@ -52,7 +52,7 @@ impl Render for HistorySettings {
         let text_index = TEXT_DAYS.iter().position(|d| *d == h.keep_text_days).unwrap_or(0);
         let audio_index = AUDIO_DAYS.iter().position(|d| Some(*d) == h.keep_audio_days).unwrap_or(0);
         let (m0, m1, m2, m3, m4) = (self.model.clone(), self.model.clone(), self.model.clone(), self.model.clone(), self.model.clone());
-        let save_history = Switch::new("save-history", h.enabled).on_toggle(move |on, _, cx| {
+        let save_history = Switch::new("save-history", h.enabled).label(t!("settings.history.save")).on_toggle(move |on, _, cx| {
             m0.update(cx, |m, cx| m.edit_config(cx, |c| c.history.enabled = on));
         });
         let keep_text = Segmented::new(
@@ -64,10 +64,12 @@ impl Render for HistorySettings {
                 t!("settings.history.days", count = 7),
             ],
             text_index,
-        ).on_select(move |i, _, cx| {
+        )
+        .label(t!("settings.history.keep_text"))
+        .on_select(move |i, _, cx| {
             m1.update(cx, |m, cx| m.edit_config(cx, |c| c.history.keep_text_days = TEXT_DAYS[i]));
         });
-        let save_audio = Switch::new("save-audio", h.save_audio).on_toggle(move |on, _, cx| {
+        let save_audio = Switch::new("save-audio", h.save_audio).label(t!("settings.history.save_audio")).on_toggle(move |on, _, cx| {
             m2.update(cx, |m, cx| m.edit_config(cx, |c| c.history.save_audio = on));
         });
         let keep_audio = Segmented::new(
@@ -75,11 +77,12 @@ impl Render for HistorySettings {
             [t!("settings.history.days", count = 30), t!("settings.history.days", count = 7), t!("settings.history.days", count = 1)],
             audio_index,
         )
+            .label(t!("settings.history.keep_audio"))
             .on_select(move |i, _, cx| {
                 m3.update(cx, |m, cx| m.edit_config(cx, |c| c.history.keep_audio_days = Some(AUDIO_DAYS[i])));
             });
 
-        let site_icons = Switch::new("site-icons", h.site_icons).on_toggle(move |on, _, cx| {
+        let site_icons = Switch::new("site-icons", h.site_icons).label(t!("settings.history.site_icons")).on_toggle(move |on, _, cx| {
             m4.update(cx, |m, cx| m.edit_config(cx, |c| c.history.site_icons = on));
         });
 
@@ -125,9 +128,10 @@ impl Render for HistorySettings {
                     .child(text::ui(t!("settings.history.ai_off", computer = crate::shell::computer()), 13., FontWeight::MEDIUM, c.ink)),
             );
         } else {
-            for (name, cloud) in providers {
+            for (i, (name, cloud)) in providers.into_iter().enumerate() {
                 leaves = leaves.child(
                     div()
+                        .id(("leaves-provider", i))
                         .flex()
                         .items_center()
                         .gap(px(10.))
@@ -163,7 +167,7 @@ impl Render for HistorySettings {
                 .child(div().flex().flex_none().justify_end().w(px(172.)).child(action))
         };
         // A delete button that asks one time more before it deletes.
-        let wipe_control = |wipe: Wipe, id: &'static str, label: String, confirm_label: String, empty: bool| {
+        let wipe_control = |wipe: Wipe, id: &'static str, label: String, confirm_label: String, what: String, empty: bool| {
             if self.confirm == Some(wipe) {
                 div()
                     .flex()
@@ -173,7 +177,7 @@ impl Render for HistorySettings {
                         this.confirm = None;
                         cx.notify();
                     })))
-                    .child(Button::new((id, 2usize), confirm_label).danger().small().on_click(cx.listener(move |this, _, _, cx| {
+                    .child(Button::new((id, 2usize), confirm_label.clone()).a11y_label(format!("{confirm_label}, {what}")).danger().small().on_click(cx.listener(move |this, _, _, cx| {
                         this.confirm = None;
                         this.model.update(cx, |m, cx| match wipe {
                             Wipe::History => m.clear_history(cx),
@@ -193,9 +197,9 @@ impl Render for HistorySettings {
                     .into_any_element()
             }
         };
-        let history_control = wipe_control(Wipe::History, "clear-history", t!("settings.history.clear_history"), t!("settings.history.delete_all"), total == 0);
+        let history_control = wipe_control(Wipe::History, "clear-history", t!("settings.history.clear_history"), t!("settings.history.delete_all"), t!("settings.history.data_history"), total == 0);
         let audio_control =
-            wipe_control(Wipe::Audio, "delete-audio", t!("settings.history.delete_audio"), t!("settings.history.delete_audio"), storage.audio_files == 0);
+            wipe_control(Wipe::Audio, "delete-audio", t!("settings.history.delete_audio"), t!("settings.history.delete_audio"), t!("settings.history.data_audio"), storage.audio_files == 0);
 
         let entries = format_count(total);
         let history_desc = if self.confirm == Some(Wipe::History) {
@@ -269,7 +273,7 @@ impl Render for HistorySettings {
                     .flex_none()
                     .items_baseline()
                     .gap(px(8.))
-                    .child(text::display(format_size(all_bytes), 32., &c))
+                    .child(text::display_figure(format_size(all_bytes), 32., &c))
                     .child(text::ui(t!("settings.history.in_total"), 13., FontWeight::NORMAL, c.graphite)),
             )
             .child(bar)

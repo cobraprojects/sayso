@@ -54,3 +54,9 @@ overlay:
     invalid_output: "%{provider} が正しくない形式のテキストを返しました"
     refused: "%{provider} がリクエストを拒否しました"
     failed: "%{provider} でエラーが発生しました"
+  a11y:
+    name: "Sayso の音声入力"
+    start: "音声入力を開始"
+    stop: "音声入力を停止"
+    recording: "録音中"
+    undo_cancel: "キャンセルを取り消す"

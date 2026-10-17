@@ -38,6 +38,7 @@ settings:
     trailing_space_detail: "次の音声入力が新しい単語として始まります。改行で終わるテキストにはスペースを追加しません。"
     type_in_apps: "これらのアプリではペーストではなく入力"
     type_in_apps_detail: "ペーストできないアプリ用です。長いテキストでは時間がかかります。"
+    remove_app: "%{name} を削除"
     add_app: "アプリを追加"
     close_list: "リストを閉じる"
     no_other_apps: "ほかに開いているアプリはありません。アプリを開いてから、もう一度お試しください。"

@@ -3,7 +3,7 @@
 //! Left: search, filters, and entries grouped by day. Right: the selected
 //! entry with its audio and the trail of how the text got there.
 
-use super::kit::{self, caps, fraunces, mono, ui};
+use super::kit::{self, caps, fraunces, ui};
 use super::player::{self, Playing};
 use crate::hub::{Route, SettingsPage};
 use crate::model::AppModel;
@@ -14,6 +14,7 @@ use gpui_kit::*;
 use sayso_core::history::{EnhanceOutcome, HistoryEntry, InsertOutcome, TargetApp};
 use sayso_i18n::t;
 use sayso_store::{AppCount, HistoryQuery};
+use sayso_ui::a11y::{A11yExt as _, A11yText, LiveStatus, Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::fonts::{DISPLAY, Face, LocaleFonts as _};
@@ -29,6 +30,8 @@ const DETAIL_SIZE: f32 = 33.;
 const DETAIL_LINE: f32 = 44.;
 /// A transcript longer than this gets "Show full transcript".
 const TRANSCRIPT_PREVIEW_CHARS: usize = 140;
+/// The step of the position slider.
+const SEEK_STEP_MS: i64 = 5000;
 
 /// A message under the player. It keeps the reason, not the sentence, so it
 /// changes with the language.
@@ -231,27 +234,45 @@ impl HistoryPage {
         let c = cx.paper().colors;
         let rows = self.app_rows(cx);
         let current = self.app.as_ref().map(|a| a.0.as_str());
-        let mut list = div().id("app-rows").track_scroll(&self.app_scroll).flex().flex_col().gap(px(1.)).max_h(px(298.)).overflow_y_scroll().px(px(5.)).pb(px(5.));
+        let mut list = div()
+            .id("app-rows")
+            .role(Role::ListBox)
+            .aria_label(t!("history.a11y.app_list"))
+            .track_scroll(&self.app_scroll)
+            .flex()
+            .flex_col()
+            .gap(px(1.))
+            .max_h(px(298.))
+            .overflow_y_scroll()
+            .px(px(5.))
+            .pb(px(5.));
         if rows.is_empty() {
             list = list.child(div().px(px(9.)).py(px(8.)).child(ui(t!("history.app_none"), 13., 16., FontWeight::NORMAL, c.graphite)));
         }
         for (i, row) in rows.iter().enumerate() {
             let selected = row.as_ref().map(|a| a.bundle_id.as_str()) == current;
-            let (badge, name, count) = match row {
+            let (badge, name, count, row_id) = match row {
                 Some(a) => (
                     AppBadge::new(a.name.clone()).icon(self.model.read(cx).icons.get(&a.bundle_id)).size(18.).into_any_element(),
                     a.name.clone(),
                     a.count,
+                    SharedString::from(format!("app-row-{}", a.bundle_id)),
                 ),
                 None => (
                     div().flex().flex_none().items_center().justify_center().size(px(18.)).child(icon(Icon::History, 14., c.graphite)).into_any_element(),
                     t!("history.all_apps"),
                     self.model.read(cx).history_total,
+                    SharedString::from("app-row-all"),
                 ),
             };
             list = list.child(
-                div()
-                    .id(("app-row", i))
+                // The Return key picks a row from the filter field, so the rows
+                // are not tab stops.
+                Pressable::new(row_id)
+                    .a11y_role(Role::ListBoxOption)
+                    .label(t!("history.a11y.app_option", app = name, count = sayso_core::stats::format_count(count)))
+                    .aria_selected(selected)
+                    .tab_stop(false)
                     .flex()
                     .flex_none()
                     .items_center()
@@ -264,9 +285,9 @@ impl HistoryPage {
                     .hover(|s| s.bg(c.deboss))
                     .on_click(cx.listener(move |this, _, _, cx| this.pick_app(i, cx)))
                     .child(badge)
-                    .child(ui(name, 13., 16., if selected { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }, c.ink).flex_1().min_w_0().truncate())
+                    .child(kit::plain(name, 13., 16., if selected { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }, c.ink).flex_1().min_w_0().truncate())
                     .when(selected, |d| d.child(icon(Icon::Check, 12., c.ink)))
-                    .child(mono(sayso_core::stats::format_count(count), 12., c.graphite).flex_none()),
+                    .child(kit::plain_mono(sayso_core::stats::format_count(count), 12., c.graphite).flex_none()),
             );
         }
         let sheet = div()
@@ -300,7 +321,7 @@ impl HistoryPage {
                     cx.notify();
                 }
             }))
-            .child(div().p(px(6.)).child(kit::search_well(&self.app_filter, 32., None, cx)))
+            .child(div().p(px(6.)).child(kit::search_well_named(&self.app_filter, Some(t!("history.app_filter_placeholder").into()), 32., None, cx)))
             .child(list);
         deferred(anchored().snap_to_window_with_margin(px(8.)).child(div().mt(px(6.)).child(sheet))).with_priority(2)
     }
@@ -415,12 +436,24 @@ impl HistoryPage {
         let Some(samples) = self.samples(&file, cx) else { return };
         let total = player::length_ms(&samples);
         let f = ((x - b.origin.x).as_f32() / b.size.width.as_f32()).clamp(0.0, 1.0);
-        let pos = (f * total as f32) as u64;
+        self.seek_to(entry, &samples, (f * total as f32) as u64, cx);
+    }
+
+    /// Move the position by `delta_ms`, for the keyboard and assistive clients.
+    fn seek_by(&mut self, entry: &HistoryEntry, delta_ms: i64, cx: &mut Context<Self>) {
+        let Some(file) = entry.audio_file.clone() else { return };
+        let Some(samples) = self.samples(&file, cx) else { return };
+        let total = player::length_ms(&samples);
+        let pos = (self.position_of(entry.id) as i64 + delta_ms).clamp(0, total as i64) as u64;
+        self.seek_to(entry, &samples, pos, cx);
+    }
+
+    fn seek_to(&mut self, entry: &HistoryEntry, samples: &[f32], pos: u64, cx: &mut Context<Self>) {
         let was_playing = self.playing.is_some();
         self.stop_audio();
         self.position = (entry.id, pos);
         if was_playing {
-            self.play_from(entry.id, &samples, pos, cx);
+            self.play_from(entry.id, samples, pos, cx);
         }
         cx.notify();
     }
@@ -459,21 +492,55 @@ impl HistoryPage {
             t!("history.count", count = total, formatted = sayso_core::stats::format_count(total))
         };
 
-        let mut list = div().flex().flex_col().gap(px(4.));
-        let mut last_day = None;
-        for (i, e) in self.entries.iter().enumerate() {
-            let day = e.created_at.with_timezone(&chrono::Local).date_naive();
-            if last_day != Some(day) {
-                list = list.child(
-                    div().px(px(10.)).pb(px(6.)).pt(px(if i == 0 { 6. } else { 14. })).child(caps(kit::day_label(day), 12., c.graphite)),
-                );
-                last_day = Some(day);
+        // The rows are direct children of the scroll area, so a row can be
+        // scrolled into view by its child index. A day heading takes one index.
+        let days: Vec<chrono::NaiveDate> = self.entries.iter().map(|e| e.created_at.with_timezone(&chrono::Local).date_naive()).collect();
+        let mut child_ix = Vec::with_capacity(days.len());
+        let mut n = 0;
+        for (i, day) in days.iter().enumerate() {
+            if i == 0 || days[i - 1] != *day {
+                n += 1;
             }
-            list = list.child(self.entry_row(e, cx));
+            child_ix.push(n);
+            n += 1;
+        }
+        let set_size = self.matches.max(self.entries.len());
+        let mut list = div()
+            .id("entries")
+            .role(Role::List)
+            .aria_label(t!("history.a11y.list"))
+            .size_full()
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .overflow_y_scroll()
+            .track_scroll(&self.list_scroll)
+            .on_scroll_wheel(cx.listener(|_, _, _, cx| {
+                // The handle moves after this event, so read it on the next turn.
+                let page = cx.entity();
+                cx.defer(move |cx| {
+                    page.update(cx, |this, cx| {
+                        if this.list_is_scrolled() != this.list_scrolled {
+                            cx.notify();
+                        }
+                    })
+                });
+            }))
+            .px(px(20.))
+            .pb(px(20.));
+        for (i, e) in self.entries.iter().enumerate() {
+            let day = days[i];
+            if i == 0 || days[i - 1] != day {
+                list = list.child(
+                    div().flex_none().px(px(10.)).pb(px(6.)).pt(px(if i == 0 { 6. } else { 14. })).child(caps(kit::day_label(day), 12., c.graphite)),
+                );
+            }
+            let neighbours = (i.checked_sub(1).map(|p| child_ix[p]), child_ix.get(i + 1).copied());
+            list = list.child(self.entry_row(e, (i, set_size), neighbours, cx));
         }
         if self.entries.len() < self.matches {
             list = list.child(
-                div().flex().justify_center().py(px(12.)).child(
+                div().flex().flex_none().justify_center().py(px(12.)).child(
                     Button::new("more", t!("history.show_more", number = (self.matches - self.entries.len()).min(PAGE)))
                         .small()
                         .ghost()
@@ -486,13 +553,9 @@ impl HistoryPage {
         }
         if self.entries.is_empty() && filtered {
             let clear = Button::new("clear", t!("history.clear_filters")).small().on_click(cx.listener(|this, _, w, cx| this.clear_filters(w, cx)));
-            list = list.child(kit::empty_state(
-                Icon::Search,
-                &t!("history.no_match_title"),
-                &t!("history.no_match_body"),
-                Some(clear.into_any_element()),
-                cx,
-            ));
+            list = list.child(
+                kit::empty_state(Icon::Search, &t!("history.no_match_title"), &t!("history.no_match_body"), Some(clear.into_any_element()), cx).flex_none(),
+            );
         }
 
         div()
@@ -514,9 +577,10 @@ impl HistoryPage {
                     .justify_between()
                     .px(px(4.))
                     .child(sayso_ui::text::title(t!("history.title"), 32., &c).line_height(px(40.)))
-                    .child(ui(count, 13., 16., FontWeight::NORMAL, c.graphite).pb(px(6.))),
+                    // The count changes with the filters: a screen reader reads it.
+                    .child(LiveStatus::new("history-count", count.clone()).pb(px(6.)).child(kit::plain(count, 13., 16., FontWeight::NORMAL, c.graphite))),
             )
-            .child(kit::search_well(&self.search, 38., Some(kit::mini_key(if cfg!(target_os = "macos") { "⌘F" } else { "Ctrl F" }, cx).into_any_element()), cx))
+            .child(kit::search_well_named(&self.search, Some(t!("history.search_placeholder").into()), 38., Some(kit::mini_key(if cfg!(target_os = "macos") { "⌘F" } else { "Ctrl F" }, cx).into_any_element()), cx))
             .child(self.filters(cx))
             // The scroll area clips to its bounds. It reaches out to the pane edges
             // (with matching padding, so rows stay put) to leave room for the
@@ -527,27 +591,7 @@ impl HistoryPage {
                     .flex_1()
                     .min_h_0()
                     .mx(px(-20.))
-                    .child(
-                        div()
-                            .id("entries")
-                            .size_full()
-                            .overflow_y_scroll()
-                            .track_scroll(&self.list_scroll)
-                            .on_scroll_wheel(cx.listener(|_, _, _, cx| {
-                                // The handle moves after this event, so read it on the next turn.
-                                let page = cx.entity();
-                                cx.defer(move |cx| {
-                                    page.update(cx, |this, cx| {
-                                        if this.list_is_scrolled() != this.list_scrolled {
-                                            cx.notify();
-                                        }
-                                    })
-                                });
-                            }))
-                            .px(px(20.))
-                            .pb(px(20.))
-                            .child(list),
-                    )
+                    .child(list)
                     .vertical_scrollbar(&self.list_scroll)
                     .when(self.list_scrolled, |d| {
                         d.child(
@@ -569,25 +613,30 @@ impl HistoryPage {
         let all = !self.enhanced && !self.has_audio && self.app.is_none();
         let app_label = self.app.as_ref().map(|a| a.1.clone()).unwrap_or_else(|| t!("history.filter_app"));
         let mut row = div()
+            .id("history-filters")
+            .role(Role::Group)
+            .aria_label(t!("history.a11y.filters"))
             .flex()
             .flex_none()
             .flex_wrap()
             .gap(px(6.))
-            .child(Chip::new("f-all", t!("history.filter_all"), all).on_click(cx.listener(|this, _, _, cx| {
+            .child(Chip::new("f-all", t!("history.filter_all"), all).role(ChipRole::Filter).on_click(cx.listener(|this, _, _, cx| {
                 this.enhanced = false;
                 this.has_audio = false;
                 this.app = None;
                 this.refresh(cx);
             })))
-            .child(Chip::new("f-enh", t!("history.filter_enhanced"), self.enhanced).on_click(cx.listener(|this, _, _, cx| {
+            .child(Chip::new("f-enh", t!("history.filter_enhanced"), self.enhanced).role(ChipRole::Filter).on_click(cx.listener(|this, _, _, cx| {
                 this.enhanced = !this.enhanced;
                 this.refresh(cx);
             })))
-            .child(Chip::new("f-audio", t!("history.filter_audio"), self.has_audio).on_click(cx.listener(|this, _, _, cx| {
+            .child(Chip::new("f-audio", t!("history.filter_audio"), self.has_audio).role(ChipRole::Filter).on_click(cx.listener(|this, _, _, cx| {
                 this.has_audio = !this.has_audio;
                 this.refresh(cx);
             })));
-        let chip = Chip::new("f-app", app_label, self.app.is_some())
+        let chip = Chip::new("f-app", app_label.clone(), self.app.is_some())
+            .role(ChipRole::Menu { open: self.app_menu })
+            .a11y_label(t!("history.a11y.app_filter", app = app_label))
             .trailing(Icon::ChevronDown)
             .on_click(cx.listener(|this, _, window, cx| this.toggle_app_menu(window, cx)));
         let mut app = div().relative().child(chip);
@@ -598,15 +647,36 @@ impl HistoryPage {
         row
     }
 
-    fn entry_row(&self, e: &HistoryEntry, cx: &mut Context<Self>) -> impl IntoElement {
+    /// `place` is the row and the size of the list. `neighbours` are the child
+    /// indexes of the rows above and below, for the arrow keys.
+    fn entry_row(&self, e: &HistoryEntry, place: (usize, usize), neighbours: (Option<usize>, Option<usize>), cx: &mut Context<Self>) -> impl IntoElement {
         let c = cx.paper().colors;
         let selected = self.selected == Some(e.id);
         let app = e.app.as_ref().map(|a| a.name.clone()).unwrap_or_else(|| t!("history.unknown_app"));
         let app_icon = e.app.as_ref().and_then(|a| self.model.read(cx).icons.get(&a.bundle_id));
         let site_icon = self.model.read(cx).site_icon(e);
         let id = e.id;
-        div()
-            .id(("entry", e.id as u64))
+        let time = kit::clock(e.created_at);
+        let scroll = self.list_scroll.clone();
+        // A button, not a ListItem: macOS shows a ListItem as a group, and an
+        // assistive client does not press a group.
+        Pressable::new(("entry", e.id as u64))
+            .label(t!("history.a11y.entry", app = app, time = time))
+            .aria_selected(selected)
+            .aria_position_in_set(place.0 + 1)
+            .aria_size_of_set(place.1)
+            // Focus does not scroll a row into view by itself, so the arrows do.
+            .on_key_down(move |ev, w, cx| {
+                let target = match ev.keystroke.key.as_str() {
+                    "down" => neighbours.1,
+                    "up" => neighbours.0,
+                    _ => return,
+                };
+                let Some(ix) = target else { return };
+                cx.stop_propagation();
+                scroll.scroll_to_item(ix);
+                if ev.keystroke.key == "down" { w.focus_next(cx) } else { w.focus_prev(cx) }
+            })
             .flex()
             .flex_none()
             .gap(px(12.))
@@ -614,7 +684,7 @@ impl HistoryPage {
             .rounded(px(12.))
             .cursor_pointer()
             .when(selected, |d| {
-                d.bg(c.sheet_raised).shadow(vec![
+                d.bg(c.sheet_raised).shadows(vec![
                     BoxShadow::new(px(0.), px(1.), c.highlight(1.0)).inset(),
                     BoxShadow::new(px(0.), px(1.), c.shadow(0.14)).blur_radius(px(2.)),
                     BoxShadow::new(px(0.), px(6.), c.shadow(0.10)).blur_radius(px(16.)),
@@ -634,8 +704,8 @@ impl HistoryPage {
                         div()
                             .flex()
                             .justify_between()
-                            .child(ui(app, 13., 16., FontWeight::SEMIBOLD, c.ink))
-                            .child(mono(kit::clock(e.created_at), 12., c.graphite)),
+                            .child(kit::plain(app, 13., 16., FontWeight::SEMIBOLD, c.ink))
+                            .child(kit::plain_mono(kit::clock(e.created_at), 12., c.graphite)),
                     )
                     .child(fraunces(e.final_text.replace('\n', " "), 14., 20., if selected { c.ink } else { c.graphite }).line_clamp(3).text_ellipsis()),
             )
@@ -663,13 +733,15 @@ impl HistoryPage {
         // first, in the same corner.
         let actions = if self.confirm_delete {
             let id = e.id;
+            let question = t!("history.confirm_delete");
             div()
                 .flex()
                 .flex_none()
                 .items_center()
                 .gap(px(8.))
-                .child(ui(t!("history.confirm_delete"), 13., 16., FontWeight::MEDIUM, c.ink))
-                .child(Button::new("del-yes", t!("history.delete")).small().danger().on_click(cx.listener(move |this, _, _, cx| {
+                // The question appears after a menu pick, so a screen reader says it at once.
+                .child(div().id("confirm-delete").role(Role::Status).a11y_live(question.clone(), true).child(kit::plain(question, 13., 16., FontWeight::MEDIUM, c.ink)))
+                .child(Button::new("del-yes", t!("history.delete")).a11y_label(t!("history.a11y.delete_entry", time = kit::clock(e.created_at))).small().danger().on_click(cx.listener(move |this, _, _, cx| {
                     this.stop_audio();
                     this.confirm_delete = false;
                     this.model.update(cx, |m, cx| m.delete_entry(id, cx));
@@ -686,7 +758,7 @@ impl HistoryPage {
                 _ => None,
             };
             let open = self.actions_menu;
-            let mut more = div().relative().child(kit::icon_button("entry-more", Icon::More, 16., cx).size(px(30.)).when(open, |d| d.bg(c.deboss)).on_click(cx.listener(|this, _, _, cx| {
+            let mut more = div().relative().child(kit::icon_button("entry-more", Icon::More, 16., cx).label(t!("history.a11y.more_actions")).aria_expanded(open).size(px(30.)).when(open, |d| d.bg(c.deboss)).on_click(cx.listener(|this, _, _, cx| {
                 this.actions_menu = !this.actions_menu;
                 cx.notify();
             })));
@@ -748,7 +820,8 @@ impl HistoryPage {
                 .flex_none()
                 .items_center()
                 .gap(px(10.))
-                .children(status.map(|text| ui(text, 13., 16., FontWeight::MEDIUM, c.graphite)))
+                // Busy and copied: a screen reader reads each change.
+                .children(status.map(|text| div().id("entry-status").role(Role::Status).a11y_live(text.clone(), false).child(kit::plain(text, 13., 16., FontWeight::MEDIUM, c.graphite))))
                 .child(more)
         };
 
@@ -824,8 +897,8 @@ impl HistoryPage {
     /// scrolls inside the box, and a fade marks that more follows.
     fn final_text(&self, text: &str, c: &Colors) -> AnyElement {
         let mut body = div().flex().flex_col().gap(px((DETAIL_LINE * 0.5).round()));
-        for paragraph in paragraphs(text) {
-            body = body.child(div().child(paragraph.to_string()));
+        for (i, paragraph) in paragraphs(text).into_iter().enumerate() {
+            body = body.child(div().child(A11yText::new(paragraph.to_string()).with_id(("paragraph", i))));
         }
         div()
             .relative()
@@ -837,6 +910,8 @@ impl HistoryPage {
             .child(
                 div()
                     .id("final-text")
+                    .role(Role::Group)
+                    .aria_label(t!("history.a11y.final_text"))
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
@@ -892,7 +967,6 @@ impl HistoryPage {
             .justify_center()
             .bg(c.shadow(0.28))
             .occlude()
-            .track_focus(&self.modal_focus)
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
                 if ev.keystroke.key == "escape" {
                     cx.stop_propagation();
@@ -900,10 +974,16 @@ impl HistoryPage {
                     cx.notify();
                 }
             }))
-            .on_click(close)
+            // A click outside the sheet closes it. The Close button is the keyboard way.
+            .child(Pressable::new("transcript-scrim").label(t!("history.transcript.close")).tab_stop(false).absolute().inset_0().on_click(close))
             .child(
                 div()
                     .id("transcript-modal")
+                    .role(Role::Dialog)
+                    .aria_label(t!("history.transcript.title"))
+                    // The focus is on the dialog, so a screen reader reads its name.
+                    .track_focus(&self.modal_focus)
+                    .occlude()
                     .flex()
                     .flex_col()
                     .gap(px(16.))
@@ -913,8 +993,6 @@ impl HistoryPage {
                     .rounded(px(16.))
                     .bg(c.sheet_raised)
                     .shadow(paper::floating(&c))
-                    // A click inside the sheet does not close it.
-                    .on_click(|_, _, cx| cx.stop_propagation())
                     .child(
                         div()
                             .flex()
@@ -957,8 +1035,9 @@ impl HistoryPage {
         let progress = if has_audio { pos as f32 / total as f32 } else { 0.0 };
 
         let e1 = e.clone();
-        let button = div()
-            .id("play")
+        let button = Pressable::new("play")
+            .label(if playing { t!("history.a11y.pause") } else { t!("history.a11y.play") })
+            .disabled(!has_audio)
             .flex()
             .flex_none()
             .items_center()
@@ -966,7 +1045,7 @@ impl HistoryPage {
             .size(px(44.))
             .rounded_full()
             .bg(c.ink_fill)
-            .shadow(vec![
+            .shadows(vec![
                 BoxShadow::new(px(0.), px(1.), white().opacity(0.14)).inset(),
                 BoxShadow::new(px(0.), px(-2.), black().opacity(0.45)).blur_radius(px(4.)).inset(),
                 BoxShadow::new(px(0.), px(2.), c.shadow(0.28)).blur_radius(px(4.)),
@@ -985,13 +1064,41 @@ impl HistoryPage {
         let e2 = e.clone();
         let bounds = self.bar_bounds.clone();
         let rest = if c.is_dark() { c.pencil.opacity(0.55) } else { c.pencil.opacity(0.6) };
-        let wave = div()
-            .id("wave")
+        let (total_s, pos_s) = (total as f64 / 1000., pos as f64 / 1000.);
+        let (e3, e4, e5) = (e.clone(), e.clone(), e.clone());
+        let (page_up, page_down, page_keys) = (cx.entity(), cx.entity(), cx.entity());
+        // The position bar is a slider: Left and Right, or Increment and
+        // Decrement, move it by 5 seconds.
+        let wave = Pressable::new("wave")
+            .a11y_role(Role::Slider)
+            .label(t!("history.a11y.position"))
+            .disabled(!has_audio)
+            .aria_value(t!("history.a11y.position_value", pos = kit::duration(pos), total = kit::duration(total)))
+            .aria_numeric_value(pos_s)
+            .aria_min_numeric_value(0.)
+            .aria_max_numeric_value(total_s)
+            .aria_numeric_value_step(SEEK_STEP_MS as f64 / 1000.)
+            .on_a11y_action(AccessibleAction::Increment, move |_, _, cx| page_up.update(cx, |this, cx| this.seek_by(&e3, SEEK_STEP_MS, cx)))
+            .on_a11y_action(AccessibleAction::Decrement, move |_, _, cx| page_down.update(cx, |this, cx| this.seek_by(&e4, -SEEK_STEP_MS, cx)))
+            .on_key_down(move |ev, _, cx| {
+                let delta = match ev.keystroke.key.as_str() {
+                    "right" | "up" => SEEK_STEP_MS,
+                    "left" | "down" => -SEEK_STEP_MS,
+                    _ => return,
+                };
+                cx.stop_propagation();
+                page_keys.update(cx, |this, cx| this.seek_by(&e5, delta, cx));
+            })
             .flex_1()
             .min_w_0()
             .h(px(44.))
             .when(has_audio, |d| {
-                d.cursor_pointer().on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| this.seek(&e2, ev.position().x, cx)))
+                d.cursor_pointer().on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
+                    // Return and Space on the bar do nothing: there is no pointer position.
+                    if !ev.is_keyboard() {
+                        this.seek(&e2, ev.position().x, cx)
+                    }
+                }))
             })
             .child(bars(e.waveform.clone(), progress, if has_audio { c.ink } else { rest }, rest, bounds).size_full());
 
@@ -1011,7 +1118,7 @@ impl HistoryPage {
             ])
             .child(button)
             .child(wave)
-            .child(mono(time, 12., c.graphite).flex_none());
+            .child(kit::plain_mono(time, 12., c.graphite).flex_none());
 
         let m = self.model.read(cx);
         let note = if let Some(n) = &self.notice {
@@ -1024,13 +1131,17 @@ impl HistoryPage {
             t!("history.audio.kept")
         };
         let model = self.model.clone();
+        let failed = self.notice.is_some();
         div().flex().flex_col().flex_none().gap(px(10.)).child(tray).child(
-            div()
-                .id("audio-note")
+            Pressable::new("audio-note")
+                .a11y_role(Role::Link)
+                .label(note.clone())
+                // An error under the player is read when it appears.
+                .when(failed, |p| p.a11y_live(note.clone(), true))
                 .pl(px(4.))
                 .cursor_pointer()
                 .on_click(move |_, _, cx| model.update(cx, |m, cx| m.navigate(Route::Settings(SettingsPage::HistoryPrivacy), cx)))
-                .child(ui(note, 13., 16., FontWeight::NORMAL, if self.notice.is_some() { c.danger } else { c.graphite })),
+                .child(kit::plain(note, 13., 16., FontWeight::NORMAL, if failed { c.danger } else { c.graphite })),
         )
     }
 
@@ -1054,10 +1165,10 @@ impl HistoryPage {
                     .gap(px(4.))
                     .child(preview)
                     .child(
-                        div()
-                            .id("show-transcript")
+                        Pressable::new("show-transcript")
+                            .label(t!("history.trail.show_transcript"))
                             .cursor_pointer()
-                            .child(ui(t!("history.trail.show_transcript"), 13., 16., FontWeight::SEMIBOLD, c.accent))
+                            .child(kit::plain(t!("history.trail.show_transcript"), 13., 16., FontWeight::SEMIBOLD, c.accent))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.transcript_open = true;
                                 this.modal_focus.focus(window, cx);
@@ -1076,9 +1187,12 @@ impl HistoryPage {
         } else {
             let mut body = div().flex().flex_col().gap(px(2.));
             // Three lines at most, so the trail keeps its height.
-            for r in e.replacements.iter().take(3) {
+            for (i, r) in e.replacements.iter().take(3).enumerate() {
                 let times = if r.count > 1 { format!("  ×{}", r.count) } else { String::new() };
-                body = body.child(ui(format!("“{}” → “{}”{times}", r.from, r.to.replace("\\n", "↵")), 14., 18., FontWeight::NORMAL, c.graphite));
+                // The same replacement can be in the list twice: the row id keeps its text node unique.
+                body = body.child(
+                    div().id(("replacement", i)).child(ui(format!("“{}” → “{}”{times}", r.from, r.to.replace("\\n", "↵")), 14., 18., FontWeight::NORMAL, c.graphite)),
+                );
             }
             if e.replacements.len() > 3 {
                 body = body.child(ui(t!("history.trail.more", more = e.replacements.len() - 3), 14., 18., FontWeight::NORMAL, c.pencil));
@@ -1138,9 +1252,10 @@ impl HistoryPage {
         };
 
         let mut col = div().flex().flex_col().flex_none().pt(px(4.)).child(div().pb(px(14.)).child(caps(t!("history.trail.title"), 12., c.graphite)));
-        for (title, body) in steps {
+        for (i, (title, body)) in steps.into_iter().enumerate() {
             col = col.child(
                 div()
+                    .id(("step", i))
                     .flex()
                     .gap(px(16.))
                     .child(

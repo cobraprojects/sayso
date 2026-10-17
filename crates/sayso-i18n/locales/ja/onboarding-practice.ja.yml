@@ -5,6 +5,7 @@ onboarding:
   practice:
     title: "試してみる"
     placeholder: "ここをクリックしてからショートカットを押し、文を読み上げてください。"
+    field_label: "練習用の入力欄"
     lead_toggle: "フィールドをクリックし、%{keys} を押して文を読み上げ、もう一度 %{keys} を押してください。"
     lead_push: "フィールドをクリックし、押して話すキーを押したまま、文を読み上げてください。"
     read_this: "これを読み上げてください"

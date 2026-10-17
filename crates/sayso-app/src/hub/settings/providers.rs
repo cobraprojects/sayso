@@ -7,7 +7,7 @@
 
 use super::kit::{self, group};
 use crate::hub::pages::ext::provider_detail;
-use crate::hub::pages::kit::{self as pkit, ui};
+use crate::hub::pages::kit::{self as pkit, plain, ui};
 use crate::model::{AppModel, ProviderLogin};
 use crate::model_picker;
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -16,6 +16,7 @@ use gpui_kit::*;
 use sayso_core::config::{Provider, ProviderKind, is_local_url, thinking_label};
 use sayso_enhance::AuthStatus;
 use sayso_i18n::t;
+use sayso_ui::a11y::{A11yExt as _, LiveStatus, Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
@@ -303,8 +304,12 @@ impl ProviderSettings {
         let signed_out = matches!(login.as_ref().and_then(|l| l.status.as_ref()), Some(AuthStatus::SignedOut { .. }));
 
         let toggle_id = p.id.clone();
-        let label = div()
-            .id(SharedString::from(format!("provider-{}", p.id)))
+        // The row is one button that opens the detail. The status line is a
+        // live node inside it, so a change (a test, a sign-in) is read.
+        let name = if default { format!("{}, {}", p.name, t!("settings.providers.default_badge")) } else { p.name.clone() };
+        let label = Pressable::new(SharedString::from(format!("provider-{}", p.id)))
+            .label(name)
+            .aria_expanded(open.is_some())
             .flex()
             .flex_1()
             .min_w_0()
@@ -325,12 +330,16 @@ impl ProviderSettings {
                             .flex()
                             .items_center()
                             .gap(px(8.))
-                            .child(ui(p.name.clone(), 15., 18., FontWeight::SEMIBOLD, c.ink).truncate())
+                            .child(plain(p.name.clone(), 15., 18., FontWeight::SEMIBOLD, c.ink).truncate())
                             .when(default, |d| {
                                 d.child(div().flex_none().px(px(6.)).py(px(2.)).rounded(px(5.)).bg(c.deboss).child(pkit::caps(t!("settings.providers.default_badge"), 11., c.graphite)))
                             }),
                     )
-                    .child(ui(status.line.clone(), 13., 16., FontWeight::NORMAL, status.color).truncate()),
+                    .child(
+                        LiveStatus::new(SharedString::from(format!("status-{}", p.id)), status.line.clone())
+                            .min_w_0()
+                            .child(plain(status.line.clone(), 13., 16., FontWeight::NORMAL, status.color).truncate()),
+                    ),
             );
 
         let mut head = div().flex().items_center().gap(px(14.)).child(label);
@@ -338,11 +347,15 @@ impl ProviderSettings {
             let id = p.id.clone();
             head = head.child(
                 Button::new(SharedString::from(format!("cancel-sign-in-{}", p.id)), t!("settings.providers.cancel"))
+                    .a11y_label(format!("{}, {}", t!("settings.providers.cancel"), p.name))
                     .on_click(cx.listener(move |this, _, _, cx| this.model.update(cx, |m, cx| m.cancel_sign_in(&id, cx)))),
             );
         } else if signed_out {
             let id = p.id.clone();
-            head = head.child(Button::new(SharedString::from(format!("sign-in-{}", p.id)), t!("settings.providers.sign_in")).primary().on_click(cx.listener(
+            head = head.child(Button::new(SharedString::from(format!("sign-in-{}", p.id)), t!("settings.providers.sign_in"))
+                .a11y_label(format!("{}, {}", t!("settings.providers.sign_in"), p.name))
+                .primary()
+                .on_click(cx.listener(
                 move |this, _, window, cx| {
                     if this.open.as_ref().is_none_or(|o| o.id != id) {
                         this.open_row(&id, window, cx);
@@ -357,11 +370,25 @@ impl ProviderSettings {
         }
         let chevron_id = p.id.clone();
         head = head.child(
+            // The row button does the same, so the keyboard skips this one.
             pkit::icon_button(SharedString::from(format!("chevron-{}", p.id)), if open.is_some() { Icon::ChevronDown } else { Icon::ChevronRight }, 14., cx)
+                .label(format!("{}, {}", t!("settings.providers.details"), p.name))
+                .aria_expanded(open.is_some())
+                .tab_stop(false)
                 .on_click(cx.listener(move |this, _, window, cx| this.toggle(&chevron_id, window, cx))),
         );
 
-        let mut row = div().flex().flex_col().w_full().min_w_0().py(px(14.)).border_b_1().border_color(c.rule).child(head);
+        // The id scopes the text of the row: the ids of the nodes below are unique.
+        let mut row = div()
+            .id(SharedString::from(format!("provider-row-{}", p.id)))
+            .flex()
+            .flex_col()
+            .w_full()
+            .min_w_0()
+            .py(px(14.))
+            .border_b_1()
+            .border_color(c.rule)
+            .child(head);
         if let Some(open) = open {
             row = row.child(self.detail(p, default, open, login.as_ref(), status.problem, cx));
         }
@@ -388,6 +415,7 @@ impl ProviderSettings {
             let entity = cx.entity();
             let id = p.id.clone();
             let choice = Segmented::new(SharedString::from(format!("login-{}", p.id)), [t!("settings.providers.login_mine", tool = name), t!("settings.providers.login_sayso")], usize::from(sayso))
+                .label(t!("settings.providers.login"))
                 .on_select(move |i, window, cx| entity.update(cx, |this, cx| this.set_sayso_login(&id, i == 1, window, cx)));
             let about = if sayso {
                 t!("settings.providers.login_sayso_detail", tool = name)
@@ -407,7 +435,7 @@ impl ProviderSettings {
                     .debossed(&c)
                     .font_family(sayso_ui::fonts::MONO)
                     .text_size(px(12.))
-                    .child(gpui_kit::component::input::Input::new(&open.folder).appearance(false).w_full());
+                    .child(gpui_kit::component::input::Input::new(&open.folder).aria_label(t!("settings.providers.config_folder")).appearance(false).w_full());
                 col = col.child(kit::row(
                     &t!("settings.providers.config_folder"),
                     &t!("settings.providers.config_folder_detail"),
@@ -442,15 +470,24 @@ impl ProviderSettings {
         let mut row = div().flex().flex_none().items_center().gap(px(8.));
         if self.confirm_remove.as_deref() == Some(p.id.as_str()) {
             let id = p.id.clone();
+            // The question is an alert: a screen reader reads it when it shows.
+            let question = t!("settings.providers.remove_confirm", name = p.name);
             return row
-                .child(ui(t!("settings.providers.remove_confirm", name = p.name), 13., 16., FontWeight::MEDIUM, c.ink))
-                .child(Button::new("remove-yes", t!("settings.providers.remove")).danger().on_click(cx.listener(move |this, _, _, cx| {
+                .child(
+                    div()
+                        .id("remove-confirm")
+                        .role(Role::Alert)
+                        .aria_label(question.clone())
+                        .a11y_live(question.clone(), true)
+                        .child(plain(question, 13., 16., FontWeight::MEDIUM, c.ink)),
+                )
+                .child(Button::new("remove-yes", t!("settings.providers.remove")).a11y_label(format!("{}, {}", t!("settings.providers.remove"), p.name)).danger().on_click(cx.listener(move |this, _, _, cx| {
                     this.confirm_remove = None;
                     this.open = None;
                     this.tests.remove(&id);
                     this.model.update(cx, |m, cx| m.remove_provider(&id, cx));
                 })))
-                .child(Button::new("remove-no", t!("settings.providers.cancel")).ghost().on_click(cx.listener(|this, _, _, cx| {
+                .child(Button::new("remove-no", t!("settings.providers.cancel")).a11y_label(format!("{}, {}", t!("settings.providers.cancel"), p.name)).ghost().on_click(cx.listener(|this, _, _, cx| {
                     this.confirm_remove = None;
                     cx.notify();
                 })));
@@ -459,18 +496,19 @@ impl ProviderSettings {
         let id = p.id.clone();
         row = row.child(
             Button::new("test-provider", t!("settings.providers.test_connection"))
+                .a11y_label(format!("{}, {}", t!("settings.providers.test_connection"), p.name))
                 .disabled(running || p.needs_model())
                 .on_click(cx.listener(move |this, _, _, cx| this.test(id.clone(), cx))),
         );
         if !default {
             let id = p.id.clone();
-            row = row.child(Button::new("default-provider", t!("settings.providers.make_default")).on_click(cx.listener(move |this, _, _, cx| {
+            row = row.child(Button::new("default-provider", t!("settings.providers.make_default")).a11y_label(format!("{}, {}", t!("settings.providers.make_default"), p.name)).on_click(cx.listener(move |this, _, _, cx| {
                 let id = id.clone();
                 this.model.update(cx, |m, cx| m.edit_config(cx, |c| c.ai.default_provider = Some(id)));
             })));
         }
         let id = p.id.clone();
-        row.child(Button::new("remove-provider", t!("settings.providers.remove")).danger().on_click(cx.listener(move |this, _, _, cx| {
+        row.child(Button::new("remove-provider", t!("settings.providers.remove")).a11y_label(format!("{}, {}", t!("settings.providers.remove"), p.name)).danger().on_click(cx.listener(move |this, _, _, cx| {
             this.confirm_remove = Some(id.clone());
             cx.notify();
         })))
@@ -487,8 +525,14 @@ impl ProviderSettings {
                 .text_color(c.danger)
                 .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(all.clone())))
         });
+        let summary = problem.message.clone();
         div().w_full().min_w_0().pb(px(6.)).child(
             div()
+                // An alert, as `kit::notice` is: a screen reader reads a new problem.
+                .id(SharedString::from(format!("problem-{id}")))
+                .role(Role::Alert)
+                .aria_label(summary.clone())
+                .a11y_live(summary, true)
                 .flex()
                 .items_start()
                 .w_full()
@@ -508,7 +552,7 @@ impl ProviderSettings {
                         .flex_1()
                         .min_w_0()
                         .gap(px(6.))
-                        .child(ui(problem.message, 13., 18., FontWeight::NORMAL, text_color))
+                        .child(plain(problem.message, 13., 18., FontWeight::NORMAL, text_color))
                         .when_some(problem.details, |d, details| {
                             d.child(div().w_full().min_w_0().font_family(sayso_ui::fonts::MONO).text_size(px(12.)).line_height(px(17.)).text_color(text_color.opacity(0.85)).child(details))
                         }),
@@ -533,6 +577,9 @@ impl ProviderSettings {
                 .on_click(move |_, _, _| AppModel::open_url(&url))
         });
         let mut panel = div()
+            .id(SharedString::from(format!("sign-in-panel-{}", p.id)))
+            .role(Role::Group)
+            .aria_label(t!("settings.providers.finish_sign_in"))
             .flex()
             .flex_col()
             .w_full()
@@ -556,7 +603,7 @@ impl ProviderSettings {
                             .flex_1()
                             .min_w_0()
                             .gap(px(3.))
-                            .child(ui(t!("settings.providers.finish_sign_in"), 14., 18., FontWeight::SEMIBOLD, c.ink))
+                            .child(plain(t!("settings.providers.finish_sign_in"), 14., 18., FontWeight::SEMIBOLD, c.ink))
                             .child(ui(about, 13., 18., FontWeight::NORMAL, c.graphite)),
                     )
                     .children(link),
@@ -567,7 +614,7 @@ impl ProviderSettings {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(pkit::input_well(&open.code, cx).flex_1().min_w_0().font_family(sayso_ui::fonts::MONO))
+                    .child(pkit::input_well_named(&open.code, Some(t!("settings.providers.code_placeholder").into()), cx).flex_1().min_w_0().font_family(sayso_ui::fonts::MONO))
                     .child(Button::new("send-code", t!("settings.providers.send_code")).primary().on_click(cx.listener(|this, _, window, cx| this.send_code(window, cx)))),
             );
         }
@@ -629,6 +676,7 @@ impl ProviderSettings {
     fn suggestion(&self, id: &'static str, title: &str, detail: String, provider: Provider, cx: &mut Context<Self>) -> AnyElement {
         let c = cx.paper().colors;
         div()
+            .id(id)
             .flex()
             .items_center()
             .w_full()
@@ -647,7 +695,9 @@ impl ProviderSettings {
                     .child(ui(title.to_string(), 15., 18., FontWeight::SEMIBOLD, c.ink))
                     .child(ui(detail, 13., 16., FontWeight::NORMAL, c.graphite)),
             )
-            .child(Button::new(SharedString::from(format!("{id}-add")), t!("settings.providers.add")).on_click(cx.listener(move |this, _, window, cx| {
+            .child(Button::new(SharedString::from(format!("{id}-add")), t!("settings.providers.add"))
+                .a11y_label(format!("{}, {title}", t!("settings.providers.add")))
+                .on_click(cx.listener(move |this, _, window, cx| {
                 let p = provider.clone();
                 this.added(p, None, window, cx);
             })))
@@ -809,7 +859,9 @@ impl ProviderSettings {
             AddKind::Codex => 2,
         };
         let entity = cx.entity();
-        let seg = Segmented::new("add-kind", [t!("settings.providers.kind_openai"), "Claude CLI".to_string(), "Codex CLI".to_string()], selected).on_select(move |i, _, cx| {
+        let seg = Segmented::new("add-kind", [t!("settings.providers.kind_openai"), "Claude CLI".to_string(), "Codex CLI".to_string()], selected)
+            .label(t!("settings.providers.add_title"))
+            .on_select(move |i, _, cx| {
             entity.update(cx, |this, cx| {
                 if let Some(a) = this.add.as_mut() {
                     a.kind = [AddKind::OpenAi, AddKind::Claude, AddKind::Codex][i];
@@ -822,7 +874,7 @@ impl ProviderSettings {
         let mut body = div().flex().flex_col().gap(px(16.));
         match add.kind {
             AddKind::OpenAi => {
-                let mut presets = div().flex().gap(px(6.));
+                let mut presets = div().id("presets").role(Role::Group).aria_label(t!("settings.providers.start_from")).flex().gap(px(6.));
                 for (i, (name, _)) in PRESETS.iter().enumerate() {
                     presets = presets.child(Chip::new(("preset", i), *name, false).on_click(cx.listener(move |this, _, w, cx| this.apply_preset(i, w, cx))));
                 }
@@ -834,12 +886,12 @@ impl ProviderSettings {
                         div()
                             .flex()
                             .gap(px(12.))
-                            .child(pkit::field(&t!("settings.providers.name"), pkit::input_well(&add.name, cx), None, cx).w(px(220.)))
-                            .child(pkit::field(&t!("settings.providers.base_url"), pkit::input_well(&add.url, cx), None, cx).flex_1()),
+                            .child(pkit::field(&t!("settings.providers.name"), pkit::input_well_named(&add.name, Some(t!("settings.providers.name").into()), cx), None, cx).w(px(220.)))
+                            .child(pkit::field(&t!("settings.providers.base_url"), pkit::input_well_named(&add.url, Some(t!("settings.providers.base_url").into()), cx), None, cx).flex_1()),
                     )
                     .child(pkit::field(
                         &t!("settings.providers.api_key"),
-                        pkit::input_well(&add.key, cx),
+                        pkit::secret_well_named(&add.key, t!("settings.providers.api_key").into(), cx),
                         Some(&t!("settings.providers.api_key_hint")),
                         cx,
                     ))
@@ -867,6 +919,17 @@ impl ProviderSettings {
             }
         }
         let panel = div()
+            // A form that opens in place. Escape closes it.
+            .id("add-provider-form")
+            .role(Role::Form)
+            .aria_label(t!("settings.providers.add_title"))
+            .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {
+                if e.keystroke.key == "escape" {
+                    cx.stop_propagation();
+                    this.add = None;
+                    cx.notify();
+                }
+            }))
             .flex()
             .flex_col()
             .gap(px(18.))
@@ -938,7 +1001,7 @@ impl Render for ProviderSettings {
         let use_ai = kit::row(
             &t!("settings.providers.use_ai"),
             &t!("settings.providers.use_ai_detail"),
-            Switch::new("ai-on", enabled).on_toggle(move |on, _, cx| model.update(cx, |m, cx| m.set_ai_enabled(on, cx))),
+            Switch::new("ai-on", enabled).label(t!("settings.providers.use_ai")).on_toggle(move |on, _, cx| model.update(cx, |m, cx| m.set_ai_enabled(on, cx))),
             cx,
         );
 
@@ -959,6 +1022,8 @@ impl Render for ProviderSettings {
         if self.add.is_none() {
             list = list.child(
                 pkit::dashed("add-provider", cx)
+                    .label(t!("settings.providers.add_a_provider"))
+                    .aria_description(t!("settings.providers.add_a_provider_detail"))
                     .justify_start()
                     .gap(px(12.))
                     .mt(px(14.))
@@ -974,8 +1039,8 @@ impl Render for ProviderSettings {
                             .flex_1()
                             .min_w_0()
                             .gap(px(2.))
-                            .child(ui(t!("settings.providers.add_a_provider"), 15., 18., FontWeight::SEMIBOLD, c.ink))
-                            .child(ui(
+                            .child(plain(t!("settings.providers.add_a_provider"), 15., 18., FontWeight::SEMIBOLD, c.ink))
+                            .child(plain(
                                 t!("settings.providers.add_a_provider_detail"),
                                 13.,
                                 16.,

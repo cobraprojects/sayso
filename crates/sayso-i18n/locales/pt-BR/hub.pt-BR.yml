@@ -27,6 +27,9 @@ hub:
     theme_light: "Claro"
     theme_dark: "Escuro"
     back: "Voltar"
+    main_nav: "Páginas"
+    settings_sections: "Seções das configurações"
+    theme: "Tema"
     open_config_file: "Abrir o arquivo de configuração"
     open_config_file_path: "Abrir o arquivo de configuração: %{path}"
     engine_status: "%{status}. %{detail}"
@@ -40,6 +43,10 @@ hub:
   duration:
     seconds: "%{seconds} s"
     minutes_seconds: "%{minutes} min %{seconds} s"
+  window:
+    minimize: "Minimizar"
+    maximize: "Maximizar"
+    close: "Fechar"
   place:
     cloud: "Nuvem"
     local: "Local"

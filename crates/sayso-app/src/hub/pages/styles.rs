@@ -17,9 +17,11 @@ use sayso_core::style::{Style, StyleOrigin};
 use sayso_core::style_rules::{self, TypedTarget};
 use sayso_i18n::t;
 use sayso_platform::AppInfo;
+use sayso_ui::a11y::{A11yExt as _, Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
+use sayso_ui::fonts::{DISPLAY, Face, LocaleFonts as _, UI};
 use sayso_ui::{ActivePaper, Colors, text};
 
 /// The style that the page shows with an example.
@@ -355,14 +357,38 @@ impl StylesPage {
         };
 
         // Ink swatches.
-        let mut swatches = div().flex().items_center().gap(px(10.));
-        for ink in NamedInk::ALL {
+        let ink_count = NamedInk::ALL.len();
+        let ink_current = NamedInk::ALL.iter().position(|n| ed.ink.eq_ignore_ascii_case(&format!("#{:06X}", n.color().0)));
+        // A group of radio buttons: the arrows pick the next ink and move the focus.
+        let mut radios = div()
+            .id("ink-swatches")
+            .role(Role::RadioGroup)
+            .aria_label(t!("styles.editor.ink"))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .when_some(ink_current, |d, current| {
+                d.on_key_down(cx.listener(move |this, ev: &KeyDownEvent, w, cx| {
+                    let next = match ev.keystroke.key.as_str() {
+                        "right" | "down" if current + 1 < ink_count => current + 1,
+                        "left" | "up" if current > 0 => current - 1,
+                        _ => return,
+                    };
+                    cx.stop_propagation();
+                    if let Some(ed) = this.editor.as_mut() {
+                        ed.ink = format!("#{:06X}", NamedInk::ALL[next].color().0);
+                    }
+                    if next > current { w.focus_next(cx) } else { w.focus_prev(cx) }
+                    cx.notify();
+                }))
+            });
+        for (i, ink) in NamedInk::ALL.into_iter().enumerate() {
             let hex = format!("#{:06X}", ink.color().0);
             let selected = ed.ink.eq_ignore_ascii_case(&hex);
             let h2 = hex.clone();
-            swatches = swatches.child(
-                div()
-                    .id(SharedString::from(format!("ink-{}", ink.name())))
+            radios = radios.child(
+                Pressable::new(SharedString::from(format!("ink-{}", ink.name())))
+                    .a11y_radio(ink.label(), selected, i, ink_count)
                     .flex()
                     .items_center()
                     .justify_center()
@@ -385,7 +411,7 @@ impl StylesPage {
             .find(|n| ed.ink.eq_ignore_ascii_case(&format!("#{:06X}", n.color().0)))
             .map(|n| n.label())
             .unwrap_or_else(|| t!("styles.editor.ink_custom", ink = ed.ink));
-        swatches = swatches.child(ui(ink_name, 13., 16., FontWeight::MEDIUM, c.graphite).pl(px(4.)));
+        let swatches = div().flex().items_center().gap(px(10.)).child(radios).child(ui(ink_name, 13., 16., FontWeight::MEDIUM, c.graphite).pl(px(4.)));
 
         // Provider select.
         let current = match &ed.provider {
@@ -396,8 +422,11 @@ impl StylesPage {
             },
         };
         let mut select = div().relative().child(
-            div()
-                .id("provider-select")
+            Pressable::new("provider-select")
+                .a11y_role(Role::ComboBox)
+                .label(t!("styles.editor.provider"))
+                .aria_value(current.clone())
+                .aria_expanded(ed.provider_menu)
                 .flex()
                 .items_center()
                 .justify_between()
@@ -412,7 +441,7 @@ impl StylesPage {
                     }
                     cx.notify();
                 }))
-                .child(ui(current, 14., 18., FontWeight::NORMAL, c.ink))
+                .child(kit::plain(current, 14., 18., FontWeight::NORMAL, c.ink))
                 .child(icon(Icon::ChevronDown, 12., c.graphite)),
         );
         if ed.provider_menu {
@@ -461,8 +490,10 @@ impl StylesPage {
             None => ui(t!("styles.editor.add_provider_for_model"), 13., 18., FontWeight::NORMAL, c.graphite).into_any_element(),
             Some(p) => {
                 let pid = p.id.clone();
-                div()
-                    .id("style-model")
+                Pressable::new("style-model")
+                    .a11y_role(Role::ComboBox)
+                    .label(t!("styles.editor.model"))
+                    .aria_value(model_label.clone())
                     .relative()
                     .flex()
                     .items_center()
@@ -496,7 +527,7 @@ impl StylesPage {
                         };
                         model_picker::open(&this.model, request, cx);
                     }))
-                    .child(ui(model_label, 14., 18., FontWeight::NORMAL, c.ink).truncate())
+                    .child(kit::plain(model_label, 14., 18., FontWeight::NORMAL, c.ink).truncate())
                     .child(icon(Icon::ChevronDown, 12., c.graphite))
                     .child(model_picker::anchor("style-model"))
                     .into_any_element()
@@ -508,7 +539,7 @@ impl StylesPage {
             .rounded(px(10.))
             .debossed(&c)
             .text_size(px(14.))
-            .child(Textarea::new(&ed.prompt).appearance(false).h(px(150.)).text_size(px(14.)));
+            .child(Textarea::new(&ed.prompt).aria_label(t!("styles.editor.prompt")).appearance(false).h(px(150.)).text_size(px(14.)));
         let targets = self.targets_group(ed, cx);
 
         let title = if ed.is_new { t!("styles.editor.new_title") } else { t!("styles.editor.edit_title", name = ed.base.name) };
@@ -577,13 +608,13 @@ impl StylesPage {
                         FontWeight::NORMAL,
                         c.graphite,
                     )))
-                    .child(kit::icon_button("close-editor", Icon::Close, 12., cx).on_click(cx.listener(|this, _, _, cx| {
+                    .child(kit::icon_button("close-editor", Icon::Close, 12., cx).label(t!("styles.a11y.close")).on_click(cx.listener(|this, _, _, cx| {
                         this.editor = None;
                         cx.notify();
                     }))),
             )
-            .child(kit::field(&t!("styles.editor.name"), kit::input_well(&ed.name, cx), None, cx))
-            .child(kit::field(&t!("styles.editor.description"), kit::input_well(&ed.description, cx), None, cx))
+            .child(kit::field(&t!("styles.editor.name"), kit::input_well_named(&ed.name, Some(t!("styles.editor.name").into()), cx), None, cx))
+            .child(kit::field(&t!("styles.editor.description"), kit::input_well_named(&ed.description, Some(t!("styles.editor.description").into()), cx), None, cx))
             .child(kit::field(&t!("styles.editor.ink"), swatches, None, cx))
             .child(kit::field(&t!("styles.editor.prompt"), prompt, Some(&t!("styles.editor.prompt_hint")), cx))
             .child(
@@ -608,7 +639,7 @@ impl StylesPage {
                                 c.graphite,
                             )),
                     )
-                    .child(div().flex_none().child(Switch::new("use-base", ed.use_base).on_toggle({
+                    .child(div().flex_none().child(Switch::new("use-base", ed.use_base).label(t!("styles.editor.use_base")).on_toggle({
                         let page = cx.entity();
                         move |on, _, cx| {
                             page.update(cx, |this, cx| {
@@ -626,13 +657,14 @@ impl StylesPage {
                     .flex()
                     .gap(px(12.))
                     .child(kit::field(&t!("styles.editor.model"), model_field, None, cx).flex_1())
-                    .child(kit::field(&t!("styles.editor.timeout"), kit::input_well(&ed.timeout, cx), None, cx).w(px(150.))),
+                    .child(kit::field(&t!("styles.editor.timeout"), kit::input_well_named(&ed.timeout, Some(t!("styles.editor.timeout").into()), cx), None, cx).w(px(150.))),
             )
             .child(targets)
             .when_some(ed.error.as_ref(), |d, e| d.child(Banner::new(BannerKind::Warning, e.text())))
             .child(div().pt(px(6.)).child(buttons));
 
-        Some(self.side_panel("style-editor", body, cx))
+        let panel_title = if ed.is_new { t!("styles.editor.new_title") } else { t!("styles.editor.edit_title", name = ed.base.name) };
+        Some(self.side_panel("style-editor", panel_title, body, cx))
     }
 
     /// The line on a style card that names the apps and sites of the style.
@@ -664,21 +696,44 @@ impl StylesPage {
         let note = |s: String| ui(s, 12., 16., FontWeight::NORMAL, c.graphite).flex_none();
 
         let count = ed.apps.len() + ed.sites.len();
-        let mut list = div().flex().flex_col().rounded(px(10.)).bg(c.sheet_raised).raised_small(&c);
-        let row = |i: usize| div().flex().items_center().gap(px(10.)).h(px(40.)).px(px(10.)).when(i + 1 < count, |d| d.border_b_1().border_color(c.rule));
+        let mut list = div()
+            .id("target-list")
+            .role(Role::List)
+            .aria_label(t!("styles.targets.title"))
+            .flex()
+            .flex_col()
+            .rounded(px(10.))
+            .bg(c.sheet_raised)
+            .raised_small(&c);
+        // The row id comes from the app or site, so a removed row does not pass its id on.
+        let row = |key: String, name: String, i: usize| {
+            div()
+                .id(SharedString::from(key))
+                .role(Role::ListItem)
+                .aria_label(name)
+                .aria_position_in_set(i + 1)
+                .aria_size_of_set(count)
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .h(px(40.))
+                .px(px(10.))
+                .when(i + 1 < count, |d| d.border_b_1().border_color(c.rule))
+        };
         for (i, id) in ed.apps.iter().enumerate() {
             let known = self.apps.iter().find(|a| a.bundle_id.eq_ignore_ascii_case(id));
             let name = self.app_name(id, cx);
             let remove = id.clone();
+            let remove_label = t!("styles.a11y.remove_app", name = name);
             list = list.child(
-                row(i)
+                row(format!("app-{id}"), name.clone(), i)
                     .child(AppBadge::new(name.clone()).icon(m.icons.get(id)).size(20.))
                     .when(known.is_some(), |d| d.child(ui(name, 14., 18., FontWeight::MEDIUM, c.ink).flex_none()))
                     .child(div().flex_1().min_w_0().child(text::mono(id.clone(), 11., if known.is_some() { c.graphite } else { c.ink }).truncate()))
                     // Before the list of apps loads, each app would get this note.
                     .when(known.is_none() && !self.apps.is_empty(), |d| d.child(note(t!("styles.targets.not_here"))))
                     .when_some(moves_from(rules.style_of_app(id)), |d, s| d.child(note(s)))
-                    .child(kit::icon_button(("remove-app", i), Icon::Close, 10., cx).on_click(cx.listener(move |this, _, _, cx| {
+                    .child(kit::icon_button("remove-app", Icon::Close, 10., cx).label(remove_label).on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(ed) = this.editor.as_mut() {
                             ed.apps.retain(|a| *a != remove);
                         }
@@ -689,11 +744,11 @@ impl StylesPage {
         for (i, site) in ed.sites.iter().enumerate() {
             let remove = site.clone();
             list = list.child(
-                row(ed.apps.len() + i)
+                row(format!("site-{site}"), site.clone(), ed.apps.len() + i)
                     .child(div().flex().flex_none().items_center().justify_center().size(px(20.)).child(icon(Icon::Globe, 16., c.graphite)))
                     .child(div().flex_1().min_w_0().child(text::mono(site.clone(), 12., c.ink).truncate()))
                     .when_some(moves_from(rules.style_of_site(site)), |d, s| d.child(note(s)))
-                    .child(kit::icon_button(("remove-site", i), Icon::Close, 10., cx).on_click(cx.listener(move |this, _, _, cx| {
+                    .child(kit::icon_button("remove-site", Icon::Close, 10., cx).label(t!("styles.a11y.remove_site", name = site)).on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(ed) = this.editor.as_mut() {
                             ed.sites.retain(|s| *s != remove);
                         }
@@ -702,7 +757,7 @@ impl StylesPage {
             );
         }
 
-        let open = kit::icon_button("target-open", Icon::ChevronDown, 12., cx).on_click(cx.listener(|this, _, _, cx| {
+        let open = kit::icon_button("target-open", Icon::ChevronDown, 12., cx).label(t!("styles.a11y.show_apps")).aria_expanded(ed.target_open).on_click(cx.listener(|this, _, _, cx| {
             if let Some(ed) = this.editor.as_mut() {
                 ed.target_open = !ed.target_open;
             }
@@ -712,13 +767,23 @@ impl StylesPage {
         let choices = self.target_choices(cx);
         // An address is not the name of an app, so it gets no such line.
         let no_app = typed && !ed.target.read(cx).value().contains('/') && !choices.iter().any(|ch| matches!(ch, Choice::App(_)));
-        let mut panel = div().id("target-choices").flex().flex_col().gap(px(2.)).p(px(6.)).max_h(px(236.)).overflow_y_scroll().rounded(px(10.)).bg(c.sheet_raised).raised_small(&c);
+        let mut panel = div().id("target-choices").role(Role::ListBox).aria_label(t!("styles.a11y.choices")).flex().flex_col().gap(px(2.)).p(px(6.)).max_h(px(236.)).overflow_y_scroll().rounded(px(10.)).bg(c.sheet_raised).raised_small(&c);
         if no_app {
             panel = panel.child(div().px(px(6.)).py(px(4.)).child(note(t!("styles.targets.no_app"))));
         }
+        let plain_note = |s: String| kit::plain(s, 12., 16., FontWeight::NORMAL, c.graphite).flex_none();
         for (i, choice) in choices.into_iter().take(MAX_CHOICES).enumerate() {
-            let line = div()
-                .id(("target-choice", i))
+            // The name of the row says what a pick does: "Add site, example.com".
+            let (key, name) = match &choice {
+                Choice::App(app) => (format!("choice-app-{}", app.bundle_id), app.name.clone()),
+                Choice::AppId(id) => {
+                    (format!("choice-id-{id}"), format!("{}, {id}", t!(crate::shell::os_text!("styles.targets.add_bundle_id", "styles.targets.add_app_id"))))
+                }
+                Choice::Site(site) => (format!("choice-site-{site}"), format!("{}, {site}", t!("styles.targets.add_site"))),
+            };
+            let line = Pressable::new(SharedString::from(key))
+                .a11y_role(Role::ListBoxOption)
+                .label(name)
                 .flex()
                 .flex_none()
                 .items_center()
@@ -731,14 +796,14 @@ impl StylesPage {
                 .when(i == 0 && typed, |d| d.bg(c.accent_wash))
                 .hover(|s| s.bg(c.accent_wash));
             let slot = |ic: Icon| div().flex().flex_none().items_center().justify_center().size(px(20.)).child(icon(ic, 14., c.graphite));
-            let label = |s: &str| ui(s.to_string(), 14., 18., FontWeight::MEDIUM, c.ink).flex_none();
-            let id_text = |s: &str, color: Hsla| div().flex_1().min_w_0().child(text::mono(s.to_string(), 11., color).truncate());
+            let label = |s: &str| kit::plain(s.to_string(), 14., 18., FontWeight::MEDIUM, c.ink).flex_none();
+            let id_text = |s: &str, color: Hsla| div().flex_1().min_w_0().child(kit::plain_mono(s.to_string(), 11., color).truncate());
             let line = match &choice {
                 Choice::App(app) => line
                     .child(AppBadge::new(app.name.clone()).icon(m.icons.get(&app.bundle_id)).size(20.))
                     .child(label(&app.name))
                     .child(id_text(&app.bundle_id, c.graphite))
-                    .when_some(moves_from(rules.style_of_app(&app.bundle_id)), |d, s| d.child(note(s))),
+                    .when_some(moves_from(rules.style_of_app(&app.bundle_id)), |d, s| d.child(plain_note(s))),
                 Choice::AppId(id) => line
                     .child(slot(Icon::Plus))
                     .child(label(&t!(crate::shell::os_text!("styles.targets.add_bundle_id", "styles.targets.add_app_id"))))
@@ -747,7 +812,7 @@ impl StylesPage {
                     .child(slot(Icon::Globe))
                     .child(label(&t!("styles.targets.add_site")))
                     .child(id_text(site, c.ink))
-                    .when_some(moves_from(rules.style_of_site(site)), |d, s| d.child(note(s))),
+                    .when_some(moves_from(rules.style_of_site(site)), |d, s| d.child(plain_note(s))),
             };
             panel = panel.child(line.on_click(cx.listener(move |this, _, window, cx| this.add_target(choice.clone(), window, cx))));
         }
@@ -775,7 +840,7 @@ impl StylesPage {
             )
             .when(!rules.enabled, |d| d.child(Banner::new(BannerKind::Info, t!("styles.targets.off"))))
             .when(count > 0, |d| d.child(list))
-            .child(kit::search_well(&ed.target, 36., Some(open.into_any_element()), cx))
+            .child(kit::search_well_named(&ed.target, Some(t!("styles.targets.title").into()), 36., Some(open.into_any_element()), cx))
             .when(typed || ed.target_open, |d| d.child(panel))
             .when(sites_ok, |d| {
                 d.child(ui(
@@ -789,10 +854,20 @@ impl StylesPage {
     }
 
     /// A panel on the right of the page, over a scrim. A click on the scrim closes it.
-    fn side_panel(&self, id: &'static str, body: Div, cx: &mut Context<Self>) -> AnyElement {
+    fn side_panel(&self, id: &'static str, title: String, body: Div, cx: &mut Context<Self>) -> AnyElement {
         let c = cx.paper().colors;
         let panel = div()
             .id(id)
+            .role(Role::Dialog)
+            .aria_label(title)
+            // Escape closes the panel when the focus is in it.
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                if ev.keystroke.key == "escape" {
+                    this.editor = None;
+                    this.base_editor = None;
+                    cx.notify();
+                }
+            }))
             .absolute()
             .top(px(12.))
             .right(px(12.))
@@ -803,8 +878,9 @@ impl StylesPage {
             .overflow_y_scroll()
             .occlude()
             .child(body);
-        let scrim = div()
-            .id("scrim")
+        let scrim = Pressable::new("scrim")
+            .label(t!("styles.a11y.close"))
+            .tab_stop(false)
             .absolute()
             .inset_0()
             .bg(c.ground.opacity(0.45))
@@ -865,7 +941,7 @@ impl StylesPage {
             .rounded(px(10.))
             .debossed(&c)
             .text_size(px(14.))
-            .child(Textarea::new(&ed.prompt).appearance(false).h(px(380.)).text_size(px(14.)));
+            .child(Textarea::new(&ed.prompt).aria_label(t!("styles.base.rules")).appearance(false).h(px(380.)).text_size(px(14.)));
         let mut buttons = div()
             .flex()
             .items_center()
@@ -901,7 +977,7 @@ impl StylesPage {
                         FontWeight::NORMAL,
                         c.graphite,
                     )))
-                    .child(kit::icon_button("close-base", Icon::Close, 12., cx).on_click(cx.listener(|this, _, _, cx| {
+                    .child(kit::icon_button("close-base", Icon::Close, 12., cx).label(t!("styles.a11y.close")).on_click(cx.listener(|this, _, _, cx| {
                         this.base_editor = None;
                         cx.notify();
                     }))),
@@ -914,7 +990,7 @@ impl StylesPage {
             ))
             .when_some(ed.error.as_ref(), |d, e| d.child(Banner::new(BannerKind::Warning, e.text())))
             .child(div().pt(px(6.)).child(buttons));
-        Some(self.side_panel("base-editor", body, cx))
+        Some(self.side_panel("base-editor", t!("styles.base.title"), body, cx))
     }
 
     // -----------------------------------------------------------------------
@@ -923,7 +999,7 @@ impl StylesPage {
 
     fn edit_button(&self, id: &str, style: &Style, cx: &mut Context<Self>) -> Button {
         let st = style.clone();
-        Button::new(SharedString::from(format!("{id}-{}", style.id)), t!("styles.edit")).small().ghost().on_click(cx.listener(move |this, _, w, cx| {
+        Button::new(SharedString::from(format!("{id}-{}", style.id)), t!("styles.edit")).a11y_label(t!("styles.a11y.edit", name = style.display_name())).small().ghost().on_click(cx.listener(move |this, _, w, cx| {
             cx.stop_propagation();
             this.open_editor(Some(st.clone()), w, cx);
         }))
@@ -934,6 +1010,7 @@ impl StylesPage {
     fn featured(&self, style: &Style, active: bool, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
         let c = cx.paper().colors;
         let id = style.id.clone();
+        let style_name = style.display_name();
         let actions = div()
             .flex()
             .items_center()
@@ -943,7 +1020,7 @@ impl StylesPage {
                 if active {
                     d.child(Badge::new(t!("styles.default"), BadgeTone::Ink))
                 } else {
-                    d.child(Button::new("featured-default", t!("styles.make_default")).primary().small().on_click(cx.listener(move |this, _, _, cx| {
+                    d.child(Button::new("featured-default", t!("styles.make_default")).a11y_label(t!("styles.a11y.make_default", name = style_name)).primary().small().on_click(cx.listener(move |this, _, _, cx| {
                         let id = id.clone();
                         this.model.update(cx, |m, cx| m.set_active_style(&id, cx));
                     })))
@@ -1016,16 +1093,49 @@ impl StylesPage {
         Some((route.line(), color))
     }
 
-    fn row(&self, style: &Style, active: bool, last: bool, narrow: bool, cx: &mut Context<Self>) -> AnyElement {
+    /// A style row is a radio button of the default style: `place` is its
+    /// index and the count of the group.
+    fn row(&self, style: &Style, active: bool, place: (usize, usize), narrow: bool, cx: &mut Context<Self>) -> AnyElement {
         let c = cx.paper().colors;
+        let last = place.0 + 1 == place.1;
         let hovered = self.hovered.as_deref() == Some(style.id.as_str());
         let detail = self.row_detail(style, cx);
         let has_rule = self.target_line(&style.id, cx).is_some();
         let id2 = style.id.clone();
         let id3 = style.id.clone();
-        let edit = self.edit_button("edit", style, cx);
-        div()
-            .id(SharedString::from(format!("style-{}", style.id)))
+        let st = style.clone();
+        let name = style.display_name();
+        // The row says what it shows: the style, what it does, and where it goes.
+        let mut said = vec![style.display_description()];
+        said.extend(detail.as_ref().map(|d| d.0.clone()));
+        said.retain(|s| !s.is_empty());
+        // The Edit button is in the tab order, also when the row is not hovered:
+        // it is clear until the row has the pointer or the focus.
+        let edit = Pressable::new("edit")
+            .label(t!("styles.a11y.edit", name = name))
+            .absolute()
+            .right_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .h(px(28.))
+            .px(px(12.))
+            .rounded(px(8.))
+            .font_family(UI)
+            .text_size(px(13.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(c.graphite)
+            .cursor_pointer()
+            .hover(|s| s.bg(c.deboss.opacity(0.6)))
+            .when(!hovered, |d| d.opacity(0.).focus(|s| s.opacity(1.)))
+            .child(t!("styles.edit"))
+            .on_click(cx.listener(move |this, _, w, cx| {
+                cx.stop_propagation();
+                this.open_editor(Some(st.clone()), w, cx);
+            }));
+        Pressable::new(SharedString::from(format!("style-{}", style.id)))
+            .a11y_radio(name.clone(), active, place.0, place.1)
+            .aria_description(said.join(", "))
             .flex()
             .items_center()
             .gap(px(14.))
@@ -1047,20 +1157,33 @@ impl StylesPage {
                 this.model.update(cx, |m, cx| m.set_active_style(&id, cx));
             }))
             .child(kit::seal_dot(style.uses_ai().then_some(style.ink.as_str()), 14., cx))
-            .child(text::title(style.display_name(), 18., &c).line_height(px(24.)).flex_none().w(px(112.)).truncate())
-            .child(ui(style.display_description(), 14., 20., FontWeight::NORMAL, c.graphite).flex_1().min_w_0().truncate())
+            .child(
+                div()
+                    .font_family(DISPLAY)
+                    .locale_fonts(Face::Serif)
+                    .text_size(px(18.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.ink)
+                    .line_height(px(24.))
+                    .flex_none()
+                    .w(px(112.))
+                    .truncate()
+                    .child(name),
+            )
+            .child(kit::plain(style.display_description(), 14., 20., FontWeight::NORMAL, c.graphite).flex_1().min_w_0().truncate())
             .child(div().flex().flex_none().items_center().gap(px(6.)).w(px(if narrow { 150. } else { 236. })).when_some(detail, |d, (line, color)| {
-                d.when(has_rule, |d| d.child(icon(Icon::ArrowRight, 11., c.graphite))).child(ui(line, 12., 16., FontWeight::MEDIUM, color).min_w_0().truncate())
+                d.when(has_rule, |d| d.child(icon(Icon::ArrowRight, 11., c.graphite))).child(kit::plain(line, 12., 16., FontWeight::MEDIUM, color).min_w_0().truncate())
             }))
             .child(
                 div()
+                    .relative()
                     .flex()
                     .flex_none()
                     .items_center()
                     .justify_end()
                     .w(px(80.))
                     // Edit takes the place of the badge, so the row keeps its columns.
-                    .when(hovered, |d| d.child(edit))
+                    .child(edit)
                     .when(active && !hovered, |d| d.child(Badge::new(t!("styles.default"), BadgeTone::Ink))),
             )
             .into_any_element()
@@ -1094,8 +1217,9 @@ impl StylesPage {
             .child(div().flex_none().size(px(8.)).rounded_full().bg(dot))
             .child(ui(line, 13., 18., FontWeight::NORMAL, c.graphite).flex_1().min_w_0())
             .child(
-                div()
-                    .id("manage-providers")
+                Pressable::new("manage-providers")
+                    .a11y_role(Role::Link)
+                    .label(label.clone())
                     .flex()
                     .flex_none()
                     .items_center()
@@ -1103,7 +1227,7 @@ impl StylesPage {
                     .cursor_pointer()
                     .hover(|s| s.opacity(0.75))
                     .on_click(move |_, _, cx| model.update(cx, |m, cx| m.navigate(crate::hub::Route::Settings(crate::hub::SettingsPage::Providers), cx)))
-                    .child(ui(label, 13., 18., FontWeight::SEMIBOLD, c.accent))
+                    .child(kit::plain(label, 13., 18., FontWeight::SEMIBOLD, c.accent))
                     .child(icon(Icon::ChevronRight, 12., c.accent)),
             )
             .into_any_element()
@@ -1164,9 +1288,35 @@ impl Render for StylesPage {
         let pad = crate::layout::page_pad(window, &self.model.read(cx).config);
         let narrow = crate::layout::page_narrow(window, &self.model.read(cx).config);
         let featured = styles.iter().find(|s| s.id == FEATURED_STYLE_ID).map(|s| self.featured(s, s.id == active, narrow, cx));
-        let mut rows = div().flex().flex_col();
+        // The default style is a choice of one: the rows are radio buttons, and
+        // the arrows pick the next style and move the focus.
+        let count = styles.len();
+        let current = styles.iter().position(|s| s.id == active);
+        let ids: Vec<String> = styles.iter().map(|s| s.id.clone()).collect();
+        let mut rows = div()
+            .id("style-rows")
+            .role(Role::RadioGroup)
+            .aria_label(t!("styles.a11y.default_style"))
+            .flex()
+            .flex_col()
+            .when_some(current, |d, current| {
+                d.on_key_down(cx.listener(move |this, ev: &KeyDownEvent, w, cx| {
+                    let next = match ev.keystroke.key.as_str() {
+                        "right" | "down" if current + 1 < count => current + 1,
+                        "left" | "up" if current > 0 => current - 1,
+                        _ => return,
+                    };
+                    cx.stop_propagation();
+                    let id = ids[next].clone();
+                    this.model.update(cx, |m, cx| m.set_active_style(&id, cx));
+                    // The Edit button of a row is a tab stop between the rows.
+                    for _ in 0..2 {
+                        if next > current { w.focus_next(cx) } else { w.focus_prev(cx) }
+                    }
+                }))
+            });
         for (i, s) in styles.iter().enumerate() {
-            rows = rows.child(self.row(s, s.id == active, i + 1 == styles.len(), narrow, cx));
+            rows = rows.child(self.row(s, s.id == active, (i, count), narrow, cx));
         }
         let errors = self.model.read(cx).styles.errors.clone();
         let providers = self.provider_line(cx);

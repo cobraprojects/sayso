@@ -18,7 +18,10 @@ use core_foundation::number::CFNumber;
 use core_foundation::string::CFString;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::{MainThreadMarker, Message};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
+use objc2_foundation::NSObjectProtocol;
+use objc2_app_kit::NSAccessibility as _;
+use objc2::runtime::NSObject;
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSColor, NSEvent, NSEventMask, NSPanel, NSScreen,
     NSStatusItem, NSView, NSWindow, NSWindowCollectionBehavior, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
@@ -256,6 +259,58 @@ pub fn status_item_screen_rect(item: *mut c_void) -> Option<Rect> {
     let item = unsafe { &*item.cast::<NSStatusItem>() };
     let window = item.button(mtm)?.window()?;
     Some(window.frame().into())
+}
+
+/// What a press of the menu bar icon by an assistive client does.
+pub struct StatusPressState {
+    on_press: Box<dyn Fn()>,
+}
+
+define_class!(
+    // The target of the menu bar button. A mouse click never reaches it,
+    // because the tray view on top of the button takes the mouse. VoiceOver,
+    // Voice Control, and other assistive clients press the button itself, and
+    // that sends this action.
+    //
+    // SAFETY: `NSObject` has no subclassing requirements, and the ivar is a
+    // plain Rust value that is only used on the main thread.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "SaysoStatusPress"]
+    #[ivars = StatusPressState]
+    pub struct StatusPress;
+
+    impl StatusPress {
+        #[unsafe(method(press:))]
+        fn press(&self, _sender: Option<&AnyObject>) {
+            (self.ivars().on_press)();
+        }
+    }
+
+    unsafe impl NSObjectProtocol for StatusPress {}
+);
+
+/// Give the menu bar icon an accessible name and an action for an assistive
+/// client. Keep the returned target alive as long as the icon.
+pub fn make_status_item_accessible(item: *mut c_void, label: &str, on_press: impl Fn() + 'static) -> Option<Retained<StatusPress>> {
+    let mtm = MainThreadMarker::new()?;
+    if item.is_null() {
+        return None;
+    }
+    // SAFETY: the caller promises a live `NSStatusItem`.
+    let item = unsafe { &*item.cast::<NSStatusItem>() };
+    let button = item.button(mtm)?;
+    let target = StatusPress::alloc(mtm).set_ivars(StatusPressState { on_press: Box::new(on_press) });
+    // SAFETY: `init` of `NSObject` on a new allocation.
+    let target: Retained<StatusPress> = unsafe { msg_send![super(target), init] };
+    // SAFETY: the target lives as long as the caller keeps it, and `press:`
+    // has the signature of an action.
+    unsafe {
+        button.setTarget(Some(&target));
+        button.setAction(Some(objc2::sel!(press:)));
+    }
+    button.setAccessibilityLabel(Some(&NSString::from_str(label)));
+    Some(target)
 }
 
 /// Keeps a global mouse monitor alive. Dropping it removes the monitor.

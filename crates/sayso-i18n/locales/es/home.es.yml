@@ -36,6 +36,7 @@ home:
     unknown_app: "App desconocida"
   style:
     default: "Estilo predeterminado"
+    cycle_hotkey: "Atajo para cambiar de estilo"
     change: "Cambiar el estilo"
     detail_no_ai: "Nada sale de tu %{computer}."
     detail_needs_provider: "La IA está desactivada, así que Sayso inserta la transcripción. Añade un proveedor en Ajustes."

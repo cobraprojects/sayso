@@ -2,6 +2,9 @@ _version: 1
 
 model_picker:
   filter: "过滤模型"
+  trigger_label: "模型：%{model}"
+  models_label: "模型"
+  title: "选择模型"
   default: "默认"
   thinking: "思考程度"
   loading: "正在载入模型…"

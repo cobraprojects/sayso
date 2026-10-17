@@ -9,8 +9,10 @@
 //! do nothing.
 
 use gpui_kit::*;
+use sayso_i18n::t;
 use sayso_core::config::Config;
 use sayso_ui::ActivePaper;
+use sayso_ui::a11y::Pressable;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::icon;
 use sayso_ui::paper::PaperStyled;
@@ -61,9 +63,9 @@ pub fn drag_area(el: Stateful<Div>) -> Stateful<Div> {
 pub fn window_controls(window: &Window, cx: &App, on_close: impl Fn(&mut Window, &mut App) + 'static) -> AnyElement {
     let c = cx.paper().colors;
     let supported = window.window_controls();
-    let button = |id: &'static str| {
-        div()
-            .id(id)
+    let button = |id: &'static str, name: String| {
+        Pressable::new(id)
+            .label(name)
             .flex()
             .items_center()
             .justify_center()
@@ -79,20 +81,20 @@ pub fn window_controls(window: &Window, cx: &App, on_close: impl Fn(&mut Window,
     let mut row = div().flex().flex_none().items_center().gap(px(6.));
     if supported.minimize {
         row = row.child(
-            button("window-minimize")
+            button("window-minimize", t!("hub.window.minimize"))
                 .on_click(|_, window, _| window.minimize_window())
                 .child(div().w(px(9.)).h(px(1.5)).mt(px(5.)).rounded_full().bg(ink)),
         );
     }
     if supported.maximize {
         row = row.child(
-            button("window-maximize")
+            button("window-maximize", t!("hub.window.maximize"))
                 .on_click(|_, window, _| window.zoom_window())
                 .child(div().size(px(9.)).rounded(px(2.)).border_1().border_color(ink)),
         );
     }
     row.child(
-        button("window-close")
+        button("window-close", t!("hub.window.close"))
             .debossed(&c)
             .on_click(move |_, window, cx| on_close(window, cx))
             .child(icon(Icon::Close, 11., c.ink)),

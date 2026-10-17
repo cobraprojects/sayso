@@ -73,3 +73,4 @@ update:
   slip_newer: "更新版本的 Sayso"
   now_version: "Sayso 现在的版本为 %{version}"
   whats_new: "新功能"
+  dismiss: "关闭"

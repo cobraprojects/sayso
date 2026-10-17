@@ -56,7 +56,9 @@ impl Render for AdvancedSettings {
         let level = adv.log_level.as_deref().unwrap_or("info");
         let level_index = LEVELS.iter().position(|l| *l == level).unwrap_or(2);
         let m1 = self.model.clone();
-        let levels = Segmented::new("log-level", ["Error", "Warn", "Info", "Debug", "Trace"], level_index).on_select(move |i, _, cx| {
+        let levels = Segmented::new("log-level", ["Error", "Warn", "Info", "Debug", "Trace"], level_index)
+            .label(t!("settings.advanced.log_level"))
+            .on_select(move |i, _, cx| {
             let v = if i == 2 { None } else { Some(LEVELS[i].to_string()) };
             m1.update(cx, |m, cx| m.edit_config(cx, |c| c.advanced.log_level = v));
         });
@@ -68,7 +70,9 @@ impl Render for AdvancedSettings {
             t!("settings.advanced.keep_minutes", count = 5),
             t!("settings.advanced.keep_minutes", count = 15),
             t!("settings.advanced.keep_hour"),
-        ], keep_index).on_select(move |i, _, cx| {
+        ], keep_index)
+        .label(t!("settings.advanced.keep"))
+        .on_select(move |i, _, cx| {
             m2.update(cx, |m, cx| m.edit_config(cx, |c| c.dictation.keep_model_minutes = KEEP_MINUTES[i]));
         });
         // One model for the final pass and the live preview: the preview waits for the load too.
@@ -81,6 +85,7 @@ impl Render for AdvancedSettings {
 
         let m3 = self.model.clone();
         let preload = Switch::new("preload-model", m.config.dictation.preload_model)
+            .label(t!("settings.advanced.preload"))
             .on_toggle(move |on, _, cx| m3.update(cx, |m, cx| m.edit_config(cx, |c| c.dictation.preload_model = on)));
 
         let field = div()
@@ -93,7 +98,7 @@ impl Render for AdvancedSettings {
             .debossed(&c)
             .font_family(sayso_ui::fonts::MONO)
             .text_size(px(12.))
-            .child(Input::new(&self.engine).appearance(false).w_full());
+            .child(Input::new(&self.engine).aria_label(t!("settings.advanced.engine_path")).appearance(false).w_full());
 
         let mut engine = group(&t!("settings.advanced.engine"), cx).child(row(
             &t!("settings.advanced.engine_path"),

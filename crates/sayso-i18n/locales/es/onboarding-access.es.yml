@@ -33,6 +33,7 @@ onboarding:
     allowed: "Permitido"
     blocked: "Bloqueado"
     waiting: "En espera"
+    download_label: "Descarga de %{name}"
   hotkeys:
     title: "Elige tus teclas"
     lead: "Pulsa las teclas para probarlas. Sayso comprueba que ninguna otra app use las mismas teclas."
@@ -46,6 +47,10 @@ onboarding:
     change: "Cambiar"
     cancel: "Cancelar"
     clear: "Borrar"
+    cancel_label: "Dejar de grabar una tecla"
+    change_toggle: "Cambiar la tecla de inicio y parada"
+    change_ptt: "Cambiar la tecla de pulsar para hablar"
+    clear_ptt: "Quitar la tecla de pulsar para hablar"
     optional: "Opcional"
     hold_hint: "Mantén una tecla para grabar. Suéltala para insertar."
     use_right_option: "Usar Option derecha"

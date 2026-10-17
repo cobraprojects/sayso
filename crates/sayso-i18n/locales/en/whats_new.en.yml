@@ -6,3 +6,4 @@ whats_new:
   heading: "NEW IN SAYSO %{version}"
   all_changes: "See all changes on GitHub"
   done: "Done"
+  list_label: "New features"

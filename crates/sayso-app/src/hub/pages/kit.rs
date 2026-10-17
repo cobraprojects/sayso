@@ -1,11 +1,12 @@
 //! Small pieces shared by the Hub pages: formatting, headings, wells,
 //! empty states, and a dropdown menu. Values follow the Paper design file.
 
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Input, InputContentType, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::ink::Rgb;
 use sayso_i18n::t;
+use sayso_ui::a11y::{A11yText, Pressable, Role, Toggled};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::icon;
 use sayso_ui::fonts::{DISPLAY, LocaleFonts as _, MONO, UI};
@@ -112,6 +113,7 @@ pub fn slug(name: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Small caps at a given size (the design uses 12 and 13 px).
+#[track_caller]
 pub fn caps(s: impl Into<SharedString>, size: f32, color: Hsla) -> Div {
     let s: SharedString = s.into();
     div()
@@ -120,16 +122,34 @@ pub fn caps(s: impl Into<SharedString>, size: f32, color: Hsla) -> Div {
         .line_height(px(16.))
         .font_weight(FontWeight::MEDIUM)
         .text_color(color)
-        .child(SharedString::from(s.to_uppercase()))
+        .child(A11yText::new(s.to_uppercase()))
 }
 
 /// Fraunces at a reading size, regular weight.
+#[track_caller]
 pub fn fraunces(s: impl Into<SharedString>, size: f32, line: f32, color: Hsla) -> Div {
-    div().font_family(DISPLAY).locale_fonts(sayso_ui::fonts::Face::Serif).text_size(px(size)).line_height(px(line)).text_color(color).child(s.into())
+    div().font_family(DISPLAY).locale_fonts(sayso_ui::fonts::Face::Serif).text_size(px(size)).line_height(px(line)).text_color(color).child(A11yText::new(s))
 }
 
+#[track_caller]
 pub fn mono(s: impl Into<SharedString>, size: f32, color: Hsla) -> Div {
+    div().font_family(MONO).text_size(px(size)).line_height(px(16.)).text_color(color).child(A11yText::new(s))
+}
+
+/// UI text without an accessibility node, for the inside of a control that
+/// has its own name.
+pub fn plain(s: impl Into<SharedString>, size: f32, line: f32, weight: FontWeight, color: Hsla) -> Div {
+    div().font_family(UI).text_size(px(size)).font_weight(weight).text_color(color).line_height(px(line)).child(s.into())
+}
+
+/// [`mono`] without an accessibility node.
+pub fn plain_mono(s: impl Into<SharedString>, size: f32, color: Hsla) -> Div {
     div().font_family(MONO).text_size(px(size)).line_height(px(16.)).text_color(color).child(s.into())
+}
+
+/// [`fraunces`] without an accessibility node.
+pub fn plain_fraunces(s: impl Into<SharedString>, size: f32, line: f32, color: Hsla) -> Div {
+    div().font_family(DISPLAY).locale_fonts(sayso_ui::fonts::Face::Serif).text_size(px(size)).line_height(px(line)).text_color(color).child(s.into())
 }
 
 pub fn ui(s: impl Into<SharedString>, size: f32, line: f32, weight: FontWeight, color: Hsla) -> Div {
@@ -193,8 +213,9 @@ pub fn bare_input(state: &Entity<InputState>, size: f32) -> Input {
     Input::new(state).appearance(false).px_0().py_0().h(px(line + 4.)).text_size(px(size)).line_height(px(line))
 }
 
-/// A search or filter well with an icon and an input.
-pub fn search_well(state: &Entity<InputState>, height: f32, trailing: Option<AnyElement>, cx: &App) -> Div {
+/// A search or filter well with an icon and an input. `name` is the
+/// accessible name of the input.
+pub fn search_well_named(state: &Entity<InputState>, name: Option<SharedString>, height: f32, trailing: Option<AnyElement>, cx: &App) -> Div {
     let c = cx.paper().colors;
     div()
         .flex()
@@ -207,7 +228,7 @@ pub fn search_well(state: &Entity<InputState>, height: f32, trailing: Option<Any
         .debossed(&c)
         .text_size(px(14.))
         .child(icon(Icon::Search, 15., c.graphite))
-        .child(div().flex_1().min_w_0().child(bare_input(state, 14.)))
+        .child(div().flex_1().min_w_0().child(bare_input(state, 14.).when_some(name, |i, n| i.aria_label(n))))
         .when_some(trailing, |d, t| d.child(t))
 }
 
@@ -223,8 +244,9 @@ pub fn field(label: &str, input: impl IntoElement, hint: Option<&str>, cx: &App)
         .when_some(hint, |d, h| d.child(ui(h.to_string(), 12., 16., FontWeight::NORMAL, c.graphite)))
 }
 
-/// A single-line input in a debossed well, 36 px high.
-pub fn input_well(state: &Entity<InputState>, cx: &App) -> Div {
+/// A single-line input in a debossed well, 36 px high. `name` is the
+/// accessible name of the input.
+pub fn input_well_named(state: &Entity<InputState>, name: Option<SharedString>, cx: &App) -> Div {
     let c = cx.paper().colors;
     div()
         .flex()
@@ -234,8 +256,26 @@ pub fn input_well(state: &Entity<InputState>, cx: &App) -> Div {
         .rounded(px(9.))
         .debossed(&c)
         .text_size(px(14.))
-        .child(bare_input(state, 14.).w_full())
+        .child(bare_input(state, 14.).w_full().when_some(name, |i, n| i.aria_label(n)))
 }
+
+/// [`input_well_named`] for an API key: a screen reader announces a password
+/// field. The state must be masked.
+pub fn secret_well_named(state: &Entity<InputState>, name: SharedString, cx: &App) -> Div {
+    let c = cx.paper().colors;
+    div()
+        .flex()
+        .items_center()
+        .h(px(36.))
+        .px(px(12.))
+        .rounded(px(9.))
+        .debossed(&c)
+        .text_size(px(14.))
+        .child(bare_input(state, 14.).w_full().aria_label(name).content_type(InputContentType::Password))
+}
+
+/// What closes a floating menu.
+type OnClose = std::rc::Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// A tiny keycap with one label, for hints like ⌘F.
 pub fn mini_key(label: impl Into<SharedString>, cx: &App) -> Div {
@@ -252,14 +292,13 @@ pub fn mini_key(label: impl Into<SharedString>, cx: &App) -> Div {
             BoxShadow::new(px(0.), px(-1.), c.shadow(0.22)).inset(),
             BoxShadow::new(px(0.), px(1.), c.shadow(0.14)).blur_radius(px(1.)),
         ])
-        .child(mono(label, 11., c.graphite).line_height(px(14.)))
+        .child(plain_mono(label, 11., c.graphite).line_height(px(14.)))
 }
 
 /// A dashed slip: "Add word", "Add" provider.
-pub fn dashed(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
+pub fn dashed(id: impl Into<ElementId>, cx: &App) -> Pressable {
     let c = cx.paper().colors;
-    div()
-        .id(id)
+    Pressable::new(id)
         .flex()
         .items_center()
         .justify_center()
@@ -298,10 +337,12 @@ pub fn empty_state(ic: Icon, title: &str, body: &str, action: Option<AnyElement>
 }
 
 /// A text link in the accent color.
-pub fn link(id: impl Into<ElementId>, label: impl Into<SharedString>, size: f32, cx: &App) -> Stateful<Div> {
+pub fn link(id: impl Into<ElementId>, label: impl Into<SharedString>, size: f32, cx: &App) -> Pressable {
     let c = cx.paper().colors;
-    div()
-        .id(id)
+    let label: SharedString = label.into();
+    Pressable::new(id)
+        .label(label.clone())
+        .a11y_role(Role::Link)
         .flex_none()
         .cursor_pointer()
         .font_family(UI)
@@ -310,14 +351,15 @@ pub fn link(id: impl Into<ElementId>, label: impl Into<SharedString>, size: f32,
         .font_weight(FontWeight::MEDIUM)
         .text_color(c.accent)
         .hover(|s| s.opacity(0.75))
-        .child(label.into())
+        .child(label)
 }
 
 /// A small round icon button for row actions (remove, edit).
-pub fn icon_button(id: impl Into<ElementId>, ic: Icon, size: f32, cx: &App) -> Stateful<Div> {
+///
+/// Give it a name with `.label(..)`: it has no text.
+pub fn icon_button(id: impl Into<ElementId>, ic: Icon, size: f32, cx: &App) -> Pressable {
     let c = cx.paper().colors;
-    div()
-        .id(id)
+    Pressable::new(id)
         .flex()
         .flex_none()
         .items_center()
@@ -403,8 +445,13 @@ where
     use sayso_ui::fonts::Face;
     let c = cx.paper().colors;
     let on_pick = std::rc::Rc::new(on_pick);
+    let on_close: OnClose = std::rc::Rc::new(on_close);
+    // A menu with a chosen line is a choice of one: its lines are radio items.
+    let radio = items.iter().any(|i| i.selected);
+    let close = on_close.clone();
     let mut list = div()
         .id(id)
+        .role(Role::Menu)
         .flex()
         .flex_col()
         .min_w(px(200.))
@@ -416,15 +463,24 @@ where
         .shadow(paper::floating(&c))
         .locale_fonts(Face::Sans)
         .occlude()
-        .on_mouse_down_out(move |_, w, cx| on_close(w, cx));
+        .on_mouse_down_out(move |_, w, cx| close(w, cx))
+        .on_key_down(menu_keys(on_close));
     for (i, item) in items.into_iter().enumerate() {
         let f = on_pick.clone();
         let weight = if item.selected { FontWeight::SEMIBOLD } else { FontWeight::NORMAL };
-        let label = ui(item.label, 13., 16., weight, c.ink).flex_1().min_w_0();
+        let name = match &item.detail {
+            Some(d) => format!("{}, {d}", item.label),
+            None => item.label.to_string(),
+        };
+        let label = plain(item.label, 13., 16., weight, c.ink).flex_1().min_w_0();
+        let row = Pressable::new(i).label(name);
+        let row = if radio {
+            row.a11y_role(Role::MenuItemRadio).aria_toggled(if item.selected { Toggled::True } else { Toggled::False })
+        } else {
+            row.a11y_role(Role::MenuItem)
+        };
         list = list.child(
-            div()
-                .id(i)
-                .flex()
+            row.flex()
                 .items_center()
                 .gap(px(8.))
                 .h(px(30.))
@@ -438,13 +494,26 @@ where
                     Some(locale) => label.fonts_for(locale, Face::Sans),
                     None => label,
                 })
-                .when_some(item.detail, |d, detail| d.child(ui(detail, 13., 16., FontWeight::NORMAL, c.graphite).flex_none().ml(px(8.)))),
+                .when_some(item.detail, |d, detail| d.child(plain(detail, 13., 16., FontWeight::NORMAL, c.graphite).flex_none().ml(px(8.)))),
         );
         if item.rule_after {
             list = list.child(div().h(px(1.)).mx(px(10.)).my(px(4.)).bg(c.rule));
         }
     }
     deferred(anchored().snap_to_window_with_margin(px(8.)).child(div().mt(px(4.)).child(list))).with_priority(2)
+}
+
+/// The keys of a menu: Escape closes it, Up and Down move the focus.
+fn menu_keys(on_close: OnClose) -> impl Fn(&KeyDownEvent, &mut Window, &mut App) + 'static {
+    move |e, w, cx| {
+        match e.keystroke.key.as_str() {
+            "escape" => on_close(w, cx),
+            "down" => w.focus_next(cx),
+            "up" => w.focus_prev(cx),
+            _ => return,
+        }
+        cx.stop_propagation();
+    }
 }
 
 /// One line of an [`action_menu`].
@@ -474,8 +543,11 @@ where
 {
     let c = cx.paper().colors;
     let on_pick = std::rc::Rc::new(on_pick);
+    let on_close: OnClose = std::rc::Rc::new(on_close);
+    let close = on_close.clone();
     let mut list = div()
         .id(id)
+        .role(Role::Menu)
         .flex()
         .flex_col()
         .gap(px(1.))
@@ -487,7 +559,8 @@ where
         .border_color(c.rule)
         .shadow(paper::floating(&c))
         .occlude()
-        .on_mouse_down_out(move |_, w, cx| on_close(w, cx));
+        .on_mouse_down_out(move |_, w, cx| close(w, cx))
+        .on_key_down(menu_keys(on_close));
     for (i, item) in items.into_iter().enumerate() {
         let f = on_pick.clone();
         let (fg, icon_fg, hover) = if item.danger { (c.danger, c.danger, c.danger_wash) } else { (c.ink, c.graphite, c.deboss) };
@@ -495,8 +568,9 @@ where
             list = list.child(div().flex_none().h(px(1.)).mx(px(6.)).my(px(4.)).bg(c.rule));
         }
         list = list.child(
-            div()
-                .id(i)
+            Pressable::new(i)
+                .a11y_role(Role::MenuItem)
+                .label(item.label.clone())
                 .flex()
                 .flex_none()
                 .items_center()
@@ -509,7 +583,7 @@ where
                 .hover(move |s| s.bg(hover))
                 .on_click(move |_, w, cx| f(i, w, cx))
                 .child(icon(item.icon, 14., icon_fg))
-                .child(ui(item.label, 13., 16., FontWeight::MEDIUM, fg)),
+                .child(plain(item.label, 13., 16., FontWeight::MEDIUM, fg)),
         );
     }
     deferred(anchored().snap_to_window_with_margin(px(8.)).child(div().mt(px(6.)).child(list))).with_priority(2)

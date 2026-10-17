@@ -2,6 +2,9 @@ _version: 1
 
 model_picker:
   filter: "モデルを絞り込み"
+  trigger_label: "モデル: %{model}"
+  models_label: "モデル"
+  title: "モデルを選択"
   default: "デフォルト"
   thinking: "思考"
   loading: "モデルを読み込んでいます…"

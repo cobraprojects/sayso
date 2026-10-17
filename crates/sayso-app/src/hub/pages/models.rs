@@ -15,6 +15,7 @@ use sayso_core::models::{EngineKind, Family, ModelId, ModelInfo, format_size};
 use sayso_core::speech::{SpeechProvider, SpeechProviderKind};
 use sayso_core::stt::ModelStatus;
 use sayso_i18n::t;
+use sayso_ui::a11y::{A11yExt as _, LiveStatus, Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
@@ -76,7 +77,25 @@ fn interval_label(ms: u32) -> String {
 
 /// A large number over a small note, in the setup card.
 fn stat(value: String, note: String, c: &Colors) -> Div {
-    div().flex().flex_col().gap(px(2.)).child(text::title(value, 22., c).line_height(px(28.))).child(ui(note, 12., 16., FontWeight::NORMAL, c.graphite))
+    div().flex().flex_col().gap(px(2.)).child(text::figure(value, 22., c).line_height(px(28.))).child(ui(note, 12., 16., FontWeight::NORMAL, c.graphite))
+}
+
+/// [`text::title`] without a node, for the inside of a named control.
+fn plain_title(name: String, size: f32, c: &Colors) -> Div {
+    use sayso_ui::fonts::{DISPLAY, Face, LocaleFonts as _};
+    div().font_family(DISPLAY).locale_fonts(Face::Serif).text_size(px(size)).font_weight(FontWeight::SEMIBOLD).text_color(c.ink).child(name)
+}
+
+/// What a screen reader hears when the state of a model changes. It has no
+/// percent, so it changes only when the state does.
+fn status_text(name: &str, status: &ModelStatus) -> String {
+    match status {
+        ModelStatus::Downloading { .. } => t!("models.a11y.downloading", name = name),
+        ModelStatus::Optimizing => t!("models.a11y.optimizing", name = name),
+        ModelStatus::Failed { message, reason } => t!("models.a11y.failed", name = name, reason = crate::engine_text::describe(*reason, message)),
+        ModelStatus::Ready | ModelStatus::Downloaded => t!("models.a11y.ready", name = name),
+        ModelStatus::NotDownloaded => String::new(),
+    }
 }
 
 /// The tag of a model that has a role.
@@ -296,12 +315,12 @@ impl ModelsPage {
             .items_center()
             .justify_between()
             .gap(px(16.))
-            .child(kit::search_well(&self.search, 34., None, cx).w(px(300.)))
+            .child(kit::search_well_named(&self.search, Some(t!("models.search.placeholder").into()), 34., None, cx).w(px(300.)))
             .child(
                 div()
                     .relative()
                     .flex_none()
-                    .child(Button::new("sort-models", t!("models.sort.button", key = self.sort.label())).small().on_click(cx.listener(|this, _, _, cx| this.toggle_menu(OpenMenu::Sort, cx))))
+                    .child(Button::new("sort-models", t!("models.sort.button", key = self.sort.label())).small().expanded(self.menu == Some(OpenMenu::Sort)).on_click(cx.listener(|this, _, _, cx| this.toggle_menu(OpenMenu::Sort, cx))))
                     .children(menu),
             )
     }
@@ -311,13 +330,13 @@ impl ModelsPage {
         let c = cx.paper().colors;
         let active = self.sort == key;
         let label = if active { format!("{} {}", key.label(), if self.reversed { "↑" } else { "↓" }) } else { key.label() };
-        div()
-            .id(SharedString::from(format!("sort-{}", key.label())))
+        Pressable::new(SharedString::from(format!("sort-{}", key.label())))
+            .label(t!("models.a11y.sort_by", key = key.label()))
             .w(px(width))
             .flex_none()
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, _, cx| this.set_sort(key, cx)))
-            .child(caps(label, 11., if active { c.ink } else { c.graphite }))
+            .child(kit::plain(label.to_uppercase(), 11., 16., FontWeight::MEDIUM, if active { c.ink } else { c.graphite }))
     }
 
     fn open_details(&mut self, id: ModelId, window: &mut Window, cx: &mut Context<Self>) {
@@ -376,8 +395,8 @@ impl ModelsPage {
         if muted { title.italic().font_weight(FontWeight::MEDIUM).text_color(c.graphite) } else { title }
     }
 
-    fn change_button(&self, id: &'static str, menu: OpenMenu, cx: &mut Context<Self>) -> Button {
-        Button::new(id, t!("models.setup.change")).small().on_click(cx.listener(move |this, _, _, cx| this.toggle_menu(menu.clone(), cx)))
+    fn change_button(&self, id: &'static str, menu: OpenMenu, name: String, cx: &mut Context<Self>) -> Button {
+        Button::new(id, t!("models.setup.change")).a11y_label(name).expanded(self.menu.as_ref() == Some(&menu)).small().on_click(cx.listener(move |this, _, _, cx| this.toggle_menu(menu.clone(), cx)))
     }
 
     fn final_slot(&self, cx: &mut Context<Self>) -> Div {
@@ -426,6 +445,7 @@ impl ModelsPage {
             ModelStatus::NotDownloaded if remote => Some(ui(t!("models.hero.add_provider_again"), 13., 18., FontWeight::NORMAL, c.danger).into_any_element()),
             ModelStatus::NotDownloaded => Some(
                 Button::new("hero-download", if info.size_bytes == 0 { t!("models.download") } else { t!("models.download_size", size = format_size(info.size_bytes)) })
+                    .a11y_label(t!("models.a11y.download", name = info.name))
                     .primary()
                     .icon(Icon::Download)
                     .disabled(!engine)
@@ -441,7 +461,7 @@ impl ModelsPage {
                     .flex_col()
                     .gap(px(8.))
                     .child(ui(crate::engine_text::describe(*reason, message), 13., 18., FontWeight::NORMAL, c.danger))
-                    .child(Button::new("hero-retry", t!("models.try_again")).small().on_click(cx.listener(move |this, _, _, cx| {
+                    .child(Button::new("hero-retry", t!("models.try_again")).a11y_label(t!("models.a11y.try_again", name = info.name)).small().on_click(cx.listener(move |this, _, _, cx| {
                         let id = id.clone();
                         this.model.update(cx, |m, cx| m.download_model(id, cx));
                     })))
@@ -453,7 +473,7 @@ impl ModelsPage {
                     .flex_col()
                     .gap(px(6.))
                     .max_w(px(360.))
-                    .child(Progress::new(*fraction))
+                    .child(Progress::new(*fraction).label(t!("models.a11y.downloading", name = info.name)))
                     .when(*bytes_total > 0, |d| d.child(mono(t!("models.hero.bytes_of", done = format_size(*bytes_done), total = format_size(*bytes_total)), 11., c.graphite)))
                     .into_any_element(),
             ),
@@ -471,6 +491,7 @@ impl ModelsPage {
         };
 
         let menu = (self.menu == Some(OpenMenu::Final)).then(|| self.final_menu(cx).into_any_element());
+        let heard = status_text(&info.name, &status);
         div()
             .flex()
             .flex_col()
@@ -483,7 +504,9 @@ impl ModelsPage {
             .child(ui(format!("{} · {}", info.vendor, info.language_label()), 14., 20., FontWeight::NORMAL, c.graphite))
             .when_some(action, |d, a| d.child(div().flex().pt(px(4.)).child(a)))
             .child(
-                div()
+                // Download, failure, and finish: a screen reader reads each change.
+                // This row is always there, so the finish is read too.
+                LiveStatus::new("final-status", heard)
                     .flex()
                     .items_end()
                     .justify_between()
@@ -491,7 +514,7 @@ impl ModelsPage {
                     .mt_auto()
                     .pt(px(10.))
                     .child(stats)
-                    .child(div().relative().flex_none().child(self.change_button("change-final", OpenMenu::Final, cx)).children(menu)),
+                    .child(div().relative().flex_none().child(self.change_button("change-final", OpenMenu::Final, t!("models.a11y.change_final"), cx)).children(menu)),
             )
     }
 
@@ -591,6 +614,10 @@ impl ModelsPage {
                 stats = stats.child(stat(interval_label(ms), t!("models.setup.between_updates"), &c));
             }
         }
+        let heard = match &state {
+            PreviewSlot::Model(info) => status_text(&info.name, &m.status_of(&info.id)),
+            _ => String::new(),
+        };
         let button: AnyElement = if let PreviewSlot::Paused(_) = state {
             Button::new("use-automatic", t!("models.setup.use_automatic"))
                 .small()
@@ -598,7 +625,7 @@ impl ModelsPage {
                 .into_any_element()
         } else {
             let menu = (self.menu == Some(OpenMenu::Preview)).then(|| self.preview_menu(cx).into_any_element());
-            div().relative().flex_none().child(self.change_button("change-preview", OpenMenu::Preview, cx)).children(menu).into_any_element()
+            div().relative().flex_none().child(self.change_button("change-preview", OpenMenu::Preview, t!("models.a11y.change_preview"), cx)).children(menu).into_any_element()
         };
         div()
             .flex()
@@ -610,7 +637,17 @@ impl ModelsPage {
             .child(head)
             .child(self.slot_name(name, muted, &c))
             .when_some(line, |d, l| d.child(ui(l, 14., 20., FontWeight::NORMAL, c.graphite)))
-            .child(div().flex().items_end().justify_between().gap(px(16.)).mt_auto().pt(px(10.)).child(stats).child(button))
+            .child(
+                LiveStatus::new("preview-status", heard)
+                    .flex()
+                    .items_end()
+                    .justify_between()
+                    .gap(px(16.))
+                    .mt_auto()
+                    .pt(px(10.))
+                    .child(stats)
+                    .child(button),
+            )
     }
 
     /// Automatic, the streaming models, and off.
@@ -663,14 +700,15 @@ impl ModelsPage {
         }
     }
 
-    fn row(&self, info: &ModelInfo, cx: &mut Context<Self>) -> impl IntoElement {
+    /// `place` is the row and the size of its list.
+    fn row(&self, info: &ModelInfo, place: (usize, usize), cx: &mut Context<Self>) -> impl IntoElement {
         let c = cx.paper().colors;
         let m = self.model.read(cx);
         let status = m.status_of(&info.id);
         let engine = m.services.engine.is_some();
         let remote = info.is_remote();
         // A custom endpoint on this Mac is not cloud.
-        let place = match sayso_core::speech::split_model_id(&info.id).and_then(|(p, _)| m.config.speech.provider(p)) {
+        let place_label = match sayso_core::speech::split_model_id(&info.id).and_then(|(p, _)| m.config.speech.provider(p)) {
             Some(p) if !p.is_cloud() => t!("models.row.server"),
             _ => t!("models.row.cloud"),
         };
@@ -681,6 +719,7 @@ impl ModelsPage {
         let id = info.id.clone();
         let key = info.id.as_str().to_string();
         let tag = self.role_tag(&info.id, cx);
+        let name = info.name.clone();
 
         let action: AnyElement = match &status {
             ModelStatus::Downloading { fraction, .. } => div()
@@ -688,10 +727,11 @@ impl ModelsPage {
                 .flex_col()
                 .gap(px(6.))
                 .w_full()
-                .child(div().flex().justify_between().child(ui(t!("models.row.downloading"), 12., 16., FontWeight::SEMIBOLD, c.ink)).child(mono(format!("{:.0}%", fraction * 100.), 11., c.graphite)))
-                .child(Progress::new(*fraction))
+                .child(div().flex().justify_between().child(ui(t!("models.row.downloading"), 12., 16., FontWeight::SEMIBOLD, c.ink)).child(kit::plain_mono(format!("{:.0}%", fraction * 100.), 11., c.graphite)))
+                .child(Progress::new(*fraction).label(t!("models.a11y.downloading", name = name)))
                 .into_any_element(),
             ModelStatus::NotDownloaded if !remote => Button::new(SharedString::from(format!("dl-{key}")), t!("models.download"))
+                .a11y_label(t!("models.a11y.download", name = name))
                 .small()
                 .disabled(!engine)
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -704,7 +744,7 @@ impl ModelsPage {
                 .flex_col()
                 .items_end()
                 .gap(px(4.))
-                .child(Button::new(SharedString::from(format!("retry-{key}")), t!("models.try_again")).small().on_click(cx.listener(move |this, _, _, cx| {
+                .child(Button::new(SharedString::from(format!("retry-{key}")), t!("models.try_again")).a11y_label(t!("models.a11y.try_again", name = name)).small().on_click(cx.listener(move |this, _, _, cx| {
                     let id = id.clone();
                     this.model.update(cx, |m, cx| m.download_model(id, cx));
                 })))
@@ -718,11 +758,18 @@ impl ModelsPage {
                 let menu = open.then(|| self.use_menu(info.id.clone(), cx).into_any_element());
                 div()
                     .relative()
-                    .child(Button::new(SharedString::from(format!("use-{key}")), t!("models.row.use")).small().on_click(cx.listener(move |this, _, _, cx| this.toggle_menu(OpenMenu::Use(menu_id.clone()), cx))))
+                    .child(
+                        Button::new(SharedString::from(format!("use-{key}")), t!("models.row.use"))
+                            .a11y_label(t!("models.a11y.use", name = name))
+                            .expanded(open)
+                            .small()
+                            .on_click(cx.listener(move |this, _, _, cx| this.toggle_menu(OpenMenu::Use(menu_id.clone()), cx))),
+                    )
                     .children(menu)
                     .into_any_element()
             }
             _ => Button::new(SharedString::from(format!("use-{key}")), t!("models.row.use"))
+                .a11y_label(t!("models.a11y.use", name = name))
                 .small()
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let id = id.clone();
@@ -737,11 +784,29 @@ impl ModelsPage {
                 .items_center()
                 .gap(px(12.))
                 .child(meter(accuracy_level(wer), &c))
-                .child(ui(accuracy_label(wer), 13., 16., FontWeight::NORMAL, c.graphite)),
-            None => ui(t!("models.row.not_measured"), 13., 16., FontWeight::NORMAL, c.pencil),
+                .child(kit::plain(accuracy_label(wer), 13., 16., FontWeight::NORMAL, c.graphite)),
+            None => kit::plain(t!("models.row.not_measured"), 13., 16., FontWeight::NORMAL, c.pencil),
         };
+        // The details button says all that the row shows: name, maker,
+        // languages, size, accuracy, speed, and the role.
+        let size = if remote { place_label.clone() } else { size_label(info) };
+        let mut said = vec![info.name.clone(), meta.clone(), size.clone()];
+        if let Some(wer) = info.wer_percent {
+            said.push(t!("models.a11y.accuracy", value = accuracy_label(wer)));
+        }
+        if !remote {
+            said.push(t!("models.a11y.speed", n = info.speed));
+        }
+        said.extend(tag);
+        said.push(t!("models.a11y.show_details"));
+        let heard = status_text(&info.name, &status);
         let open_id = info.id.clone();
         div()
+            .id(SharedString::from(format!("model-{key}")))
+            .role(Role::ListItem)
+            .aria_label(info.name.clone())
+            .aria_position_in_set(place.0 + 1)
+            .aria_size_of_set(place.1)
             .flex()
             .flex_none()
             .items_center()
@@ -750,8 +815,8 @@ impl ModelsPage {
             .border_b_1()
             .border_color(c.rule)
             .child(
-                div()
-                    .id(SharedString::from(format!("open-{key}")))
+                Pressable::new(SharedString::from(format!("open-{key}")))
+                    .label(said.join(", "))
                     .flex()
                     .flex_1()
                     .min_w_0()
@@ -767,14 +832,15 @@ impl ModelsPage {
                             .flex_1()
                             .min_w_0()
                             .gap(px(3.))
-                            .child(text::title(info.name.clone(), 17., &c).line_height(px(22.)))
-                            .child(ui(meta, 13., 16., FontWeight::NORMAL, c.graphite).truncate()),
+                            .child(plain_title(info.name.clone(), 17., &c).line_height(px(22.)))
+                            .child(kit::plain(meta, 13., 16., FontWeight::NORMAL, c.graphite).truncate()),
                     )
                     // A narrow page has no accuracy and speed columns.
                     .when(!self.narrow, |d| d.child(accuracy.w(px(ACCURACY_W)).flex_none()).child(meter(info.speed, &c).w(px(SPEED_W))))
-                    .child(mono(if remote { place } else { size_label(info) }, 12., c.graphite).w(px(SIZE_W)).flex_none()),
+                    .child(kit::plain_mono(size, 12., c.graphite).w(px(SIZE_W)).flex_none()),
             )
-            .child(div().flex().flex_none().justify_end().w(px(ACTION_W)).child(action))
+            // A change of state (download, failure, ready) is read by a screen reader.
+            .child(LiveStatus::new("state", heard).flex().flex_none().justify_end().w(px(ACTION_W)).child(action))
     }
 
     /// The "Use" menu of a streaming model: for the final text or for the preview.
@@ -795,9 +861,10 @@ impl ModelsPage {
     }
 
     /// A list of local models: a title, a note, column captions, then the rows.
-    fn group(&self, title: String, note: String, models: &[ModelInfo], cx: &mut Context<Self>) -> Div {
+    fn group(&self, title: String, note: String, models: &[ModelInfo], cx: &mut Context<Self>) -> Stateful<Div> {
         let c = cx.paper().colors;
-        let mut table = div().flex().flex_col().child(
+        // The id keeps the captions of each group apart.
+        let table = div().id(SharedString::from(format!("group-{title}"))).flex().flex_col().child(
             div()
                 .flex()
                 .flex_none()
@@ -806,15 +873,16 @@ impl ModelsPage {
                 .pb(px(10.))
                 .border_b_1()
                 .border_color(c.rule)
-                .child(div().flex().flex_col().flex_1().min_w_0().gap(px(3.)).child(text::title(title, 20., &c).line_height(px(26.))).child(ui(note, 13., 18., FontWeight::NORMAL, c.graphite)))
+                .child(div().flex().flex_col().flex_1().min_w_0().gap(px(3.)).child(text::title(title.clone(), 20., &c).line_height(px(26.))).child(ui(note, 13., 18., FontWeight::NORMAL, c.graphite)))
                 .when(!self.narrow, |d| d.child(self.sort_caption(SortKey::Accuracy, ACCURACY_W, cx)).child(self.sort_caption(SortKey::Speed, SPEED_W, cx)))
                 .child(self.sort_caption(SortKey::Size, SIZE_W, cx))
                 .child(div().w(px(ACTION_W)).flex_none()),
         );
-        for info in models {
-            table = table.child(self.row(info, cx));
+        let mut rows = div().id(SharedString::from(format!("rows-{title}"))).role(Role::List).aria_label(title.clone()).flex().flex_col();
+        for (i, info) in models.iter().enumerate() {
+            rows = rows.child(self.row(info, (i, models.len()), cx));
         }
-        table
+        table.child(rows)
     }
 
     // -----------------------------------------------------------------------
@@ -834,7 +902,7 @@ impl ModelsPage {
         let key = info.id.as_str().to_string();
 
         let kind = if remote { t!("models.hero.cloud") } else if info.live_preview { t!("models.details.streaming") } else { t!("models.details.non_streaming") };
-        let close = kit::icon_button("close-details", Icon::Close, 10., cx).on_click(cx.listener(|this, _, _, cx| {
+        let close = kit::icon_button("close-details", Icon::Close, 10., cx).label(t!("models.a11y.close_details")).on_click(cx.listener(|this, _, _, cx| {
             this.details = None;
             cx.notify();
         }));
@@ -892,13 +960,15 @@ impl ModelsPage {
                         .items_baseline()
                         .justify_between()
                         .child(caps(t!("models.group.accuracy"), 12., c.graphite))
-                        .child(text::title(accuracy_label(wer), 22., &c)),
+                        .child(text::figure(accuracy_label(wer), 22., &c)),
                 )
                 .child(scale)
         });
 
         let fact = |label: String, value: String, muted: bool| {
             div()
+                // Two facts can have the same value ("Yes"), so the label is the id.
+                .id(SharedString::from(format!("fact-{label}")))
                 .flex()
                 .justify_between()
                 .items_baseline()
@@ -942,14 +1012,14 @@ impl ModelsPage {
         if can_delete {
             let (id, k) = (info.id.clone(), key.clone());
             bar = bar.child(if confirm {
-                Button::new("details-delete-yes", t!("models.row.delete")).small().danger().on_click(cx.listener(move |this, _, _, cx| {
+                Button::new("details-delete-yes", t!("models.row.delete")).a11y_label(t!("models.a11y.delete", name = info.name)).small().danger().on_click(cx.listener(move |this, _, _, cx| {
                     let id = id.clone();
                     this.confirm_delete = None;
                     this.details = None;
                     this.model.update(cx, |m, cx| m.delete_model(id, cx));
                 }))
             } else {
-                Button::new("details-delete", t!("models.row.delete")).small().ghost().on_click(cx.listener(move |this, _, _, cx| {
+                Button::new("details-delete", t!("models.row.delete")).a11y_label(t!("models.a11y.delete", name = info.name)).small().ghost().on_click(cx.listener(move |this, _, _, cx| {
                     this.confirm_delete = Some(k.clone());
                     cx.notify();
                 }))
@@ -962,12 +1032,12 @@ impl ModelsPage {
         match &status {
             ModelStatus::NotDownloaded if !remote => {
                 let id = info.id.clone();
-                bar = bar.child(Button::new("details-download", t!("models.download_size", size = format_size(info.size_bytes))).primary().icon(Icon::Download).disabled(!engine).on_click(cx.listener(move |this, _, _, cx| {
+                bar = bar.child(Button::new("details-download", t!("models.download_size", size = format_size(info.size_bytes))).a11y_label(t!("models.a11y.download", name = info.name)).primary().icon(Icon::Download).disabled(!engine).on_click(cx.listener(move |this, _, _, cx| {
                     let id = id.clone();
                     this.model.update(cx, |m, cx| m.download_model(id, cx));
                 })));
             }
-            ModelStatus::Downloading { fraction, .. } => bar = bar.child(div().w(px(200.)).child(Progress::new(*fraction))),
+            ModelStatus::Downloading { fraction, .. } => bar = bar.child(div().w(px(200.)).child(Progress::new(*fraction).label(t!("models.a11y.downloading", name = info.name)))),
             _ => {
                 if info.live_preview {
                     bar = bar.child(if is_preview {
@@ -975,6 +1045,7 @@ impl ModelsPage {
                     } else {
                         let id = info.id.clone();
                         Button::new("details-use-preview", t!("models.details.use_preview"))
+                            .a11y_label(t!("models.a11y.use_preview", name = info.name))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let id = id.clone();
                                 this.model.update(cx, |m, cx| m.set_preview(Some(PreviewChoice::Model(id)), cx));
@@ -988,6 +1059,7 @@ impl ModelsPage {
                     } else {
                         let id = info.id.clone();
                         Button::new("details-use-final", t!("models.details.use_final"))
+                            .a11y_label(t!("models.a11y.use_final", name = info.name))
                             .primary()
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let id = id.clone();
@@ -1001,6 +1073,10 @@ impl ModelsPage {
 
         let panel = div()
             .id("model-details")
+            .role(Role::Dialog)
+            .aria_label(info.name.clone())
+            // The focus is on the dialog, so a screen reader reads its name.
+            .track_focus(&self.focus)
             .w(px(620.))
             .max_h_full()
             .overflow_y_scroll()
@@ -1015,7 +1091,7 @@ impl ModelsPage {
             .child(facts)
             .children(source)
             .child(bar);
-        let scrim = div().id("details-scrim").absolute().inset_0().bg(c.ground.opacity(0.55)).occlude().on_click(cx.listener(|this, _, _, cx| {
+        let scrim = Pressable::new("details-scrim").label(t!("models.a11y.close_details")).tab_stop(false).absolute().inset_0().bg(c.ground.opacity(0.55)).occlude().on_click(cx.listener(|this, _, _, cx| {
             this.details = None;
             cx.notify();
         }));
@@ -1023,7 +1099,6 @@ impl ModelsPage {
             div()
                 .absolute()
                 .inset_0()
-                .track_focus(&self.focus)
                 .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
                     if ev.keystroke.key == "escape" {
                         this.details = None;
@@ -1063,7 +1138,7 @@ impl ModelsPage {
     }
 
     /// A provider's line: name, where the audio goes, the last check, and its actions.
-    fn provider_head(&self, p: &SpeechProvider, cx: &mut Context<Self>) -> Div {
+    fn provider_head(&self, p: &SpeechProvider, cx: &mut Context<Self>) -> Stateful<Div> {
         let c = cx.paper().colors;
         let cloud = p.is_cloud();
         let host = p.base_url().map(|u| u.split("://").nth(1).unwrap_or(&u).to_string()).unwrap_or_default();
@@ -1083,8 +1158,12 @@ impl ModelsPage {
                 .flex_none()
                 .items_center()
                 .gap(px(4.))
-                .child(ui(t!("models.provider.confirm_remove"), 12., 16., FontWeight::NORMAL, c.graphite))
-                .child(Button::new(SharedString::from(format!("sp-rm-yes-{}", p.id)), t!("models.provider.remove")).small().danger().on_click(cx.listener(
+                .child({
+                    // The question appears after a click, so a screen reader says it at once.
+                    let question = t!("models.provider.confirm_remove");
+                    div().id("confirm-remove").role(Role::Status).a11y_live(question.clone(), true).child(kit::plain(question, 12., 16., FontWeight::NORMAL, c.graphite))
+                })
+                .child(Button::new(SharedString::from(format!("sp-rm-yes-{}", p.id)), t!("models.provider.remove")).a11y_label(t!("models.a11y.remove_provider", name = p.name)).small().danger().on_click(cx.listener(
                     move |this, _, _, cx| {
                         this.confirm_remove = None;
                         this.tests.remove(&rid);
@@ -1104,10 +1183,10 @@ impl ModelsPage {
                 .flex_none()
                 .items_center()
                 .gap(px(4.))
-                .child(Button::new(SharedString::from(format!("sp-test-{}", p.id)), t!("models.provider.test")).small().disabled(running).on_click(cx.listener(
+                .child(Button::new(SharedString::from(format!("sp-test-{}", p.id)), t!("models.provider.test")).a11y_label(t!("models.a11y.test_provider", name = p.name)).small().disabled(running).on_click(cx.listener(
                     move |this, _, _, cx| this.test(tid.clone(), cx),
                 )))
-                .child(Button::new(SharedString::from(format!("sp-rm-{}", p.id)), t!("models.provider.remove")).small().ghost().on_click(cx.listener(
+                .child(Button::new(SharedString::from(format!("sp-rm-{}", p.id)), t!("models.provider.remove")).a11y_label(t!("models.a11y.remove_provider", name = p.name)).small().ghost().on_click(cx.listener(
                     move |this, _, _, cx| {
                         this.confirm_remove = Some(cid.clone());
                         cx.notify();
@@ -1115,6 +1194,7 @@ impl ModelsPage {
                 )))
         };
         div()
+            .id(SharedString::from(format!("provider-{}", p.id)))
             .flex()
             .flex_none()
             .items_center()
@@ -1136,7 +1216,8 @@ impl ModelsPage {
                             .child(text::title(p.name.clone(), 20., &c).line_height(px(24.)))
                             .child(kit::place_badge(cloud, cx)),
                     )
-                    .child(ui(line, 13., 16., FontWeight::NORMAL, line_color).truncate()),
+                    // The result of a check is read when it comes.
+                    .child(div().id("provider-line").role(Role::Status).a11y_live(line.clone(), false).child(kit::plain(line, 13., 16., FontWeight::NORMAL, line_color).truncate())),
             )
             .child(actions)
     }
@@ -1197,9 +1278,32 @@ impl ModelsPage {
     fn add_panel(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let c = cx.paper().colors;
         let add = self.add.as_ref()?;
-        let mut kinds = div().flex().flex_wrap().gap(px(6.));
+        let count = SpeechProviderKind::ALL.len();
+        let current = SpeechProviderKind::ALL.iter().position(|k| *k == add.kind).unwrap_or(0);
+        // A group of radio buttons: the arrow keys change the kind and move the focus.
+        let mut kinds = div()
+            .id("speech-kinds")
+            .role(Role::RadioGroup)
+            .aria_label(t!("models.add.provider"))
+            .flex()
+            .flex_wrap()
+            .gap(px(6.))
+            .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, w, cx| {
+                let next = match ev.keystroke.key.as_str() {
+                    "right" | "down" if current + 1 < count => current + 1,
+                    "left" | "up" if current > 0 => current - 1,
+                    _ => return,
+                };
+                cx.stop_propagation();
+                if let Some(a) = this.add.as_mut() {
+                    a.kind = SpeechProviderKind::ALL[next];
+                    a.error = None;
+                }
+                if next > current { w.focus_next(cx) } else { w.focus_prev(cx) }
+                cx.notify();
+            }));
         for (i, kind) in SpeechProviderKind::ALL.into_iter().enumerate() {
-            kinds = kinds.child(Chip::new(("speech-kind", i), kind.label(), add.kind == kind).on_click(cx.listener(move |this, _, _, cx| {
+            kinds = kinds.child(Chip::new(("speech-kind", i), kind.label(), add.kind == kind).role(ChipRole::Choice { index: i, count }).on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(a) = this.add.as_mut() {
                     a.kind = kind;
                     a.error = None;
@@ -1217,19 +1321,19 @@ impl ModelsPage {
                     div()
                         .flex()
                         .gap(px(12.))
-                        .child(kit::field(&t!("models.add.name"), kit::input_well(&add.name, cx), None, cx).w(px(220.)))
+                        .child(kit::field(&t!("models.add.name"), kit::input_well_named(&add.name, Some(t!("models.add.name").into()), cx), None, cx).w(px(220.)))
                         .child(
                             kit::field(
                                 &t!("models.add.base_url"),
-                                kit::input_well(&add.url, cx),
+                                kit::input_well_named(&add.url, Some(t!("models.add.base_url").into()), cx),
                                 Some(&t!("models.add.base_url_hint")),
                                 cx,
                             )
                             .flex_1(),
                         ),
                 )
-                .child(kit::field(&t!("models.add.model"), kit::input_well(&add.model_id, cx), None, cx))
-                .child(kit::field(&t!("models.add.api_key"), kit::input_well(&add.key, cx), Some(&t!("models.add.api_key_hint", computer = crate::shell::computer())), cx));
+                .child(kit::field(&t!("models.add.model"), kit::input_well_named(&add.model_id, Some(t!("models.add.model").into()), cx), None, cx))
+                .child(kit::field(&t!("models.add.api_key"), kit::secret_well_named(&add.key, t!("models.add.api_key").into(), cx), Some(&t!("models.add.api_key_hint", computer = crate::shell::computer())), cx));
         } else {
             let names: Vec<&str> = add.kind.known_models().iter().map(|m| m.name).collect();
             let key_link = add.kind.key_url().map(|url| {
@@ -1238,7 +1342,7 @@ impl ModelsPage {
                     .into_any_element()
             });
             body = body
-                .child(kit::field(&t!("models.add.api_key"), kit::input_well(&add.key, cx), None, cx).when_some(key_link, |d, l| d.child(div().flex().child(l))))
+                .child(kit::field(&t!("models.add.api_key"), kit::secret_well_named(&add.key, t!("models.add.api_key").into(), cx), None, cx).when_some(key_link, |d, l| d.child(div().flex().child(l))))
                 .child(ui(t!("models.add.adds", names = names.join(", ")), 13., 18., FontWeight::NORMAL, c.graphite));
         }
         if cloud {
@@ -1248,6 +1352,9 @@ impl ModelsPage {
             ));
         }
         let panel = div()
+            .id("add-speech-provider-form")
+            .role(Role::Group)
+            .aria_label(t!("models.add.title"))
             .flex()
             .flex_col()
             .gap(px(18.))
@@ -1297,21 +1404,23 @@ impl ModelsPage {
                 continue;
             }
             col = col.child(self.provider_head(p, cx));
-            for info in &models {
-                col = col.child(self.row(info, cx));
+            let mut rows = div().id(SharedString::from(format!("provider-models-{}", p.id))).role(Role::List).aria_label(p.name.clone()).flex().flex_col();
+            for (i, info) in models.iter().enumerate() {
+                rows = rows.child(self.row(info, (i, models.len()), cx));
             }
-            col = col.child(div().h(px(1.)).bg(c.rule));
+            col = col.child(rows).child(div().h(px(1.)).bg(c.rule));
         }
         match self.add_panel(cx) {
             Some(panel) => col.child(panel),
             None => col.child(
                 div().flex().pt(px(16.)).child(
                     kit::dashed("add-speech-provider", cx)
+                        .label(t!("models.add.title"))
                         .h(px(36.))
                         .px(px(14.))
                         .rounded(px(9.))
                         .child(icon(Icon::Plus, 12., c.graphite))
-                        .child(ui(t!("models.add.title"), 13., 16., FontWeight::MEDIUM, c.graphite))
+                        .child(kit::plain(t!("models.add.title"), 13., 16., FontWeight::MEDIUM, c.graphite))
                         .on_click(cx.listener(|this, _, window, cx| this.open_add(window, cx))),
                 ),
             ),
@@ -1339,12 +1448,12 @@ impl Render for ModelsPage {
         };
         let model = self.model.clone();
         let used_label = if used == 0 { t!("models.page.nothing_downloaded") } else { t!("models.page.used", size = format_size(used)) };
-        let disk = div()
-            .id("models-dir")
+        let disk = Pressable::new("models-dir")
+            .label(format!("{used_label} · {dir}"))
             .cursor_pointer()
             .pb(px(4.))
             .on_click(move |_, _, cx| AppModel::open_path(&model.read(cx).paths.models_dir()))
-            .child(ui(format!("{used_label} · {dir}"), 13., 16., FontWeight::NORMAL, c.graphite))
+            .child(kit::plain(format!("{used_label} · {dir}"), 13., 16., FontWeight::NORMAL, c.graphite))
             .into_any_element();
         let head = kit::page_head(
             &t!("models.page.title"),

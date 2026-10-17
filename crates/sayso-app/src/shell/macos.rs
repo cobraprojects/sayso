@@ -175,6 +175,8 @@ pub fn install_global_click_monitor(callback: impl Fn(Point) + 'static) -> Monit
 /// The menu bar icon. It has no NSMenu: a click shows the popover.
 pub struct Tray {
     icon: tray_icon::TrayIcon,
+    /// The action target for an assistive client's press of the icon.
+    _press: Option<objc2::rc::Retained<mac::StatusPress>>,
 }
 
 impl Tray {
@@ -193,6 +195,8 @@ impl Tray {
                 return None;
             }
         };
+        let on_event = std::sync::Arc::new(on_event);
+        let on_click = on_event.clone();
         tray_icon::TrayIconEvent::set_event_handler(Some(move |e: tray_icon::TrayIconEvent| {
             if let tray_icon::TrayIconEvent::Click {
                 button: tray_icon::MouseButton::Left,
@@ -200,10 +204,18 @@ impl Tray {
                 ..
             } = e
             {
-                on_event(TrayEvent::Click);
+                on_click(TrayEvent::Click);
             }
         }));
-        Some(Tray { icon })
+        // VoiceOver and Cua see the icon as a menu bar item: give it a name
+        // and make a press open the popover, as a click does.
+        let press = icon.ns_status_item().and_then(|item| {
+            mac::make_status_item_accessible(objc2::rc::Retained::as_ptr(&item) as *mut c_void, "Sayso", move || {
+                log::debug!("menu bar icon: pressed by an assistive client");
+                on_event(TrayEvent::Click)
+            })
+        });
+        Some(Tray { icon, _press: press })
     }
 
     /// The icon has no menu, so no label changes with the language.

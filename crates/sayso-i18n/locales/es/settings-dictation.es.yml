@@ -38,6 +38,7 @@ settings:
     trailing_space_detail: "Tu siguiente dictado empieza como una palabra nueva. Un texto que termina con un salto de línea no recibe espacio."
     type_in_apps: "Escribir en lugar de pegar en estas apps"
     type_in_apps_detail: "Para apps que bloquean el pegado. Más lento con textos largos."
+    remove_app: "Quitar %{name}"
     add_app: "Añadir app"
     close_list: "Cerrar la lista"
     no_other_apps: "No hay otras apps abiertas. Abre la app e inténtalo de nuevo."

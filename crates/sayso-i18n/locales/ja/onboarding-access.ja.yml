@@ -33,6 +33,7 @@ onboarding:
     allowed: "許可済み"
     blocked: "拒否"
     waiting: "待機中"
+    download_label: "%{name} のダウンロード"
   hotkeys:
     title: "キーを選択"
     lead: "キーを押してテストしてください。Sayso は、ほかのアプリが同じキーを使っていないかを確認します。"
@@ -46,6 +47,10 @@ onboarding:
     change: "変更"
     cancel: "キャンセル"
     clear: "クリア"
+    cancel_label: "キーの記録を中止"
+    change_toggle: "開始と停止のキーを変更"
+    change_ptt: "押して話すキーを変更"
+    clear_ptt: "押して話すキーを削除"
     optional: "任意"
     hold_hint: "キーを押している間、録音します。離すと挿入します。"
     use_right_option: "右 Option を使用"

@@ -11,6 +11,7 @@ use sayso_i18n::t;
 use crate::shell::{self as mac, TrayEvent, native as ns_window};
 use sayso_core::dictation::State;
 use sayso_ui::ActivePaper;
+use sayso_ui::a11y::{A11yExt as _, LiveStatus, Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::fonts::{Face, LocaleFonts as _, UI};
@@ -246,8 +247,12 @@ fn show(model: &Entity<AppModel>, cx: &mut App) {
         OPENS_ABOVE.with(|a| a.set(above));
         (x, y)
     });
+    WAS_ACTIVE.with(|a| a.set(false));
     if let Ok(Some(ns)) = handle.update(cx, |_, window, _| ns_window(window)) {
         crate::app::appkit_later(cx, move || place_and_show(ns, origin));
+    }
+    if let Some(view) = handle.downcast::<PopoverView>() {
+        let _ = view.update(cx, |this, window, cx| this.focus_first(window, cx));
     }
     let monitor = mac::install_global_click_monitor(move |p| {
         // A click on our own icon toggles; let the tray handler do it.
@@ -271,6 +276,8 @@ fn show(model: &Entity<AppModel>, cx: &mut App) {
 
 thread_local! {
     static HIDE_REQUESTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The popover had the focus since it last opened.
+    static WAS_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// When the popover last closed because it lost focus.
     static LAST_FOCUS_CLOSE: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
     /// The side of the sheet where submenus open. `show` sets it for each open.
@@ -306,6 +313,8 @@ struct SubmenuItem {
 pub struct PopoverView {
     model: Entity<AppModel>,
     submenu: Option<Submenu>,
+    /// The panel takes the focus when it opens, so Tab and Esc reach it.
+    focus: FocusHandle,
     _observe: Subscription,
     _activation: Subscription,
 }
@@ -316,7 +325,14 @@ impl PopoverView {
         // The global click monitor sees clicks in other apps only. Losing key
         // focus also covers a click into the Hub or another Sayso window.
         let activation = cx.observe_window_activation(window, |_, window, cx| {
-            if !window.is_window_active() && is_visible() {
+            if window.is_window_active() {
+                WAS_ACTIVE.with(|a| a.set(true));
+                return;
+            }
+            // A press from an assistive client opens the popover without
+            // making Sayso active (macOS refuses the activation). Close only
+            // a popover that had the focus and lost it.
+            if is_visible() && WAS_ACTIVE.with(|a| a.get()) {
                 LAST_FOCUS_CLOSE.with(|t| t.set(Some(std::time::Instant::now())));
                 hide_popover(cx);
             }
@@ -338,7 +354,22 @@ impl PopoverView {
             }
         })
         .detach();
-        Self { model, submenu: None, _observe: observe, _activation: activation }
+        Self { model, submenu: None, focus: cx.focus_handle(), _observe: observe, _activation: activation }
+    }
+
+    /// Put the focus in the panel, then on its first control. The second step
+    /// waits one frame, so the controls are in the tab order.
+    fn focus_first(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus, cx);
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(Duration::from_millis(80)).await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                if this.focus.is_focused(window) {
+                    window.focus_next(cx);
+                }
+            });
+        })
+        .detach();
     }
 
     fn act(&self, cx: &mut App, f: impl FnOnce(&mut AppModel, &mut Context<AppModel>) + 'static) {
@@ -419,11 +450,28 @@ impl PopoverView {
         if items.is_empty() {
             rows = rows.child(div().px(px(10.)).py(px(8.)).child(text::ui(empty, 13., FontWeight::NORMAL, c.graphite)));
         }
+        let count = items.len();
         for (i, item) in items.into_iter().enumerate() {
             let SubmenuItem { label, note, selected, on_pick } = item;
+            let name = match &note {
+                Some(note) => format!("{label}, {note}"),
+                None => label.clone(),
+            };
             rows = rows.child(
-                div()
-                    .id(("submenu-item", i))
+                Pressable::new(("submenu-item", i))
+                    .a11y_radio(name, selected, i, count)
+                    // Up and Down move the focus, except at the ends.
+                    .on_key_down(move |e, window, cx| match e.keystroke.key.as_str() {
+                        "down" if i + 1 < count => {
+                            cx.stop_propagation();
+                            window.focus_next(cx);
+                        }
+                        "up" if i > 0 => {
+                            cx.stop_propagation();
+                            window.focus_prev(cx);
+                        }
+                        _ => {}
+                    })
                     .flex()
                     .flex_none()
                     .items_center()
@@ -439,12 +487,17 @@ impl PopoverView {
                         cx.notify();
                     }))
                     .child(div().flex_none().w(px(14.)).when(selected, |d| d.child(icon(Icon::Check, 12., c.ink))))
-                    .child(text::ui(label, 13., if selected { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }, c.ink).flex_1().truncate())
-                    .when_some(note, |d, note| d.child(text::ui(note, 11., FontWeight::NORMAL, c.graphite).flex_none())),
+                    .child(plain(label, 13., if selected { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }, c.ink).flex_1().truncate())
+                    .when_some(note, |d, note| d.child(plain(note, 11., FontWeight::NORMAL, c.graphite).flex_none())),
             );
         }
         let mut list = div()
             .id("submenu")
+            .role(Role::RadioGroup)
+            .aria_label(match kind {
+                Submenu::Model => t!("popover.model"),
+                Submenu::Microphone => t!("popover.microphone"),
+            })
             .flex()
             .flex_col()
             .w(px(SUBMENU_W))
@@ -462,8 +515,8 @@ impl PopoverView {
             .child(rows);
         if let Some((label, route)) = footer {
             list = list.child(
-                div()
-                    .id("submenu-footer")
+                Pressable::new("submenu-footer")
+                    .label(label.clone())
                     .flex()
                     .flex_none()
                     .items_center()
@@ -481,7 +534,7 @@ impl PopoverView {
                         hide_popover(cx);
                         this.model.update(cx, |m, cx| m.open_hub(route, cx));
                     }))
-                    .child(text::ui(label, 13., FontWeight::NORMAL, c.ink)),
+                    .child(plain(label, 13., FontWeight::NORMAL, c.ink)),
             );
         }
         // The row is 12 px from the edge of the sheet. The marker sits at the
@@ -502,6 +555,7 @@ impl Render for PopoverView {
         let (status, _detail, dot) = m.engine_summary();
         let recording = matches!(m.state(), State::Recording { .. });
         let toggle_caps = m.config.hotkeys.toggle.map(|h| h.keycaps()).unwrap_or_default();
+        let toggle_keys = sayso_ui::a11y::spoken_keys(&toggle_caps);
         let history_on = m.config.history.enabled;
         let incognito = m.incognito;
         // The label and the text of the last history entry. A dictation that Sayso
@@ -541,6 +595,10 @@ impl Render for PopoverView {
         let dictate_label = if recording { t!("popover.stop_dictation") } else { t!("popover.start_dictation") };
         let mut sheet = div()
             .id("popover-sheet")
+            // A named panel with mixed controls, not a menu.
+            .role(Role::Dialog)
+            .aria_label(t!("popover.title"))
+            .track_focus(&self.focus)
             .relative()
             .flex()
             .flex_col()
@@ -554,15 +612,30 @@ impl Render for PopoverView {
             .locale_fonts(Face::Sans)
             // A click on the sheet must not reach the clear part of the window.
             .occlude()
-            .on_key_down(cx.listener(|_, e: &KeyDownEvent, _, cx| {
-                if e.keystroke.key == "escape" {
-                    hide(cx);
+            // This window has no kit root, so it binds Tab itself. Esc closes
+            // an open submenu first, then the panel.
+            .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| match e.keystroke.key.as_str() {
+                "escape" => {
+                    cx.stop_propagation();
+                    if this.submenu.take().is_some() {
+                        // The row that opened the submenu has no handle here, so the panel takes the focus.
+                        window.focus(&this.focus, cx);
+                        cx.notify();
+                    } else {
+                        hide(cx);
+                    }
                 }
+                "tab" => {
+                    cx.stop_propagation();
+                    if e.keystroke.modifiers.shift { window.focus_prev(cx) } else { window.focus_next(cx) }
+                }
+                _ => {}
             }))
             .child(grain(Grain::Sheet, px(16.), cx))
             // Status.
             .child(
-                div()
+                // The engine state changes, so a screen reader reads it when it does.
+                LiveStatus::new("popover-status", status.clone())
                     .flex()
                     .items_center()
                     .gap(px(10.))
@@ -575,8 +648,9 @@ impl Render for PopoverView {
             )
             // The big ink button.
             .child(
-                div()
-                    .id("dictate")
+                Pressable::new("dictate")
+                    .label(dictate_label.clone())
+                    .when(!toggle_keys.is_empty(), |b| b.aria_description(toggle_keys.clone()))
                     .flex()
                     .items_center()
                     .gap(px(12.))
@@ -588,7 +662,7 @@ impl Render for PopoverView {
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, _, cx| this.act(cx, |m, cx| m.toggle_dictation(cx))))
                     .child(status_dot(if c.is_dark() { c.accent } else { sayso_ui::theme::hsla(sayso_core::ink::Rgb(0x8D9BE6)) }, 12.))
-                    .child(text::ui(dictate_label, 15., FontWeight::SEMIBOLD, c.on_ink).flex_1())
+                    .child(plain(dictate_label, 15., FontWeight::SEMIBOLD, c.on_ink).flex_1())
                     .child(
                         div().flex().gap(px(3.)).children(toggle_caps.into_iter().map(|k| {
                             div()
@@ -598,7 +672,7 @@ impl Render for PopoverView {
                                 .px(px(6.))
                                 .rounded(px(5.))
                                 .bg(c.on_ink.opacity(0.12))
-                                .child(text::mono(k, 11., c.on_ink.opacity(0.85)))
+                                .child(plain(k, 11., FontWeight::MEDIUM, c.on_ink.opacity(0.85)).font_family(sayso_ui::fonts::MONO))
                         })),
                     ),
             );
@@ -622,16 +696,16 @@ impl Render for PopoverView {
                             .flex()
                             .justify_between()
                             .items_center()
-                            .child(text::caps(label, &c))
+                            .child(text::caps(label.clone(), &c))
                             .child(
-                                div()
-                                    .id("copy-last")
+                                Pressable::new("copy-last")
+                                    .label(format!("{}, {label}", t!("popover.copy")))
                                     .cursor_pointer()
                                     .on_click(move |_, _, cx| {
                                         model_copy.read(cx).copy_text(&text_copy);
                                         hide(cx);
                                     })
-                                    .child(text::ui(t!("popover.copy"), 12., FontWeight::SEMIBOLD, c.accent)),
+                                    .child(plain(t!("popover.copy"), 12., FontWeight::SEMIBOLD, c.accent)),
                             ),
                     )
                     .child(text::serif(last_text.replace('\n', " "), 14., c.ink).line_clamp(3).text_ellipsis()),
@@ -639,12 +713,35 @@ impl Render for PopoverView {
         }
 
         // Styles.
-        let mut chips = div().flex().flex_wrap().gap(px(6.));
+        // One choice of a set: a radio group. The arrow keys change the style, as in `Segmented`.
+        let style_ids: Vec<String> = styles.iter().map(|(id, ..)| id.clone()).collect();
+        let style_count = style_ids.len();
+        let style_at = style_ids.iter().position(|id| *id == active_style).unwrap_or(0);
+        let model_keys = self.model.clone();
+        let mut chips = div()
+            .id("style-chips")
+            .role(Role::RadioGroup)
+            .aria_label(t!("popover.style"))
+            .flex()
+            .flex_wrap()
+            .gap(px(6.))
+            .on_key_down(move |e, window, cx| {
+                let next = match e.keystroke.key.as_str() {
+                    "right" | "down" if style_at + 1 < style_count => style_at + 1,
+                    "left" | "up" if style_at > 0 => style_at - 1,
+                    _ => return,
+                };
+                cx.stop_propagation();
+                model_keys.update(cx, |m, cx| m.set_active_style(&style_ids[next], cx));
+                if next > style_at { window.focus_next(cx) } else { window.focus_prev(cx) }
+            });
         for (i, (id, name, color)) in styles.into_iter().enumerate() {
             let selected = id == active_style;
             let model = self.model.clone();
+            // The id comes from the style id, so it survives a change of the list.
             chips = chips.child(
-                Chip::new(("style", i), name, selected)
+                Chip::new(SharedString::from(format!("style-{id}")), name, selected)
+                    .role(ChipRole::Choice { index: i, count: style_count })
                     .dot(color)
                     .on_click(move |_, _, cx| model.update(cx, |m, cx| m.set_active_style(&id, cx))),
             );
@@ -667,9 +764,9 @@ impl Render for PopoverView {
         // hover or on a click, as a native menu does.
         let row = |kind: Submenu, id: &'static str, ic: Icon, label: String, value: String, cx: &mut Context<Self>| {
             let active = open == Some(kind);
-            div()
-                .id(id)
-                .relative()
+            Pressable::new(id)
+                .label(format!("{label}, {value}"))
+                .aria_expanded(active)
                 .flex()
                 .items_center()
                 .gap(px(10.))
@@ -686,23 +783,39 @@ impl Render for PopoverView {
                         cx.notify();
                     }
                 }))
-                .on_click(cx.listener(move |this, _, _, cx| {
+                .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
                     this.submenu = Some(kind);
                     cx.notify();
+                    if e.is_keyboard() {
+                        // Move into the list once it is drawn.
+                        cx.spawn_in(window, async move |this, cx| {
+                            cx.background_executor().timer(Duration::from_millis(80)).await;
+                            let _ = this.update_in(cx, |this, window, cx| {
+                                if this.submenu == Some(kind) {
+                                    window.focus_next(cx);
+                                }
+                            });
+                        })
+                        .detach();
+                    }
                 }))
                 .when(side == SubmenuSide::Left, |d| d.child(icon(Icon::ChevronLeft, 10., c.pencil)))
                 .child(icon(ic, 15., c.graphite))
-                .child(text::ui(label, 14., FontWeight::NORMAL, c.ink).flex_1())
-                .child(text::ui(value, 13., FontWeight::NORMAL, c.graphite).max_w(px(150.)).truncate())
+                .child(plain(label, 14., FontWeight::NORMAL, c.ink).flex_1())
+                .child(plain(value, 13., FontWeight::NORMAL, c.graphite).max_w(px(150.)).truncate())
                 .when(side == SubmenuSide::Right, |d| d.child(icon(Icon::ChevronRight, 10., c.pencil)))
         };
-        let mut model_row = row(Submenu::Model, "model-row", Icon::Models, t!("popover.model"), model_name, cx);
-        let mut mic_row = row(Submenu::Microphone, "mic-row", Icon::Mic, t!("popover.microphone"), device_name, cx);
+        let model_row = row(Submenu::Model, "model-row", Icon::Models, t!("popover.model"), model_name, cx);
+        let mic_row = row(Submenu::Microphone, "mic-row", Icon::Mic, t!("popover.microphone"), device_name, cx);
+        // The list sits next to its row, not inside the button.
+        let (mut model_list, mut mic_list) = (None, None);
         match open {
-            Some(Submenu::Model) => model_row = model_row.child(self.submenu(Submenu::Model, Some((t!("popover.manage_models"), Route::Models)), cx)),
-            Some(Submenu::Microphone) => mic_row = mic_row.child(self.submenu(Submenu::Microphone, None, cx)),
+            Some(Submenu::Model) => model_list = Some(self.submenu(Submenu::Model, Some((t!("popover.manage_models"), Route::Models)), cx).into_any_element()),
+            Some(Submenu::Microphone) => mic_list = Some(self.submenu(Submenu::Microphone, None, cx).into_any_element()),
             None => {}
         }
+        let model_row = div().id("model-row-wrap").relative().child(model_row).children(model_list);
+        let mic_row = div().id("mic-row-wrap").relative().child(mic_row).children(mic_list);
         // Incognito has no meaning while history is off, so the row is hidden then.
         let incognito_row = history_on.then(|| {
             let model = self.model.clone();
@@ -718,8 +831,13 @@ impl Render for PopoverView {
                 .border_color(c.rule)
                 .child(icon(Icon::Wordmark, 15., c.graphite).opacity(if incognito { 0.45 } else { 1.0 }))
                 .child(text::ui(t!("popover.incognito"), 14., FontWeight::NORMAL, c.ink))
-                .child(text::ui(t!("popover.not_saved"), 13., FontWeight::NORMAL, c.graphite).flex_1().when(!incognito, |d| d.invisible()))
-                .child(Switch::new("incognito", incognito).on_toggle(move |on, _, cx| model.update(cx, |m, cx| m.set_incognito(on, cx))))
+                // The note has a node only while it shows.
+                .child(if incognito {
+                    text::ui(t!("popover.not_saved"), 13., FontWeight::NORMAL, c.graphite).flex_1()
+                } else {
+                    div().flex_1()
+                })
+                .child(Switch::new("incognito", incognito).label(t!("popover.incognito")).on_toggle(move |on, _, cx| model.update(cx, |m, cx| m.set_incognito(on, cx))))
         });
         let rows = div().flex().flex_col().px(px(4.)).pt(px(6.)).child(model_row).child(mic_row).children(incognito_row);
         sheet = sheet.child(rows);
@@ -774,6 +892,11 @@ impl Render for PopoverView {
 }
 
 use gpui_kit::prelude::FluentBuilder as _;
+
+/// Text inside a control. It has no node: the control carries the name.
+fn plain(text: impl Into<SharedString>, size: f32, weight: FontWeight, color: Hsla) -> Div {
+    div().font_family(UI).text_size(px(size)).font_weight(weight).text_color(color).child(text.into())
+}
 
 #[cfg(test)]
 mod tests {

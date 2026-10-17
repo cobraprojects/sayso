@@ -8,6 +8,7 @@ use gpui_kit::*;
 use sayso_core::config::ThemeMode;
 use sayso_core::ink::{Appearance, Ink, NamedInk, Palette, Rgb};
 use sayso_i18n::t;
+use sayso_ui::a11y::{A11yExt as _, Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::{self, PaperStyled};
@@ -50,13 +51,53 @@ impl AppearanceSettings {
         Self { model, hex, custom_open: matches!(ink, Ink::Custom(_)), hex_error: false, _hex_sub: sub }
     }
 
-    fn ink_wells(&mut self, ink: Ink, cx: &mut Context<Self>) -> Div {
+    /// Choose the ink at `index`. The last index is Custom.
+    fn choose_ink(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        match NamedInk::ALL.get(index).copied() {
+            Some(named) => {
+                self.custom_open = false;
+                self.model.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.ink = Ink::Named(named)));
+            }
+            None => {
+                self.custom_open = true;
+                let current = self.model.read(cx).config.appearance.ink;
+                let rgb = current.color();
+                let hex = rgb.to_hex();
+                self.hex.update(cx, |s, cx| s.set_value(hex, window, cx));
+                self.model.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.ink = Ink::Custom(rgb)));
+            }
+        }
+    }
+
+    fn ink_wells(&mut self, ink: Ink, cx: &mut Context<Self>) -> Stateful<Div> {
         let c = cx.paper().colors;
-        let mut wells = div().flex().gap(px(20.)).pb(px(36.));
+        // One radio group. The arrow keys change the ink, as in `Segmented`.
+        let count = NamedInk::ALL.len() + 1;
+        let selected_index = match ink {
+            Ink::Named(n) => NamedInk::ALL.iter().position(|a| *a == n).unwrap_or(0),
+            Ink::Custom(_) => count - 1,
+        };
+        let mut wells = div()
+            .id("ink-wells")
+            .role(Role::RadioGroup)
+            .aria_label(t!("settings.appearance.ink"))
+            .flex()
+            .gap(px(20.))
+            .pb(px(36.))
+            .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                let next = match e.keystroke.key.as_str() {
+                    "right" | "down" if selected_index + 1 < count => selected_index + 1,
+                    "left" | "up" if selected_index > 0 => selected_index - 1,
+                    _ => return,
+                };
+                cx.stop_propagation();
+                this.choose_ink(next, window, cx);
+                if next > selected_index { window.focus_next(cx) } else { window.focus_prev(cx) }
+            }));
         for (i, named) in NamedInk::ALL.into_iter().enumerate() {
             let selected = ink == Ink::Named(named);
             wells = wells.child(
-                well_column(("ink", i), named.name(), selected, &c)
+                well_column(("ink", i), named.label(), selected, i, count)
                     .child(
                         div()
                             .flex()
@@ -69,10 +110,7 @@ impl AppearanceSettings {
                             .child(ink_drop(named.color())),
                     )
                     .child(well_label(&named.label(), selected, &c))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.custom_open = false;
-                        this.model.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.ink = Ink::Named(named)));
-                    })),
+                    .on_click(cx.listener(move |this, _, window, cx| this.choose_ink(i, window, cx))),
             );
         }
         let custom_selected = matches!(ink, Ink::Custom(_));
@@ -98,17 +136,10 @@ impl AppearanceSettings {
                 .child(icon(Icon::Plus, 16., c.graphite)),
         };
         wells.child(
-            well_column("ink-custom", "Custom", custom_selected, &c)
+            well_column("ink-custom", t!("settings.appearance.custom"), custom_selected, count - 1, count)
                 .child(custom_well)
                 .child(well_label(&t!("settings.appearance.custom"), custom_selected, &c))
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.custom_open = true;
-                    let current = this.model.read(cx).config.appearance.ink;
-                    let rgb = current.color();
-                    let hex = rgb.to_hex();
-                    this.hex.update(cx, |s, cx| s.set_value(hex, window, cx));
-                    this.model.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.ink = Ink::Custom(rgb)));
-                })),
+                .on_click(cx.listener(move |this, _, window, cx| this.choose_ink(count - 1, window, cx))),
         )
     }
 
@@ -135,7 +166,7 @@ impl AppearanceSettings {
                         .debossed(&c)
                         .font_family(sayso_ui::fonts::MONO)
                         .text_size(px(13.))
-                        .child(Input::new(&self.hex).appearance(false).w_full()),
+                        .child(Input::new(&self.hex).aria_label(t!("settings.appearance.custom_ink")).appearance(false).w_full()),
                 )
                 .child(text::ui(t!("settings.appearance.hex_hint"), 13., FontWeight::NORMAL, c.graphite)),
         );
@@ -156,17 +187,19 @@ impl AppearanceSettings {
     }
 }
 
-fn well_column(id: impl Into<ElementId>, _name: &str, _selected: bool, _c: &Colors) -> Stateful<Div> {
-    div().id(id).flex().flex_col().flex_none().items_center().gap(px(10.)).w(px(76.)).cursor_pointer()
+/// One ink in the group: a radio button named for the ink.
+fn well_column(id: impl Into<ElementId>, name: impl Into<SharedString>, selected: bool, index: usize, count: usize) -> Pressable {
+    Pressable::new(id).a11y_radio(name, selected, index, count).flex().flex_col().flex_none().items_center().gap(px(10.)).w(px(76.)).cursor_pointer()
 }
 
+/// The text of a well. Plain text: the radio button carries the name.
 fn well_label(name: &str, selected: bool, c: &Colors) -> Div {
-    text::ui(
-        name.to_string(),
-        13.,
-        if selected { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM },
-        if selected { c.ink } else { c.graphite },
-    )
+    div()
+        .font_family(sayso_ui::fonts::UI)
+        .text_size(px(13.))
+        .font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
+        .text_color(if selected { c.ink } else { c.graphite })
+        .child(name.to_string())
 }
 
 fn well_shadow(selected: bool, c: &Colors) -> Vec<BoxShadow> {
@@ -188,7 +221,7 @@ fn ink_drop(color: Rgb) -> Div {
 }
 
 /// A sheet of paper in one appearance with real colors and the ink contrast.
-fn specimen(appearance: Appearance, ink: Ink, cx: &App) -> Div {
+fn specimen(appearance: Appearance, ink: Ink, cx: &App) -> Stateful<Div> {
     let c = cx.paper().colors_for(appearance);
     let palette = Palette::new(ink, appearance);
     let ratio = palette.ink.contrast(palette.sheet);
@@ -198,7 +231,15 @@ fn specimen(appearance: Appearance, ink: Ink, cx: &App) -> Div {
     } else {
         t!("settings.appearance.specimen_fail", ratio = format!("{ratio:.1}"))
     };
+    // Each specimen has an id, so the text inside has unique ids.
+    let (id, name) = match appearance {
+        Appearance::Light => ("specimen-light", t!("settings.appearance.theme_light")),
+        Appearance::Dark => ("specimen-dark", t!("settings.appearance.theme_dark")),
+    };
     div()
+        .id(id)
+        .role(Role::Group)
+        .aria_label(name)
         .flex()
         .flex_col()
         .flex_1()
@@ -253,14 +294,18 @@ impl Render for AppearanceSettings {
             Some(false) => 2,
         };
         let (m1, m2, m3) = (self.model.clone(), self.model.clone(), self.model.clone());
-        let theme = Segmented::new("theme-mode", [t!("settings.appearance.theme_auto"), t!("settings.appearance.theme_light"), t!("settings.appearance.theme_dark")], theme_index).on_select(move |i, _, cx| {
+        let theme = Segmented::new("theme-mode", [t!("settings.appearance.theme_auto"), t!("settings.appearance.theme_light"), t!("settings.appearance.theme_dark")], theme_index)
+            .label(t!("settings.appearance.theme"))
+            .on_select(move |i, _, cx| {
             let mode = [ThemeMode::System, ThemeMode::Light, ThemeMode::Dark][i];
             m1.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.theme = mode));
         });
-        let texture = Switch::new("paper-texture", a.paper_texture).on_toggle(move |on, _, cx| {
+        let texture = Switch::new("paper-texture", a.paper_texture).label(t!("settings.appearance.texture")).on_toggle(move |on, _, cx| {
             m2.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.paper_texture = on));
         });
-        let motion = Segmented::new("reduce-motion", [t!("settings.appearance.motion_auto"), t!("settings.appearance.motion_on"), t!("settings.appearance.motion_off")], motion_index).on_select(move |i, _, cx| {
+        let motion = Segmented::new("reduce-motion", [t!("settings.appearance.motion_auto"), t!("settings.appearance.motion_on"), t!("settings.appearance.motion_off")], motion_index)
+            .label(t!("settings.appearance.reduce_motion"))
+            .on_select(move |i, _, cx| {
             let v = [None, Some(true), Some(false)][i];
             m3.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.reduce_motion = v));
         });
@@ -292,7 +337,7 @@ impl Render for AppearanceSettings {
             );
 
         let m3 = self.model.clone();
-        let title_bar = Switch::new("system-title-bar", a.system_title_bar).on_toggle(move |on, window, cx| {
+        let title_bar = Switch::new("system-title-bar", a.system_title_bar).label(t!("settings.appearance.system_title_bar")).on_toggle(move |on, window, cx| {
             m3.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.system_title_bar = on));
             // The Hub is open now, so apply the change at once.
             crate::chrome::apply(&m3.read(cx).config, window);

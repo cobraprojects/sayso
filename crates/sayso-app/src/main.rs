@@ -3,6 +3,7 @@
 // A release build on Windows is a GUI program: no console window.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod a11y;
 mod app;
 mod caption;
 mod chrome;

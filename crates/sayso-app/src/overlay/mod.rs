@@ -14,6 +14,7 @@ use sayso_core::dictation::{Notice, Stage, State};
 use sayso_core::stt::ModelStatus;
 use sayso_core::config::OverlaySize;
 use sayso_ui::ActivePaper;
+use sayso_ui::a11y::{A11yExt as _, Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::fonts::{Face, LocaleFonts as _, SERIF, UI};
@@ -386,6 +387,34 @@ impl Render for OverlayView {
             canvas(move |b, _, _| card.set(b), |_, _, _, _| {}).absolute().top_0().left_0().size_full()
         };
 
+        // What a screen reader announces: each change of the dictation state.
+        // The overlay never takes focus, so this is a live node.
+        let announce: Option<(String, bool)> = match (&blocked, &state) {
+            (Some(n), State::Idle) => Some((n.detail.as_ref().map_or(n.title.clone(), |d| format!("{}. {d}", n.title)), true)),
+            (_, State::Idle) => None,
+            (_, State::Recording { .. }) => Some((sayso_i18n::t!("overlay.a11y.recording"), false)),
+            (_, State::Processing { stage, .. }) => Some((
+                match (stage, &model_status) {
+                    (_, ModelStatus::Optimizing | ModelStatus::Downloaded) => sayso_i18n::t!("overlay.stage.loading_model"),
+                    (Stage::Enhancing, _) => sayso_i18n::t!("overlay.stage.applying_style"),
+                    (Stage::Inserting, _) => sayso_i18n::t!("overlay.stage.inserting"),
+                    _ => sayso_i18n::t!("overlay.stage.transcribing"),
+                },
+                false,
+            )),
+            (_, State::Showing { notice, .. }) => match notice {
+                Notice::Inserted { .. } => Some((sayso_i18n::t!("overlay.inserted"), false)),
+                Notice::InsertedRaw { reason } => Some((format!("{}. {reason}", sayso_i18n::t!("overlay.inserted_raw")), false)),
+                Notice::Cancelled => Some((sayso_i18n::t!("overlay.cancelled"), false)),
+                Notice::InsertFailed { reason, .. } => Some((reason.clone(), true)),
+                Notice::Error { message } => Some((message.clone(), true)),
+                Notice::NoSpeech => Some((sayso_i18n::t!("overlay.error.no_speech"), false)),
+                Notice::Discarded => None,
+            },
+        };
+        let pill = is_pill(&state);
+        let recording = matches!(state, State::Recording { .. });
+
         let body: AnyElement = if let Some(notice) = blocked.filter(|_| matches!(state, State::Idle)) {
             let ic = match notice.icon {
                 NoticeIcon::Info => Icon::Info,
@@ -516,8 +545,8 @@ impl Render for OverlayView {
                             .floating(&c)
                             .child(text::ui(sayso_i18n::t!("overlay.cancelled"), 14. * tk, FontWeight::MEDIUM, c.graphite))
                             .child(
-                                div()
-                                    .id("undo")
+                                Pressable::new("undo")
+                                    .label(sayso_i18n::t!("overlay.a11y.undo_cancel"))
                                     .flex()
                                     .items_center()
                                     .gap(z(8.))
@@ -525,7 +554,8 @@ impl Render for OverlayView {
                                     .pl(z(10.))
                                     .pr(z(12.))
                                     .rounded_full()
-                                    .ink_button(&c)
+                                    .bg(c.ink_fill)
+                                    .shadows(paper::ink_button(&c))
                                     .cursor_pointer()
                                     .on_click(move |_, _, cx| model.update(cx, |m, cx| m.undo_cancel(cx)))
                                     .child(countdown_ring(left, c.on_ink).size(z(18.)))
@@ -593,11 +623,38 @@ impl Render for OverlayView {
             .child(
                 div()
                     .id("overlay-card")
+                    // The pill is a button: a press starts or stops a
+                    // dictation. A notice is a status with its own buttons.
+                    .role(if pill { Role::Button } else { Role::Status })
+                    .aria_label(if recording {
+                        sayso_i18n::t!("overlay.a11y.stop")
+                    } else if pill {
+                        sayso_i18n::t!("overlay.a11y.start")
+                    } else {
+                        sayso_i18n::t!("overlay.a11y.name")
+                    })
+                    .when(pill, |d| {
+                        let view = cx.entity().downgrade();
+                        d.on_a11y_action(AccessibleAction::Click, move |_, _, cx| {
+                            let _ = view.update(cx, |this, cx| this.click(cx));
+                        })
+                    })
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.begin_press(window, cx)))
                     .on_mouse_down(MouseButton::Right, cx.listener(|this, _, _, cx| {
                         let model = this.model.clone();
                         crate::popover::toggle(&model, cx);
                     }))
+                    // The live node is an empty child. A live parent makes
+                    // its children live too, and the clock would be read
+                    // each second.
+                    .child(
+                        div()
+                            .id("overlay-status")
+                            .role(Role::Status)
+                            .absolute()
+                            .size_0()
+                            .when_some(announce, |d, (text, assertive)| d.aria_label(text.clone()).a11y_live(text, assertive)),
+                    )
                     .child(body),
             )
             .into_any_element()

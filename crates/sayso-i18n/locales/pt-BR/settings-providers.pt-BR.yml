@@ -10,6 +10,7 @@ settings:
     searching: "Procurando provedores de IA neste %{computer}."
     none: "Nenhum provedor configurado. Adicione um para usar estilos com IA."
     default_badge: "Padrão"
+    details: "Detalhes"
     cancel: "Cancelar"
     sign_in: "Entrar"
     remove: "Remover"

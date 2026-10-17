@@ -2,6 +2,7 @@ _version: 1
 
 popover:
   cloud: "クラウド"
+  title: "Sayso"
   system_default: "システムのデフォルト"
   no_model_downloaded: "まだモデルがダウンロードされていません。"
   no_microphone: "マイクが見つかりません。"

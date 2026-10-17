@@ -3,13 +3,14 @@
 //! Our window is the focused app, so the toggle hotkey records and the paste
 //! lands in this field. The result line comes from the newest history entry.
 
-use super::{OnboardingView, heading};
+use super::{OnboardingView, heading, live_ui};
 use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::*;
 use sayso_i18n::t;
 use sayso_core::history::{EnhanceOutcome, HistoryEntry, InsertOutcome};
 use sayso_core::stt::ModelStatus;
 use sayso_ui::fonts::{Face, LocaleFonts as _};
+use sayso_ui::a11y::{A11yExt as _, A11yText, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::{ActivePaper, Colors, text};
@@ -120,10 +121,17 @@ impl OnboardingView {
             _ => (t!("onboarding.practice.opt_after_download"), c.pencil),
         };
 
+        // The result line is one live node: a screen reader reads the state
+        // ("Listening…", "Inserted 1.2 s after you stopped") when it changes.
         let result: AnyElement = match &latest {
             Some(e) if !matches!(e.insert, InsertOutcome::Failed { .. }) => {
                 let (ok, total) = words_correct(&e.final_text);
+                let inserted = t!("onboarding.practice.inserted_after", seconds = format!("{:.1}", delay_ms(e) as f64 / 1000.0));
+                let correct = t!("onboarding.practice.words_correct", correct = ok, total = total);
                 div()
+                    .id("practice-result")
+                    .role(Role::Status)
+                    .a11y_live(format!("{inserted} {correct}"), false)
                     .flex()
                     .items_center()
                     .gap(px(10.))
@@ -139,13 +147,8 @@ impl OnboardingView {
                             .shadow(vec![BoxShadow::new(px(0.), px(-1.5), gpui_kit::black().opacity(0.3)).blur_radius(px(2.)).inset()])
                             .child(icon(Icon::Check, 11., c.on_ink)),
                     )
-                    .child(text::ui(
-                        t!("onboarding.practice.inserted_after", seconds = format!("{:.1}", delay_ms(e) as f64 / 1000.0)),
-                        13.,
-                        FontWeight::SEMIBOLD,
-                        c.ink,
-                    ))
-                    .child(text::ui(t!("onboarding.practice.words_correct", correct = ok, total = total), 13., FontWeight::NORMAL, c.graphite))
+                    .child(super::plain(inserted, 13., FontWeight::SEMIBOLD, c.ink))
+                    .child(super::plain(correct, 13., FontWeight::NORMAL, c.graphite))
                     .into_any_element()
             }
             Some(e) => {
@@ -153,7 +156,8 @@ impl OnboardingView {
                     InsertOutcome::Failed { reason } => reason.clone(),
                     _ => String::new(),
                 };
-                text::ui(
+                live_ui(
+                    "practice-result",
                     if crate::shell::HAS_INPUT_PERMISSIONS {
                         t!("onboarding.practice.paste_failed_ax", reason = reason)
                     } else {
@@ -162,10 +166,19 @@ impl OnboardingView {
                     13.,
                     FontWeight::NORMAL,
                     c.danger,
+                    true,
                 )
                 .into_any_element()
             }
-            None => text::ui(state_text.unwrap_or_else(|| t!("onboarding.practice.words_appear")), 13., FontWeight::NORMAL, c.graphite).into_any_element(),
+            None => live_ui(
+                "practice-result",
+                state_text.unwrap_or_else(|| t!("onboarding.practice.words_appear")),
+                13.,
+                FontWeight::NORMAL,
+                c.graphite,
+                false,
+            )
+            .into_any_element(),
         };
 
         let field = div()
@@ -184,7 +197,7 @@ impl OnboardingView {
                 BoxShadow::new(px(0.), px(1.), c.highlight(1.0)),
             ])
             .cursor_text()
-            .on_click(cx.listener(|this, _, window, cx| {
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
                 this.practice.field.update(cx, |s, cx| s.focus(window, cx));
             }))
             .child(
@@ -193,7 +206,7 @@ impl OnboardingView {
                     .text_size(px(20.))
                     .line_height(px(28.))
                     .text_color(c.ink)
-                    .child(Textarea::new(&self.practice.field).appearance(false).font_family(sayso_ui::fonts::DISPLAY).text_size(px(20.)).line_height(px(28.)).p_0()),
+                    .child(Textarea::new(&self.practice.field).aria_label(t!("onboarding.practice.field_label")).appearance(false).font_family(sayso_ui::fonts::DISPLAY).text_size(px(20.)).line_height(px(28.)).p_0()),
             )
             .child(result);
 
@@ -219,7 +232,7 @@ impl OnboardingView {
                             .text_size(px(22.))
                             .line_height(px(30.))
                             .text_color(c.graphite)
-                            .child(format!("“{SENTENCE}”")),
+                            .child(A11yText::new(format!("“{SENTENCE}”"))),
                     ),
             )
             .child(field)

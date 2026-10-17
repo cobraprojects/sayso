@@ -10,6 +10,7 @@ settings:
     searching: "この %{computer} で AI プロバイダを探しています。"
     none: "プロバイダが設定されていません。AI を使うスタイルを利用するには、プロバイダを追加してください。"
     default_badge: "デフォルト"
+    details: "詳細"
     cancel: "キャンセル"
     sign_in: "サインイン"
     remove: "削除"

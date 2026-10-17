@@ -9,6 +9,7 @@ use gpui_kit::*;
 use sayso_core::config::ConfigProblem;
 use sayso_platform::LoginItemState;
 use sayso_ui::ActivePaper;
+use sayso_ui::a11y::{LiveStatus, Pressable, Role};
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
 use sayso_ui::text;
@@ -121,7 +122,9 @@ impl GeneralSettings {
         }
         let setting = self.model.read(cx).config.general.language.clone();
         let InterfaceLanguages { codes, items, label, detail } = interface_languages(&setting);
-        let mut button = Button::new("interface-language", label);
+        let mut button = Button::new("interface-language", label.clone())
+            .a11y_label(format!("{}, {label}", t!("settings.general.interface_language")))
+            .expanded(self.language_menu);
         if let Some(detail) = detail {
             button = button.detail(detail);
         }
@@ -181,7 +184,7 @@ impl GeneralSettings {
         };
         let mut control = div().flex().flex_none().items_center().gap(px(12.));
         if let Some(progress) = v.progress {
-            control = control.child(div().w(px(180.)).child(Progress::new(progress)));
+            control = control.child(div().w(px(180.)).child(Progress::new(progress).label(v.title.clone())));
         }
         if checking {
             control = control.child(Button::new("update-action", t!("settings.general.checking")).small().disabled(true));
@@ -219,7 +222,8 @@ impl GeneralSettings {
                     .flex_1()
                     .min_w_0()
                     .child(
-                        div()
+                        // The title changes with the update state, so it is live.
+                        LiveStatus::new("update-status", v.title.clone())
                             .flex()
                             .items_center()
                             .gap(px(8.))
@@ -234,22 +238,23 @@ impl GeneralSettings {
                             .child(text::ui(detail, 13., FontWeight::NORMAL, c.graphite).line_height(px(16.)))
                             .when_some(notes_url, |d, url| {
                                 d.child(
-                                    div()
-                                        .id("update-notes")
+                                    Pressable::new("update-notes")
+                                        .a11y_role(Role::Link)
+                                        .label(t!("settings.general.whats_new"))
                                         .cursor_pointer()
                                         .on_click(move |_, _, _| crate::shell::open(&url))
-                                        .child(text::ui(t!("settings.general.whats_new"), 13., FontWeight::SEMIBOLD, c.accent).line_height(px(16.))),
+                                        .child(link_text(t!("settings.general.whats_new"), c.accent)),
                                 )
                             })
                             // The notes of this version, when no newer version has the link.
                             .when(whats_new, |d| {
                                 let model = self.model.clone();
                                 d.child(
-                                    div()
-                                        .id("update-whats-new")
+                                    Pressable::new("update-whats-new")
+                                        .label(t!("settings.general.whats_new"))
                                         .cursor_pointer()
                                         .on_click(move |_, _, cx| crate::whats_new::open(&model, cx))
-                                        .child(text::ui(t!("settings.general.whats_new"), 13., FontWeight::SEMIBOLD, c.accent).line_height(px(16.))),
+                                        .child(link_text(t!("settings.general.whats_new"), c.accent)),
                                 )
                             }),
                     ),
@@ -257,9 +262,11 @@ impl GeneralSettings {
             .child(control);
         let model = self.model.clone();
         let check_switch = Switch::new("update-check-switch", check)
+            .label(t!("settings.general.check_updates"))
             .on_toggle(move |on, _, cx| model.update(cx, |m, cx| m.edit_config(cx, |c| c.updates.check = on)));
         let model = self.model.clone();
         let automatic_switch = Switch::new("update-automatic-switch", automatic)
+            .label(t!("settings.general.install_automatically"))
             .on_toggle(move |on, _, cx| model.update(cx, |m, cx| m.edit_config(cx, |c| c.updates.automatic = on)));
         group(&t!("settings.general.updates"), cx)
             .child(status_row)
@@ -307,7 +314,7 @@ impl Render for GeneralSettings {
                     crate::shell::open("x-apple.systempreferences:com.apple.LoginItems-Settings.extension");
                 }))
             })
-            .child(Switch::new("launch-at-login", launch).on_toggle({
+            .child(Switch::new("launch-at-login", launch).label(t!("settings.general.launch_at_login")).on_toggle({
                 let view = cx.entity().downgrade();
                 move |on, _, cx| {
                 let _ = view.update(cx, |this, cx| {
@@ -331,7 +338,7 @@ impl Render for GeneralSettings {
         };
 
         let model = self.model.clone();
-        let dock_switch = Switch::new("dock-icon", dock).on_toggle(move |on, _, cx| {
+        let dock_switch = Switch::new("dock-icon", dock).label(t!("settings.general.dock_icon")).on_toggle(move |on, _, cx| {
             model.update(cx, |m, cx| m.edit_config(cx, |c| c.general.dock_icon_with_hub = on));
             // The Hub is open now, so apply the change at once.
             crate::shell::set_dock_icon_visible(on);
@@ -346,7 +353,7 @@ impl Render for GeneralSettings {
             .rounded(px(9.))
             .debossed(&c)
             .text_size(px(14.))
-            .child(Input::new(&self.name).appearance(false).w_full());
+            .child(Input::new(&self.name).aria_label(t!("settings.general.name")).appearance(false).w_full());
         let you = group(&t!("settings.general.you"), cx).child(row(
             &t!("settings.general.name"),
             &t!(crate::shell::os_text!("settings.general.name_detail_mac", "settings.general.name_detail_windows", "settings.general.name_detail_other")),
@@ -368,9 +375,10 @@ impl Render for GeneralSettings {
 
         if !issues.is_empty() {
             let mut list = div().flex().flex_col().gap(px(6.));
-            for issue in &issues {
+            for (i, issue) in issues.iter().enumerate() {
                 list = list.child(
                     div()
+                        .id(("config-issue", i))
                         .flex()
                         .gap(px(8.))
                         .child(text::mono(issue.field.clone(), 12., c.danger).flex_none())
@@ -448,4 +456,9 @@ fn issue_text(problem: &ConfigProblem) -> String {
         ConfigProblem::DuplicateProviderId(id) => t!("settings.general.issue.duplicate_provider_id", id = id),
         ConfigProblem::NeedsBaseUrl(id) => t!("settings.general.issue.needs_base_url", id = id),
     }
+}
+
+/// The text of a link inside a `Pressable`, which carries the name.
+fn link_text(text: String, color: Hsla) -> Div {
+    div().font_family(sayso_ui::fonts::UI).text_size(px(13.)).line_height(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(color).child(text)
 }

@@ -27,6 +27,9 @@ hub:
     theme_light: "ライト"
     theme_dark: "ダーク"
     back: "戻る"
+    main_nav: "ページ"
+    settings_sections: "設定の項目"
+    theme: "テーマ"
     open_config_file: "設定ファイルを開く"
     open_config_file_path: "設定ファイルを開く：%{path}"
     engine_status: "%{status}。%{detail}"
@@ -40,6 +43,10 @@ hub:
   duration:
     seconds: "%{seconds}秒"
     minutes_seconds: "%{minutes}分%{seconds}秒"
+  window:
+    minimize: "最小化"
+    maximize: "最大化"
+    close: "閉じる"
   place:
     cloud: "クラウド"
     local: "ローカル"

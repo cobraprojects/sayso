@@ -33,6 +33,7 @@ onboarding:
     allowed: "Allowed"
     blocked: "Blocked"
     waiting: "Waiting"
+    download_label: "Download of %{name}"
   hotkeys:
     title: "Choose your keys"
     lead: "Press the keys to test them. Sayso checks that no other app uses the same keys."
@@ -46,6 +47,10 @@ onboarding:
     change: "Change"
     cancel: "Cancel"
     clear: "Clear"
+    cancel_label: "Stop recording a key"
+    change_toggle: "Change the start and stop key"
+    change_ptt: "Change the push-to-talk key"
+    clear_ptt: "Remove the push-to-talk key"
     optional: "Optional"
     hold_hint: "Hold a key to record. Release to insert."
     use_right_option: "Use Right Option"

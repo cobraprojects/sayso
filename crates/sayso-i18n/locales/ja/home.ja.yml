@@ -36,6 +36,7 @@ home:
     unknown_app: "不明なアプリ"
   style:
     default: "デフォルトのスタイル"
+    cycle_hotkey: "スタイルを切り替えるホットキー"
     change: "スタイルを変更"
     detail_no_ai: "データは %{computer} の外に送信されません。"
     detail_needs_provider: "AI がオフのため、Sayso は文字起こしをそのまま挿入します。「設定」でプロバイダを追加してください。"

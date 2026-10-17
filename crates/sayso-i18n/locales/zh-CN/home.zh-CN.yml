@@ -36,6 +36,7 @@ home:
     unknown_app: "未知 App"
   style:
     default: "默认风格"
+    cycle_hotkey: "切换样式的快捷键"
     change: "更改风格"
     detail_no_ai: "任何数据都不会离开你的%{computer}。"
     detail_needs_provider: "AI 已关闭，因此 Sayso 会插入转录文本。请在“设置”中添加服务商。"

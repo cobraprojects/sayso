@@ -23,17 +23,19 @@ impl Render for OverlaySettings {
         let o = self.model.read(cx).config.overlay.clone();
         let (m1, m2, m3, m4, m5) = (self.model.clone(), self.model.clone(), self.model.clone(), self.model.clone(), self.model.clone());
         let size_index = OverlaySize::ALL.iter().position(|s| *s == o.size).unwrap_or(2);
-        let size = Segmented::new("overlay-size", [t!("settings.overlay.size_small"), t!("settings.overlay.size_medium"), t!("settings.overlay.size_large")], size_index).on_select(move |i, _, cx| {
+        let size = Segmented::new("overlay-size", [t!("settings.overlay.size_small"), t!("settings.overlay.size_medium"), t!("settings.overlay.size_large")], size_index)
+            .label(t!("settings.overlay.size"))
+            .on_select(move |i, _, cx| {
             let size = OverlaySize::ALL[i];
             m4.update(cx, |m, cx| m.edit_config(cx, |c| c.overlay.size = size));
         });
-        let pill = Switch::new("idle-pill", o.idle_pill).on_toggle(move |on, _, cx| {
+        let pill = Switch::new("idle-pill", o.idle_pill).label(t!("settings.overlay.idle_pill")).on_toggle(move |on, _, cx| {
             m1.update(cx, |m, cx| m.edit_config(cx, |c| c.overlay.idle_pill = on));
         });
-        let fullscreen = Switch::new("hide-fullscreen", o.hide_in_fullscreen).on_toggle(move |on, _, cx| {
+        let fullscreen = Switch::new("hide-fullscreen", o.hide_in_fullscreen).label(t!("settings.overlay.hide_fullscreen")).on_toggle(move |on, _, cx| {
             m2.update(cx, |m, cx| m.edit_config(cx, |c| c.overlay.hide_in_fullscreen = on));
         });
-        let follow = Switch::new("follow-display", o.follow_display).on_toggle(move |on, _, cx| {
+        let follow = Switch::new("follow-display", o.follow_display).label(t!("settings.overlay.follow")).on_toggle(move |on, _, cx| {
             m5.update(cx, |m, cx| m.edit_config(cx, |c| c.overlay.follow_display = on));
         });
         let follow_help = if crate::shell::can_place_windows() {
@@ -41,7 +43,7 @@ impl Render for OverlaySettings {
         } else {
             t!("settings.overlay.follow_detail")
         };
-        let preview = Switch::new("show-preview", o.show_preview).on_toggle(move |on, _, cx| {
+        let preview = Switch::new("show-preview", o.show_preview).label(t!("settings.overlay.live_preview")).on_toggle(move |on, _, cx| {
             m3.update(cx, |m, cx| m.edit_config(cx, |c| c.overlay.show_preview = on));
         });
         let reset = Button::new("reset-pill", t!("settings.overlay.reset_position")).small().on_click(cx.listener(|this, _, _, cx| {

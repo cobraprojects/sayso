@@ -1,7 +1,7 @@
 //! The home page. See the Paper board "Hub — Home".
 
 use super::ext::StyleRoute;
-use super::kit::{self, caps, fraunces, mono, ui};
+use super::kit::{self, caps, ui};
 use crate::hub::{Route, SettingsPage};
 use crate::model::AppModel;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -10,12 +10,25 @@ use sayso_core::stats::format_count;
 use sayso_i18n::t;
 use sayso_core::stt::ModelStatus;
 use sayso_platform::Permission;
+use sayso_ui::a11y::{Pressable, Role, spoken_keys};
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
+use sayso_ui::fonts::{DISPLAY, Face, LocaleFonts as _};
 use sayso_ui::{ActivePaper, Colors, text};
 
 /// A fix action for a row in the "All set" list.
 type Fix = Box<dyn Fn(&mut AppModel, &mut Context<AppModel>)>;
+
+/// A stat value in the display face with the letterpress highlight, as
+/// `text::display`, but without nodes: the stat card carries the name.
+fn stat_value(text: impl Into<SharedString>, size: f32, c: &Colors) -> Div {
+    let text: SharedString = text.into();
+    let line = (size * 1.08).round();
+    let copy = |color: Hsla, text: SharedString| {
+        div().font_family(DISPLAY).locale_fonts(Face::Serif).text_size(px(size)).line_height(px(line)).font_weight(FontWeight::SEMIBOLD).text_color(color).child(text)
+    };
+    div().relative().child(copy(c.highlight(0.85), text.clone()).absolute().top(px(1.)).left_0()).child(copy(c.ink, text))
+}
 
 pub struct HomePage {
     model: Entity<AppModel>,
@@ -81,18 +94,23 @@ impl HomePage {
         let c = cx.paper().colors;
         let s = &self.model.read(cx).stats;
         let (big, small) = if narrow { (34., 28.) } else { (40., 32.) };
+        // A stat is one node that reads as a pair: "Words today: 40".
         let stat = |label: String, value: Option<String>, first: bool| {
+            let said = format!("{label}: {}", value.clone().unwrap_or_else(|| t!("home.stats.none_yet")));
             let v = match value {
-                Some(v) => text::display(v, big, &c),
-                None => text::display(t!("home.stats.none_yet"), small, &c).opacity(0.45),
+                Some(v) => stat_value(v, big, &c),
+                None => stat_value(t!("home.stats.none_yet"), small, &c).opacity(0.45),
             };
             div()
+                .id(SharedString::from(format!("stat-{label}")))
+                .role(Role::Group)
+                .aria_label(said)
                 .flex()
                 .flex_col()
                 .flex_1()
                 .gap(px(6.))
                 .when(!first, |d| d.pl(px(24.)).border_l_1().border_color(c.rule))
-                .child(ui(label, 13., 16., FontWeight::MEDIUM, c.graphite))
+                .child(kit::plain(label, 13., 16., FontWeight::MEDIUM, c.graphite))
                 .child(v)
         };
         let max = s.week_by_day.iter().copied().max().unwrap_or(0).max(1) as f32;
@@ -107,6 +125,9 @@ impl HomePage {
             bars = bars.child(div().flex_none().w(px(8.)).h(px(h)).rounded(px(3.)).bg(color));
         }
         let mut week = div()
+            .id("stat-this-week")
+            .role(Role::Group)
+            .aria_label(format!("{}: {}", t!("home.stats.this_week"), format_count(s.words_this_week)))
             .flex()
             .items_end()
             .justify_between()
@@ -118,8 +139,8 @@ impl HomePage {
                     .flex()
                     .flex_col()
                     .gap(px(6.))
-                    .child(ui(t!("home.stats.this_week"), 13., 16., FontWeight::MEDIUM, c.graphite))
-                    .child(text::display(format_count(s.words_this_week), big, &c)),
+                    .child(kit::plain(t!("home.stats.this_week"), 13., 16., FontWeight::MEDIUM, c.graphite))
+                    .child(stat_value(format_count(s.words_this_week), big, &c)),
             )
             .child(bars);
         week.style().flex_grow = Some(1.3);
@@ -143,7 +164,7 @@ impl HomePage {
     }
 
     /// "Turn on history" and a link to the setting, for the two "History is off" states.
-    fn history_off_actions(&self, cx: &App) -> (Button, Stateful<Div>) {
+    fn history_off_actions(&self, cx: &App) -> (Button, Pressable) {
         let (on, open) = (self.model.clone(), self.model.clone());
         let turn_on = Button::new("turn-on-history", t!("home.history_off.turn_on"))
             .small()
@@ -246,9 +267,12 @@ impl HomePage {
             let app_icon = e.app.as_ref().and_then(|a| m.icons.get(&a.bundle_id));
             let model = self.model.clone();
             let id = e.id;
+            // The row opens the entry. The meta line is its description.
+            let meta = format!("{}, {}, {}", kit::clock_or_day(e.created_at), app, name);
             col = col.child(
-                div()
-                    .id(("recent", e.id as u64))
+                Pressable::new(("recent", e.id as u64))
+                    .label(e.final_text.replace('\n', " "))
+                    .aria_description(meta)
                     .flex()
                     .flex_none()
                     .items_center()
@@ -263,11 +287,11 @@ impl HomePage {
                         kit::select_history_entry(id, cx);
                         model.update(cx, |m, cx| m.navigate(Route::History, cx));
                     })
-                    .child(mono(kit::clock_or_day(e.created_at), 12., c.graphite).w(px(56.)).flex_none().whitespace_nowrap())
+                    .child(kit::plain_mono(kit::clock_or_day(e.created_at), 12., c.graphite).w(px(56.)).flex_none().whitespace_nowrap())
                     .child(AppBadge::new(app).icon(app_icon).site(m.site_icon(e)))
-                    .child(fraunces(e.final_text.replace('\n', " "), 15., 18., c.ink).flex_1().min_w_0().truncate())
+                    .child(kit::plain_fraunces(e.final_text.replace('\n', " "), 15., 18., c.ink).flex_1().min_w_0().truncate())
                     .child(StyleTag::new(name, dot).width(84.))
-                    .child(mono(kit::duration(e.duration_ms), 12., c.graphite).w(px(36.)).flex_none().text_right()),
+                    .child(kit::plain_mono(kit::duration(e.duration_ms), 12., c.graphite).w(px(36.)).flex_none().text_right()),
             );
         }
         col
@@ -298,13 +322,17 @@ impl HomePage {
         let cycle = m.config.hotkeys.cycle_style.as_ref().map(|hk| {
             div().flex().items_center().h(px(30.)).px(px(4.)).child(
                 div()
+                    .id("cycle-style-hotkey")
+                    .role(Role::Label)
+                    .aria_label(t!("home.style.cycle_hotkey"))
+                    .aria_value(spoken_keys(&hk.keycaps()))
                     .flex()
                     .items_center()
                     .h(px(22.))
                     .px(px(6.))
                     .rounded(px(5.))
                     .keycap(&c)
-                    .child(mono(hk.compact_label(), 11., c.ink).line_height(px(14.))),
+                    .child(kit::plain_mono(hk.compact_label(), 11., c.ink).line_height(px(14.))),
             )
         });
         let under = c.sheet.blend(c.deboss.opacity(0.5));
@@ -343,7 +371,7 @@ impl HomePage {
                             .child(caps(t!("home.style.default"), 12., c.graphite))
                             .when_some(badge, |d, b| d.child(b)),
                     )
-                    .child(text::display(style.display_name(), 28., &c))
+                    .child(text::letterpress(style.display_name(), 28., (28f32 * 1.08).round(), 2, &c))
                     .child(ui(description, 14., 20., FontWeight::NORMAL, c.graphite))
                     .child(div().flex().gap(px(6.)).pt(px(4.)).child(change).when_some(cycle, |d, k| d.child(k))),
             )
@@ -359,63 +387,78 @@ impl HomePage {
         let model_ok = m.model_ready();
         let all_ok = mic_ok && ax_ok && model_ok;
 
-        let fix = |id: &'static str, label: String, f: Fix| {
+        // A row is one node that reads as a pair: "Microphone: Allowed". A row
+        // that needs a fix says so, and its link has the name of the row.
+        let needs = t!("home.checklist.needs_attention");
+        let fix = |id: &'static str, label: String, row_name: String, f: Fix| -> (AnyElement, String) {
             let model = self.model.clone();
-            kit::link(id, label, 13., cx).on_click(move |_, _, cx| model.update(cx, |m, cx| f(m, cx)))
+            let link = kit::link(id, label.clone(), 13., cx)
+                .label(format!("{label}: {row_name}"))
+                .on_click(move |_, _, cx| model.update(cx, |m, cx| f(m, cx)));
+            (link.into_any_element(), needs.clone())
         };
-        let row = |ok: bool, label: String, value: AnyElement| {
+        let row = |key: &'static str, ok: bool, label: String, (value, status): (AnyElement, String)| {
             div()
+                .id(key)
+                .role(Role::Group)
+                .aria_label(format!("{label}: {status}"))
                 .flex()
                 .items_center()
                 .gap(px(10.))
                 .child(kit::check_dot(ok, cx))
-                .child(ui(label, 14., 18., FontWeight::NORMAL, c.ink).flex_1())
+                .child(kit::plain(label, 14., 18., FontWeight::NORMAL, c.ink).flex_1())
                 .child(value)
         };
-        let plain = |s: String| ui(s, 13., 16., FontWeight::NORMAL, c.graphite).truncate().max_w(px(170.)).into_any_element();
+        let shown = |s: String| -> (AnyElement, String) {
+            (kit::plain(s.clone(), 13., 16., FontWeight::NORMAL, c.graphite).truncate().max_w(px(170.)).into_any_element(), s)
+        };
+        let mic_name = t!("home.checklist.microphone");
+        let ax_name = crate::shell::permission_name(Permission::Accessibility);
+        let model_name = t!("home.checklist.model");
+        let dict_name = t!("home.checklist.dictionary");
 
         let mic = if mic_ok {
-            plain(m.microphone_name().unwrap_or_else(|| t!("home.checklist.allowed")))
+            shown(m.microphone_name().unwrap_or_else(|| t!("home.checklist.allowed")))
         } else {
-            fix("fix-mic", t!("home.checklist.allow"), Box::new(|m, _| m.fix_permission(Permission::Microphone))).into_any_element()
+            fix("fix-mic", t!("home.checklist.allow"), mic_name.clone(), Box::new(|m, _| m.fix_permission(Permission::Microphone)))
         };
         let ax = if ax_ok {
-            plain(t!("home.checklist.allowed"))
+            shown(t!("home.checklist.allowed"))
         } else {
-            fix("fix-ax", t!("home.checklist.allow"), Box::new(|m, _| m.fix_permission(Permission::Accessibility))).into_any_element()
+            fix("fix-ax", t!("home.checklist.allow"), ax_name.clone(), Box::new(|m, _| m.fix_permission(Permission::Accessibility)))
         };
         let model_value = match &status {
             ModelStatus::NotDownloaded if active.is_remote() => {
-                fix("fix-model", t!("home.checklist.open_models"), Box::new(|m, cx| m.navigate(Route::Models, cx))).into_any_element()
+                fix("fix-model", t!("home.checklist.open_models"), model_name.clone(), Box::new(|m, cx| m.navigate(Route::Models, cx)))
             }
-            ModelStatus::Ready | ModelStatus::Downloaded => plain(active.name.clone()),
-            ModelStatus::Optimizing => plain(crate::shell::optimizing()),
-            ModelStatus::Downloading { fraction, .. } => plain(t!("home.checklist.downloading", percent = format!("{:.0}", fraction * 100.))),
+            ModelStatus::Ready | ModelStatus::Downloaded => shown(active.name.clone()),
+            ModelStatus::Optimizing => shown(crate::shell::optimizing()),
+            ModelStatus::Downloading { fraction, .. } => shown(t!("home.checklist.downloading", percent = format!("{:.0}", fraction * 100.))),
             ModelStatus::NotDownloaded => {
-                fix("fix-model", t!("home.checklist.download"), Box::new(|m, cx| m.navigate(Route::Models, cx))).into_any_element()
+                fix("fix-model", t!("home.checklist.download"), model_name.clone(), Box::new(|m, cx| m.navigate(Route::Models, cx)))
             }
-            ModelStatus::Failed { .. } => fix("fix-model", t!("home.checklist.open_models"), Box::new(|m, cx| m.navigate(Route::Models, cx))).into_any_element(),
+            ModelStatus::Failed { .. } => fix("fix-model", t!("home.checklist.open_models"), model_name.clone(), Box::new(|m, cx| m.navigate(Route::Models, cx))),
         };
         let words = m.words.len();
         let rules = m.replacements.len();
         let dict = if words + rules == 0 {
-            fix("fix-dict", t!("home.checklist.add_words"), Box::new(|m, cx| m.navigate(Route::Dictionary, cx))).into_any_element()
+            fix("fix-dict", t!("home.checklist.add_words"), dict_name.clone(), Box::new(|m, cx| m.navigate(Route::Dictionary, cx)))
         } else {
-            plain(t!("home.checklist.dictionary_summary", words = t!("home.checklist.words", count = words), rules = t!("home.checklist.rules", count = rules)))
+            shown(t!("home.checklist.dictionary_summary", words = t!("home.checklist.words", count = words), rules = t!("home.checklist.rules", count = rules)))
         };
         let mut list = div()
             .flex()
             .flex_col()
             .gap(px(12.))
             .px(px(4.))
-            .child(caps(if all_ok { t!("home.checklist.all_set") } else { t!("home.checklist.needs_attention") }, 12., c.graphite))
-            .child(row(mic_ok, t!("home.checklist.microphone"), mic))
-            .when(crate::shell::HAS_INPUT_PERMISSIONS, |d| d.child(row(ax_ok, crate::shell::permission_name(Permission::Accessibility), ax)))
-            .child(row(model_ok, t!("home.checklist.model"), model_value))
-            .child(row(true, t!("home.checklist.dictionary"), dict));
+            .child(text::caps_heading(if all_ok { t!("home.checklist.all_set") } else { t!("home.checklist.needs_attention") }, 2, &c).line_height(px(16.)))
+            .child(row("check-mic", mic_ok, mic_name, mic))
+            .when(crate::shell::HAS_INPUT_PERMISSIONS, |d| d.child(row("check-ax", ax_ok, ax_name, ax)))
+            .child(row("check-model", model_ok, model_name, model_value))
+            .child(row("check-dict", true, dict_name, dict));
         // A cloud model does not need the engine for its final pass.
         if !active.is_remote() && (m.services.engine.is_none() || m.engine_down.is_some()) {
-            list = list.child(row(false, t!("home.checklist.engine"), plain(t!("home.checklist.engine_stopped"))));
+            list = list.child(row("check-engine", false, t!("home.checklist.engine"), shown(t!("home.checklist.engine_stopped"))));
         }
         list
     }

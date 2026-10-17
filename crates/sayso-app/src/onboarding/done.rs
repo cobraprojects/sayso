@@ -1,9 +1,8 @@
 //! Step 7: done, with a short tour. "Open Sayso" finishes onboarding.
 
-use super::OnboardingView;
+use super::{OnboardingView, status_ui};
 use gpui_kit::*;
 use sayso_i18n::t;
-use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper;
@@ -76,15 +75,6 @@ impl OnboardingView {
             None => div().child(text::ui(t!("onboarding.done.not_set"), 12., FontWeight::NORMAL, c.graphite)),
         };
 
-        let title = |color: Hsla| {
-            div()
-                .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
-                .text_size(px(48.))
-                .line_height(px(58.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(color)
-                .child(t!("onboarding.done.title"))
-        };
         div()
             .flex()
             .flex_col()
@@ -101,7 +91,7 @@ impl OnboardingView {
                     .flex_col()
                     .items_center()
                     .gap(px(10.))
-                    .child(div().relative().child(title(c.highlight(0.85)).absolute().top(px(1.)).left_0()).child(title(c.ink)))
+                    .child(text::letterpress(t!("onboarding.done.title"), 48., 58., 1, &c))
                     .child(text::ui(lead, 16., FontWeight::NORMAL, c.graphite).line_height(px(24.)).text_center().w(px(480.))),
             )
             .child(
@@ -119,7 +109,8 @@ impl OnboardingView {
                     .items_center()
                     .gap(px(14.))
                     .w_full()
-                    .child(text::ui(message, 13., FontWeight::NORMAL, c.graphite).line_height(px(19.)).flex_1())
+                    // The import state is live: a screen reader reads when it ends.
+                    .child(status_ui("pindrop-status", message, 13., FontWeight::NORMAL, c.graphite).line_height(px(19.)).flex_1())
                     .child(Button::new("import-pindrop", t!("onboarding.done.import_pindrop")).small().disabled(running).on_click(cx.listener(|this, _, _, cx| {
                         this.model.update(cx, |m, cx| m.import_pindrop(cx));
                     })))

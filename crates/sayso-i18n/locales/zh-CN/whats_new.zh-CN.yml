@@ -6,3 +6,4 @@ whats_new:
   heading: "SAYSO %{version} 新功能"
   all_changes: "在 GitHub 上查看所有更改"
   done: "完成"
+  list_label: "新功能"

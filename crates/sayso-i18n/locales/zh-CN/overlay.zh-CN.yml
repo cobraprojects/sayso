@@ -54,3 +54,9 @@ overlay:
     invalid_output: "%{provider} 返回的文本格式不正确"
     refused: "%{provider} 拒绝了请求"
     failed: "%{provider} 运行失败"
+  a11y:
+    name: "Sayso 听写"
+    start: "开始听写"
+    stop: "停止听写"
+    recording: "正在录音"
+    undo_cancel: "撤销取消"

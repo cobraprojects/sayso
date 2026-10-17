@@ -6,3 +6,4 @@ whats_new:
   heading: "SAYSO %{version} の新機能"
   all_changes: "GitHub ですべての変更を見る"
   done: "完了"
+  list_label: "新機能"

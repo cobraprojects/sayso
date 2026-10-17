@@ -2,6 +2,9 @@ _version: 1
 
 model_picker:
   filter: "Filter models"
+  trigger_label: "Model: %{model}"
+  models_label: "Models"
+  title: "Choose a model"
   default: "Default"
   thinking: "Thinking"
   loading: "Loading models…"

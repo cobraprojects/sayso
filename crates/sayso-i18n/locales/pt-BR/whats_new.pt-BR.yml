@@ -6,3 +6,4 @@ whats_new:
   heading: "NOVIDADES DO SAYSO %{version}"
   all_changes: "Ver todas as mudanças no GitHub"
   done: "Concluir"
+  list_label: "Novidades"

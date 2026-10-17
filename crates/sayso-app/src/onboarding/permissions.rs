@@ -1,12 +1,13 @@
 //! Step 4: microphone and accessibility on one screen, with live detection
 //! and the mic test inline.
 
-use super::{OnboardingView, card, heading, ring};
+use super::{OnboardingView, card, heading, live_ui, ring};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_i18n::t;
 use sayso_core::stt::ModelStatus;
 use sayso_platform::{Permission, PermissionState};
+use sayso_ui::a11y::LiveStatus;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
 use sayso_ui::{ActivePaper, Colors, text};
@@ -57,7 +58,7 @@ impl OnboardingView {
                     .rounded(px(12.))
                     .debossed(&c);
                 if let Some(e) = &self.meter_error {
-                    mic_card.child(well.child(text::ui(t!("onboarding.permissions.mic_failed", error = e), 12., FontWeight::NORMAL, c.danger)))
+                    mic_card.child(well.child(live_ui("mic-error", t!("onboarding.permissions.mic_failed", error = e), 12., FontWeight::NORMAL, c.danger, true)))
                 } else {
                     let reduce = cx.paper().reduce_motion;
                     if self.meter.is_some() && !reduce {
@@ -110,7 +111,7 @@ impl OnboardingView {
                         // `request` shows the macOS prompt, which adds Sayso to the list and opens Settings.
                         this.model.update(cx, |m, _| m.request_permission(Permission::Accessibility));
                     })))
-                    .child(Button::new("why-ax", t!("onboarding.permissions.why_ax")).ghost().on_click(cx.listener(|this, _, _, cx| {
+                    .child(Button::new("why-ax", t!("onboarding.permissions.why_ax")).ghost().expanded(self.show_why).on_click(cx.listener(|this, _, _, cx| {
                         this.show_why = !this.show_why;
                         cx.notify();
                     }))),
@@ -145,6 +146,12 @@ impl OnboardingView {
             .child(text::ui(info.name.clone(), 13., FontWeight::NORMAL, c.graphite).flex_none())
             .child(
                 div()
+                    .id("permissions-download")
+                    .role(Role::ProgressIndicator)
+                    .aria_label(t!("onboarding.permissions.download_label", name = info.name))
+                    .aria_min_numeric_value(0.)
+                    .aria_max_numeric_value(100.)
+                    .aria_numeric_value((fraction.clamp(0.0, 1.0) * 100.).round() as f64)
                     .flex()
                     .flex_1()
                     .h(px(4.))
@@ -182,25 +189,34 @@ impl OnboardingView {
 }
 
 fn card_head(title: &str, state: PermissionState, c: &Colors) -> Div {
+    // The state is one live node: a screen reader says "Allowed" when the
+    // user grants the permission.
+    let word = match state {
+        PermissionState::Granted => t!("onboarding.permissions.allowed"),
+        PermissionState::Denied => t!("onboarding.permissions.blocked"),
+        PermissionState::NotDetermined => t!("onboarding.permissions.waiting"),
+    };
     let badge = match state {
-        PermissionState::Granted => super::check_line_w(t!("onboarding.permissions.allowed"), FontWeight::SEMIBOLD, c),
+        PermissionState::Granted => super::check_line_w(word.clone(), FontWeight::SEMIBOLD, c),
         PermissionState::Denied => div()
             .flex()
             .items_center()
             .gap(px(6.))
             .child(crate::hub::settings::kit::halo_dot(8., c.danger, 3., 0.16))
-            .child(text::ui(t!("onboarding.permissions.blocked"), 13., FontWeight::SEMIBOLD, c.danger)),
+            .child(text::ui(word.clone(), 13., FontWeight::SEMIBOLD, c.danger)),
         PermissionState::NotDetermined => div()
             .flex()
             .items_center()
             .gap(px(6.))
             .child(crate::hub::settings::kit::halo_dot(8., c.accent, 3., 0.16))
-            .child(text::ui(t!("onboarding.permissions.waiting"), 13., FontWeight::SEMIBOLD, c.accent)),
+            .child(text::ui(word.clone(), 13., FontWeight::SEMIBOLD, c.accent)),
     };
     div()
         .flex()
         .items_center()
         .justify_between()
         .child(text::title(title.to_string(), 20., c).line_height(px(24.)))
-        .child(badge)
+        .child(
+            LiveStatus::new(SharedString::from(format!("permission-{title}")), format!("{title}: {word}")).child(badge),
+        )
 }

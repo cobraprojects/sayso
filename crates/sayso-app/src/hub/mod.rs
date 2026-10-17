@@ -11,7 +11,9 @@ use crate::model::AppModel;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_ui::fonts::{Face, LocaleFonts as _};
+use sayso_i18n::t;
 use sayso_ui::ActivePaper;
+use sayso_ui::a11y::Role;
 use sayso_ui::texture::{Grain, grain};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -49,6 +51,18 @@ impl SettingsPage {
         SettingsPage::Permissions,
         SettingsPage::Advanced,
     ];
+}
+
+/// The name of the page of a route, as the sidebar shows it.
+fn route_title(route: Route) -> String {
+    match route {
+        Route::Home => t!("hub.nav.home"),
+        Route::History => t!("hub.nav.history"),
+        Route::Dictionary => t!("hub.nav.dictionary"),
+        Route::Styles => t!("hub.nav.styles"),
+        Route::Models => t!("hub.nav.models"),
+        Route::Settings(page) => sidebar::settings_label(page).0,
+    }
 }
 
 pub struct HubView {
@@ -151,7 +165,8 @@ impl Render for HubView {
                             .shadow(sayso_ui::paper::sheet(&c))
                             .overflow_hidden()
                             .child(grain(Grain::Sheet, px(14.), cx))
-                            .child(div().relative().size_full().child(page)),
+                            // The page is a named group, so a screen reader says where it is.
+                            .child(div().id("page").role(Role::Group).aria_label(route_title(route)).relative().size_full().child(page)),
                     ),
             )
             .when(custom, |d| {

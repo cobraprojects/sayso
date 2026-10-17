@@ -9,6 +9,7 @@ use gpui_kit::*;
 use sayso_i18n::t;
 use sayso_platform::{CaptureHandle, Permission, PermissionState};
 use sayso_ui::ActivePaper;
+use sayso_ui::a11y::{A11yExt as _, Pressable, Role};
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
 use sayso_ui::text;
@@ -105,12 +106,35 @@ impl Render for AudioSettings {
             },
         )];
         options.extend(devices.iter().map(|d| (Some(d.id.clone()), d.name.clone(), String::new())));
-        let mut list = div().flex().flex_col();
+        // One radio group. The arrow keys change the device, as in `Segmented`.
+        let count = options.len();
+        let selected_index = options.iter().position(|(v, _, _)| *v == current_id).unwrap_or(0);
+        let values: Vec<Option<String>> = options.iter().map(|(v, _, _)| v.clone()).collect();
+        let mut list = div()
+            .id("devices")
+            .role(Role::RadioGroup)
+            .aria_label(t!("settings.audio.input"))
+            .flex()
+            .flex_col()
+            .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                let next = match e.keystroke.key.as_str() {
+                    "right" | "down" if selected_index + 1 < count => selected_index + 1,
+                    "left" | "up" if selected_index > 0 => selected_index - 1,
+                    _ => return,
+                };
+                cx.stop_propagation();
+                let v = values[next].clone();
+                this.model.update(cx, |m, cx| m.edit_config(cx, |c| c.audio.input_device = v));
+                if next > selected_index { window.focus_next(cx) } else { window.focus_prev(cx) }
+            }));
         for (i, (value, name, desc)) in options.into_iter().enumerate() {
             let selected = value == current_id;
+            // The row id comes from the device id, so it survives a change of the list.
+            let row_id = SharedString::from(format!("device-{}", value.as_deref().unwrap_or("default")));
+            let label = if desc.is_empty() { name.clone() } else { format!("{name}, {desc}") };
             list = list.child(
-                div()
-                    .id(("device", i))
+                Pressable::new(row_id)
+                    .a11y_radio(label, selected, i, count)
                     .flex()
                     .items_center()
                     .gap(px(14.))
@@ -128,8 +152,26 @@ impl Render for AudioSettings {
                             .flex()
                             .flex_col()
                             .gap(px(2.))
-                            .child(text::ui(name, 15., if selected { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM }, c.ink).line_height(px(18.)))
-                            .when(!desc.is_empty(), |d| d.child(text::ui(desc, 13., FontWeight::NORMAL, c.graphite).line_height(px(16.)))),
+                            .child(
+                                div()
+                                    .font_family(sayso_ui::fonts::UI)
+                                    .text_size(px(15.))
+                                    .line_height(px(18.))
+                                    .font_weight(if selected { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
+                                    .text_color(c.ink)
+                                    .child(name),
+                            )
+                            .when(!desc.is_empty(), |d| {
+                                d.child(
+                                    div()
+                                        .font_family(sayso_ui::fonts::UI)
+                                        .text_size(px(13.))
+                                        .line_height(px(16.))
+                                        .font_weight(FontWeight::NORMAL)
+                                        .text_color(c.graphite)
+                                        .child(desc),
+                                )
+                            }),
                     ),
             );
         }
@@ -193,17 +235,17 @@ impl Render for AudioSettings {
         };
 
         let (m1, m2, m3) = (self.model.clone(), self.model.clone(), self.model.clone());
-        let preview = Switch::new("live-preview", live_preview).on_toggle(move |on, _, cx| {
+        let preview = Switch::new("live-preview", live_preview).label(t!("settings.audio.live_preview")).on_toggle(move |on, _, cx| {
             m1.update(cx, |m, cx| m.edit_config(cx, |c| c.dictation.live_preview = on));
         });
-        let pause = Switch::new("pause-media", pause_media).on_toggle(move |on, _, cx| {
+        let pause = Switch::new("pause-media", pause_media).label(t!("settings.audio.pause_media")).on_toggle(move |on, _, cx| {
             m3.update(cx, |m, cx| m.edit_config(cx, |c| c.audio.pause_media = on));
         });
         let index = LENGTHS.iter().position(|l| *l >= max_s).unwrap_or(LENGTHS.len() - 1);
         let length = kit::stepper("max-length", format_length(max_s), move |d, _, cx| {
             let i = (index as i32 + d).clamp(0, LENGTHS.len() as i32 - 1) as usize;
             m2.update(cx, |m, cx| m.edit_config(cx, |c| c.dictation.max_duration_s = LENGTHS[i]));
-        }, cx);
+        }, cx).label(t!("settings.audio.max_length"));
         let preview_desc = if has_preview_model {
             t!("settings.audio.live_preview_detail")
         } else {

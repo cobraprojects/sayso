@@ -96,3 +96,12 @@ styles:
     add_bundle_id: "バンドル ID を追加"
     add_app_id: "アプリ ID を追加"
     add_site: "サイトを追加"
+  a11y:
+    choices: "アプリとサイト"
+    close: "閉じる"
+    default_style: "既定のスタイル"
+    edit: "%{name} を編集"
+    make_default: "%{name} を既定にする"
+    remove_app: "%{name} を削除"
+    remove_site: "%{name} を削除"
+    show_apps: "すべてのアプリを表示"

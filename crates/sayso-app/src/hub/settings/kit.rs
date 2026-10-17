@@ -10,13 +10,14 @@ use sayso_i18n::t;
 use sayso_platform::PermissionState;
 use sayso_ui::ActivePaper;
 use sayso_ui::assets::Icon;
+use sayso_ui::a11y::{A11yExt as _, Pressable, Role};
 use sayso_ui::components::*;
-use sayso_ui::paper::PaperStyled;
 use sayso_ui::text;
 use std::cell::Cell;
 use std::rc::Rc;
 
-type OnDelta = Rc<dyn Fn(i32, &mut Window, &mut App)>;
+type OnRelease = Rc<dyn Fn(&mut Window, &mut App)>;
+type OnFraction = Rc<dyn Fn(f32, &mut Window, &mut App)>;
 
 /// A settings page: title, subtitle, then the body, in a scrolling column.
 pub fn page(id: &'static str, title: &str, subtitle: &str, body: impl IntoElement, cx: &App) -> Div {
@@ -44,6 +45,7 @@ pub fn body() -> Div {
 }
 
 /// A group of rows under a small caps label.
+#[track_caller]
 pub fn group(title: &str, cx: &App) -> Div {
     div().flex().flex_col().w_full().min_w_0().pt(px(8.)).child(crate::widgets::section(title, cx))
 }
@@ -79,62 +81,32 @@ pub fn row_s(title: String, description: String, control: impl IntoElement, cx: 
         .child(control)
 }
 
+/// The focus target of the key recorder: an empty element with a name. While
+/// the recorder listens, the focus is here, so a screen reader reads "Press
+/// keys to record". Its parent handles the keys.
+pub fn key_listener(id: &'static str, focus: &FocusHandle) -> Stateful<Div> {
+    div().id(id).role(Role::Group).aria_label(t!("settings.common.press_keys")).absolute().size_0().track_focus(focus)
+}
+
 /// A banner with vertical room, for use between rows.
+#[track_caller]
 pub fn banner(kind: BannerKind, text: impl Into<SharedString>, cx: &App) -> Div {
     div().w_full().min_w_0().py(px(8.)).child(notice(kind, text, cx))
 }
 
-/// The − value + stepper, with room for values such as "10 min".
-pub fn stepper(id: impl Into<ElementId>, value: impl Into<SharedString>, on_change: impl Fn(i32, &mut Window, &mut App) + 'static, cx: &App) -> Stateful<Div> {
-    let c = cx.paper().colors;
-    let f = Rc::new(on_change);
-    let step = |id: &'static str, label: &'static str, delta: i32, f: OnDelta| {
-        div()
-            .id(id)
-            .flex()
-            .items_center()
-            .justify_center()
-            .size(px(26.))
-            .rounded(px(6.))
-            .cursor_pointer()
-            .text_size(px(15.))
-            .text_color(c.graphite)
-            .hover(|s| s.bg(c.sheet_raised).text_color(c.ink))
-            .child(label)
-            .on_click(move |_, w, cx| f(delta, w, cx))
-    };
-    div()
-        .id(id)
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(2.))
-        .h(px(32.))
-        .px(px(3.))
-        .rounded(px(9.))
-        .debossed(&c)
-        .child(step("dec", "−", -1, f.clone()))
-        .child(
-            div()
-                .min_w(px(40.))
-                .px(px(4.))
-                .flex()
-                .justify_center()
-                .whitespace_nowrap()
-                .font_family(sayso_ui::fonts::MONO)
-                .text_size(px(13.))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(c.ink)
-                .child(value.into()),
-        )
-        .child(step("inc", "+", 1, f))
+/// The − value + stepper, with room for values such as "10 min". Give it
+/// the row title with `.label(...)`.
+pub fn stepper(id: impl Into<ElementId>, value: impl Into<SharedString>, on_change: impl Fn(i32, &mut Window, &mut App) + 'static, _cx: &App) -> Stepper {
+    Stepper::new(id, value).on_change(on_change)
 }
 
 /// The key well: keycaps plus "Change", as in the Dictation design.
-pub fn key_well(id: impl Into<ElementId>, hotkey: &Hotkey, on_change: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, cx: &App) -> Stateful<Div> {
+/// `label` is the title of the row: "Toggle hotkey".
+pub fn key_well(id: impl Into<ElementId>, label: &str, hotkey: &Hotkey, on_change: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, cx: &App) -> Pressable {
     let c = cx.paper().colors;
-    div()
-        .id(id)
+    let keys = sayso_ui::a11y::spoken_keys(&hotkey.keycaps());
+    Pressable::new(id)
+        .label(t!("settings.common.change_hotkey", name = label, keys = keys))
         .flex()
         .flex_none()
         .items_center()
@@ -142,7 +114,8 @@ pub fn key_well(id: impl Into<ElementId>, hotkey: &Hotkey, on_change: impl Fn(&C
         .h(px(38.))
         .px(px(6.))
         .rounded(px(10.))
-        .debossed(&c)
+        .bg(c.deboss)
+        .shadows(sayso_ui::paper::debossed(&c))
         .cursor_pointer()
         .on_click(on_change)
         .child(Keycaps::hotkey(hotkey))
@@ -150,10 +123,11 @@ pub fn key_well(id: impl Into<ElementId>, hotkey: &Hotkey, on_change: impl Fn(&C
 }
 
 /// A dashed box: the empty or recording state of a key field, "Add app".
-pub fn dashed(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
+///
+/// It is a button; its text is its name unless it gets a `.label(...)`.
+pub fn dashed(id: impl Into<ElementId>, cx: &App) -> Pressable {
     let c = cx.paper().colors;
-    div()
-        .id(id)
+    Pressable::new(id)
         .flex()
         .flex_none()
         .items_center()
@@ -169,10 +143,12 @@ pub fn dashed(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
 }
 
 /// The "Press keys to record…" box.
-pub fn recording_box(id: impl Into<ElementId>, window_only: bool, on_cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, cx: &App) -> Stateful<Div> {
+pub fn recording_box(id: impl Into<ElementId>, window_only: bool, on_cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static, cx: &App) -> Pressable {
     let c = cx.paper().colors;
     let label = if window_only { t!("settings.common.press_keys_here") } else { t!("settings.common.press_keys") };
     dashed(id, cx)
+        .label(label.clone())
+        .a11y_live(label.clone(), false)
         .on_click(on_cancel)
         .child(div().size(px(7.)).rounded_full().bg(c.accent))
         .child(text::ui(label, 13., FontWeight::MEDIUM, c.graphite))
@@ -182,6 +158,7 @@ pub fn recording_box(id: impl Into<ElementId>, window_only: bool, on_cancel: imp
 #[allow(clippy::too_many_arguments)]
 pub fn key_field<V: 'static>(
     slot: Slot,
+    label: &str,
     hotkey: Option<Hotkey>,
     recorder: &Recorder,
     clearable: bool,
@@ -211,6 +188,7 @@ pub fn key_field<V: 'static>(
             let s = start.clone();
             out = out.child(key_well(
                 SharedString::from(format!("{id}-well")),
+                label,
                 &hk,
                 cx.listener(move |this, _, window, cx| s(this, slot, window, cx)),
                 cx,
@@ -218,6 +196,7 @@ pub fn key_field<V: 'static>(
             if clearable {
                 out = out.child(
                     Button::new(SharedString::from(format!("{id}-clear")), t!("settings.common.clear"))
+                        .a11y_label(t!("settings.common.clear_hotkey", name = label))
                         .ghost()
                         .small()
                         .on_click(cx.listener(move |this, _, _, cx| clear(this, slot, cx))),
@@ -228,6 +207,7 @@ pub fn key_field<V: 'static>(
             let s = start.clone();
             out = out.child(
                 dashed(SharedString::from(format!("{id}-empty")), cx)
+                    .label(t!("settings.common.record_hotkey", name = label))
                     .on_click(cx.listener(move |this, _, window, cx| s(this, slot, window, cx)))
                     .child(icon(Icon::Keyboard, 14., c.graphite))
                     .child(text::ui(t!("settings.common.record_key"), 13., FontWeight::MEDIUM, c.graphite)),
@@ -238,17 +218,21 @@ pub fn key_field<V: 'static>(
 }
 
 /// A horizontal slider with a raised knob. `on_change` gets 0.0 to 1.0;
-/// `on_release` runs when the mouse goes up over the slider.
+/// `on_release` runs when the mouse goes up over the slider, and after each
+/// step from the keyboard or an assistive client (5 %). `label` is the row
+/// title.
 pub fn slider(
     id: impl Into<ElementId>,
+    label: &str,
     value: f32,
     width: f32,
     on_change: impl Fn(f32, &mut Window, &mut App) + 'static,
     on_release: impl Fn(&mut Window, &mut App) + 'static,
     cx: &App,
-) -> Stateful<Div> {
+) -> Pressable {
     let c = cx.paper().colors;
     let value = value.clamp(0.0, 1.0);
+    let on_release: OnRelease = Rc::new(on_release);
     let bounds: Rc<Cell<Bounds<Pixels>>> = Rc::new(Cell::new(Bounds::default()));
     let on_change = Rc::new(on_change);
     let fraction = {
@@ -263,9 +247,34 @@ pub fn slider(
     let knob_x = (width - 20.) * value;
     let b2 = bounds.clone();
     let (f1, f2) = (fraction.clone(), fraction);
-    let (c1, c2) = (on_change.clone(), on_change);
-    div()
-        .id(id)
+    let (c1, c2) = (on_change.clone(), on_change.clone());
+    let step: OnFraction = {
+        let on_release = on_release.clone();
+        Rc::new(move |delta: f32, w: &mut Window, cx: &mut App| {
+            on_change((value + delta).clamp(0.0, 1.0), w, cx);
+            on_release(w, cx);
+        })
+    };
+    let (s1, s2, s3) = (step.clone(), step.clone(), step);
+    let release = on_release.clone();
+    Pressable::new(id)
+        .a11y_role(Role::Slider)
+        .label(label.to_string())
+        .aria_numeric_value((value * 100.).round() as f64)
+        .aria_min_numeric_value(0.)
+        .aria_max_numeric_value(100.)
+        .aria_numeric_value_step(5.)
+        .on_a11y_action(AccessibleAction::Increment, move |_, w, cx| s1(0.05, w, cx))
+        .on_a11y_action(AccessibleAction::Decrement, move |_, w, cx| s2(-0.05, w, cx))
+        .on_key_down(move |e, w, cx| {
+            let delta = match e.keystroke.key.as_str() {
+                "right" | "up" => 0.05,
+                "left" | "down" => -0.05,
+                _ => return,
+            };
+            cx.stop_propagation();
+            s3(delta, w, cx);
+        })
         .relative()
         .flex()
         .flex_none()
@@ -312,7 +321,7 @@ pub fn slider(
             }
         })
         // The view keeps the pending value, so release saves only after a press here.
-        .on_mouse_up(MouseButton::Left, move |_, w, cx| on_release(w, cx))
+        .on_mouse_up(MouseButton::Left, move |_, w, cx| release(w, cx))
 }
 
 /// A permission state as a small label with a dot or check.
@@ -366,7 +375,7 @@ pub fn path_row(id: &'static str, title: &str, path: &std::path::Path, cx: &App)
                 .child(text::ui(title.to_string(), 15., FontWeight::SEMIBOLD, c.ink))
                 .child(text::mono(shown, 12., c.graphite).font_weight(FontWeight::NORMAL)),
         )
-        .child(Button::new(id, t!("settings.common.reveal")).small().on_click(move |_, _, _| {
+        .child(Button::new(id, t!("settings.common.reveal")).a11y_label(t!("settings.common.reveal_named", name = title)).small().on_click(move |_, _, _| {
             let _ = std::fs::create_dir_all(&p);
             crate::model::AppModel::open_path(&p);
         }))
@@ -374,7 +383,12 @@ pub fn path_row(id: &'static str, title: &str, path: &std::path::Path, cx: &App)
 
 /// A notice row like `Banner`, but its text wraps inside the row
 /// (the text shrinks below its one-line width).
-pub fn notice(kind: BannerKind, message: impl Into<SharedString>, cx: &App) -> Div {
+///
+/// Like `Banner`, it is a live node: a screen reader reads it when it shows.
+#[track_caller]
+pub fn notice(kind: BannerKind, message: impl Into<SharedString>, cx: &App) -> Stateful<Div> {
+    let message: SharedString = message.into();
+    let warning = kind == BannerKind::Warning;
     let c = cx.paper().colors;
     let (bg, fg, border, ic) = match kind {
         BannerKind::Warning => (c.danger_wash, c.danger, c.danger.opacity(0.18), Icon::Warning),
@@ -382,6 +396,10 @@ pub fn notice(kind: BannerKind, message: impl Into<SharedString>, cx: &App) -> D
     };
     let text_color = if kind == BannerKind::Warning && !c.is_dark() { hsla(0.02, 0.6, 0.23, 1.0) } else { fg };
     div()
+        .id(sayso_ui::a11y::call_site_id(""))
+        .role(if warning { Role::Alert } else { Role::Status })
+        .aria_label(message.clone())
+        .a11y_live(message.clone(), warning)
         .flex()
         .items_start()
         .w_full()
@@ -402,7 +420,7 @@ pub fn notice(kind: BannerKind, message: impl Into<SharedString>, cx: &App) -> D
                 .text_size(px(13.))
                 .line_height(px(19.))
                 .text_color(text_color)
-                .child(message.into()),
+                .child(message),
         )
 }
 

@@ -10,6 +10,7 @@ onboarding:
     show_all:
       other: "显示全部 %{count} 个模型"
     change: "更改"
+    change_label: "更换语音模型"
     no_engine: "语音引擎未安装，因此 Sayso 无法下载模型。请重新安装 Sayso，然后再次打开。"
     parts_note: "包括最终转录、实时预览和词典辅助模型。"
     progress: "%{done}/%{total}"
@@ -32,6 +33,8 @@ onboarding:
     downloaded: "已下载。"
   all_models:
     filter_placeholder: "按名称或语言过滤"
+    filter_label: "筛选模型"
+    close: "关闭"
     downloading: "正在下载"
     downloaded: "已下载"
     no_match: "没有符合过滤条件的模型。请尝试其他名称或语言。"

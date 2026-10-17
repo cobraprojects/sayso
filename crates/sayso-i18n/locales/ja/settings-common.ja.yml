@@ -12,3 +12,8 @@ settings:
     blocked: "拒否"
     waiting: "待機中"
     reveal: "表示"
+    change_hotkey: "%{name}: %{keys}。変更"
+    clear_hotkey: "%{name}を消去"
+    record_hotkey: "%{name}を記録"
+    volume: "音量"
+    reveal_named: "%{name}を表示"

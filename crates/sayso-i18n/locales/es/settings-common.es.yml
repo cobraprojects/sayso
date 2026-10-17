@@ -12,3 +12,8 @@ settings:
     blocked: "Bloqueado"
     waiting: "En espera"
     reveal: "Mostrar"
+    change_hotkey: "%{name}: %{keys}. Cambiar"
+    clear_hotkey: "Borrar %{name}"
+    record_hotkey: "Grabar %{name}"
+    volume: "Volumen"
+    reveal_named: "Mostrar %{name}"

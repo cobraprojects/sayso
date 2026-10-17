@@ -27,6 +27,9 @@ hub:
     theme_light: "Light"
     theme_dark: "Dark"
     back: "Back"
+    main_nav: "Pages"
+    settings_sections: "Settings sections"
+    theme: "Theme"
     open_config_file: "Open config file"
     open_config_file_path: "Open config file: %{path}"
     engine_status: "%{status}. %{detail}"
@@ -40,6 +43,10 @@ hub:
   duration:
     seconds: "%{seconds} s"
     minutes_seconds: "%{minutes} min %{seconds} s"
+  window:
+    minimize: "Minimize"
+    maximize: "Maximize"
+    close: "Close"
   place:
     cloud: "Cloud"
     local: "Local"

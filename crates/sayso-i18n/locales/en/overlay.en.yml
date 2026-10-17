@@ -54,3 +54,9 @@ overlay:
     invalid_output: "%{provider} returned text in the wrong format"
     refused: "%{provider} refused the request"
     failed: "%{provider} failed"
+  a11y:
+    name: "Sayso dictation"
+    start: "Start dictation"
+    stop: "Stop dictation"
+    recording: "Recording"
+    undo_cancel: "Undo cancel"

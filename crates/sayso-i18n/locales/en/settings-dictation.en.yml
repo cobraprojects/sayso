@@ -38,6 +38,7 @@ settings:
     trailing_space_detail: "Your next dictation starts as a new word. Text that ends with a line break gets no space."
     type_in_apps: "Type instead of paste in these apps"
     type_in_apps_detail: "For apps that block paste. Slower for long text."
+    remove_app: "Remove %{name}"
     add_app: "Add app"
     close_list: "Close list"
     no_other_apps: "No other apps are open. Open the app, then try again."

@@ -54,3 +54,9 @@ overlay:
     invalid_output: "%{provider} retornou texto em formato incorreto"
     refused: "%{provider} recusou a solicitação"
     failed: "%{provider} falhou"
+  a11y:
+    name: "Ditado do Sayso"
+    start: "Iniciar ditado"
+    stop: "Parar ditado"
+    recording: "Gravando"
+    undo_cancel: "Desfazer cancelamento"

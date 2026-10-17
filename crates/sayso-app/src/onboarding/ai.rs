@@ -1,13 +1,14 @@
 //! Step 3: optional AI clean-up. Continue saves the provider. Skip turns AI off.
 
-use super::{OnboardingView, heading};
+use super::{OnboardingView, arrow_target, heading, live_ui, plain};
 use crate::model::{AppModel, ModelList};
 use crate::model_picker;
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Input, InputContentType, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_i18n::t;
 use sayso_core::config::{Provider, ProviderKind, is_local_url};
+use sayso_ui::a11y::{A11yExt as _, Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::{self, PaperStyled};
@@ -76,6 +77,9 @@ pub(super) struct AiForm {
     error: Option<AiError>,
     test: Option<Result<u64, String>>,
     testing: bool,
+    /// One handle for each choice, around its radio button. The arrow keys
+    /// use them to find out where the focus is and to move it.
+    rows: [FocusHandle; 4],
 }
 
 impl AiForm {
@@ -109,6 +113,7 @@ impl AiForm {
             error: None,
             test: None,
             testing: false,
+            rows: std::array::from_fn(|_| cx.focus_handle()),
         }
     }
 }
@@ -124,8 +129,8 @@ impl OnboardingView {
             (None, _) => t!("onboarding.ai.choose_model"),
         };
         let chosen = self.ai.model.is_some();
-        let trigger = div()
-            .id("cloud-model")
+        let trigger = Pressable::new("cloud-model")
+            .label(t!("onboarding.ai.model_button", name = t!("onboarding.ai.model"), value = label.clone()))
             .relative()
             .flex()
             .flex_1()
@@ -135,7 +140,8 @@ impl OnboardingView {
             .h(px(34.))
             .px(px(12.))
             .rounded(px(9.))
-            .raised_small(c)
+            .bg(c.sheet_raised)
+            .shadows(paper::raised_small(c))
             .cursor_pointer()
             .on_click(cx.listener(|this, _, _, cx| {
                 this.load_cloud_models(false, cx);
@@ -163,7 +169,7 @@ impl OnboardingView {
                 };
                 model_picker::open(&this.model, request, cx);
             }))
-            .child(text::ui(label, 13., FontWeight::NORMAL, if chosen { c.ink } else { c.accent }).truncate())
+            .child(plain(label, 13., FontWeight::NORMAL, if chosen { c.ink } else { c.accent }).truncate())
             .child(icon(Icon::ChevronDown, 12., c.graphite))
             .child(model_picker::anchor("onboarding-cloud"));
         div()
@@ -353,7 +359,45 @@ impl OnboardingView {
         let d = self.model.read(cx).detected.clone();
         let home = sayso_core::paths::PathEnv::home(&sayso_core::paths::SystemEnv);
 
-        let mut rows = div().flex().flex_col().gap(px(8.));
+        // The choices that this computer has, in the order of the list.
+        let mut order = Vec::new();
+        if d.apple_intelligence.is_some() {
+            order.push(AiChoice::Apple);
+        }
+        if d.ollama.is_some() {
+            order.push(AiChoice::Local);
+        }
+        order.push(AiChoice::Cloud);
+        if d.claude_cli.is_some() {
+            order.push(AiChoice::Claude);
+        }
+        let selected_index = order.iter().position(|x| Some(*x) == choice);
+        let keys = order.clone();
+        // One choice of a set: the rows are radio buttons, and the arrow keys
+        // change the choice. Esc closes the list of Ollama models.
+        let mut rows = div()
+            .id("ai-providers")
+            .role(Role::RadioGroup)
+            .aria_label(t!("onboarding.ai.title"))
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                if e.keystroke.key == "escape" && this.ai.local_open {
+                    cx.stop_propagation();
+                    this.ai.local_open = false;
+                    cx.notify();
+                    return;
+                }
+                // The arrow keys belong to an input or a list inside a row.
+                if !keys.iter().any(|ch| this.ai.rows[*ch as usize].contains_focused(window, cx)) {
+                    return;
+                }
+                let Some((next, _)) = arrow_target(&e.keystroke.key, selected_index, keys.len()) else { return };
+                cx.stop_propagation();
+                this.select_ai(keys[next], cx);
+                window.focus(&this.ai.rows[keys[next] as usize], cx);
+            }));
         if !d.done {
             rows = rows.child(text::ui(t!("onboarding.ai.looking", computer = crate::shell::computer()), 13., FontWeight::NORMAL, c.graphite).px(px(4.)));
         }
@@ -361,8 +405,10 @@ impl OnboardingView {
             rows = rows.child(self.ai_row(
                 AiChoice::Apple,
                 choice,
+                &order,
                 "Apple Intelligence".into(),
                 t!("onboarding.ai.apple_desc", model = model),
+                None,
                 None,
                 None,
                 &c,
@@ -373,8 +419,10 @@ impl OnboardingView {
             rows = rows.child(self.ai_row(
                 AiChoice::Local,
                 choice,
+                &order,
                 "Ollama".into(),
                 t!("onboarding.ai.ollama_empty", computer = crate::shell::computer()),
+                None,
                 None,
                 None,
                 &c,
@@ -384,8 +432,9 @@ impl OnboardingView {
         if let Some(models) = d.ollama.clone().filter(|l| !l.is_empty()) {
             let current = self.ai.local_model.clone().unwrap_or_else(|| models[0].clone());
             let open = self.ai.local_open;
-            let picker = div()
-                .id("ollama-model")
+            let picker = Pressable::new("ollama-model")
+                .label(t!("onboarding.ai.model_button", name = t!("onboarding.ai.ollama_model"), value = current.clone()))
+                .aria_expanded(open)
                 .flex()
                 .items_center()
                 .gap(px(6.))
@@ -393,9 +442,9 @@ impl OnboardingView {
                 .px(px(10.))
                 .rounded(px(8.))
                 .bg(c.deboss)
-                .shadow(vec![BoxShadow::new(px(0.), px(1.), c.shadow(0.2)).blur_radius(px(2.)).inset()])
+                .shadows(vec![BoxShadow::new(px(0.), px(1.), c.shadow(0.2)).blur_radius(px(2.)).inset()])
                 .cursor_pointer()
-                .child(text::ui(current.clone(), 13., FontWeight::NORMAL, c.ink))
+                .child(plain(current.clone(), 13., FontWeight::NORMAL, c.ink))
                 .child(icon(Icon::ChevronDown, 10., c.graphite))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.ai.choice = Some(AiChoice::Local);
@@ -404,13 +453,32 @@ impl OnboardingView {
                 }));
             let mut extra = None;
             if open && choice == Some(AiChoice::Local) {
-                let mut list = div().flex().flex_col().p(px(4.)).rounded(px(10.)).debossed(&c);
+                let count = models.len();
+                let selected_model = models.iter().position(|m| *m == current);
+                let names = models.clone();
+                let mut list = div()
+                    .id("ollama-models")
+                    .role(Role::RadioGroup)
+                    .aria_label(t!("onboarding.ai.ollama_model"))
+                    .flex()
+                    .flex_col()
+                    .p(px(4.))
+                    .rounded(px(10.))
+                    .debossed(&c)
+                    .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                        let Some((next, forward)) = arrow_target(&e.keystroke.key, selected_model, count) else { return };
+                        cx.stop_propagation();
+                        this.ai.local_model = Some(names[next].clone());
+                        this.ai.test = None;
+                        cx.notify();
+                        if forward { window.focus_next(cx) } else { window.focus_prev(cx) }
+                    }));
                 for (i, name) in models.into_iter().enumerate() {
                     let selected = name == current;
                     let n = name.clone();
                     list = list.child(
-                        div()
-                            .id(("ollama-pick", i))
+                        Pressable::new(SharedString::from(format!("ollama-pick-{name}")))
+                            .a11y_radio(name.clone(), selected, i, count)
                             .flex()
                             .items_center()
                             .gap(px(8.))
@@ -420,7 +488,7 @@ impl OnboardingView {
                             .cursor_pointer()
                             .hover(|s| s.bg(c.sheet_raised))
                             .child(div().w(px(14.)).when(selected, |d| d.child(icon(Icon::Check, 12., c.ink))))
-                            .child(text::ui(name, 13., if selected { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }, c.ink))
+                            .child(plain(name, 13., if selected { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }, c.ink))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.ai.local_model = Some(n.clone());
                                 this.ai.local_open = false;
@@ -434,8 +502,10 @@ impl OnboardingView {
             rows = rows.child(self.ai_row(
                 AiChoice::Local,
                 choice,
+                &order,
                 "Ollama".into(),
                 t!("onboarding.ai.ollama_running", computer = crate::shell::computer()),
+                None,
                 Some(picker.into_any_element()),
                 extra,
                 &c,
@@ -446,9 +516,11 @@ impl OnboardingView {
         rows = rows.child(self.ai_row(
             AiChoice::Cloud,
             choice,
+            &order,
             t!("onboarding.ai.cloud_api"),
             t!("onboarding.ai.cloud_desc", store = crate::shell::secret_store()),
             Some(Badge::new(t!("onboarding.ai.cloud"), BadgeTone::Accent).into_any_element()),
+            None,
             cloud_extra,
             &c,
             cx,
@@ -458,9 +530,11 @@ impl OnboardingView {
             rows = rows.child(self.ai_row(
                 AiChoice::Claude,
                 choice,
+                &order,
                 "Claude CLI".into(),
                 t!("onboarding.ai.claude_desc", path = shown),
                 Some(Badge::new(t!("onboarding.ai.cloud"), BadgeTone::Accent).into_any_element()),
+                None,
                 None,
                 &c,
                 cx,
@@ -482,29 +556,53 @@ impl OnboardingView {
         col.into_any_element()
     }
 
+    /// One choice of the list. The radio button holds the dot, the title and
+    /// the description. `trailing` (a badge) is inside it. `control` and
+    /// `extra` are outside it, because a button cannot hold another control.
     #[allow(clippy::too_many_arguments)]
     fn ai_row(
         &self,
         me: AiChoice,
         choice: Option<AiChoice>,
+        order: &[AiChoice],
         title: String,
         desc: String,
         trailing: Option<AnyElement>,
+        control: Option<AnyElement>,
         extra: Option<AnyElement>,
         c: &Colors,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let selected = Some(me) == choice;
+        let index = order.iter().position(|x| *x == me).unwrap_or(0);
+        let radio = Pressable::new(SharedString::from(format!("ai-{me:?}")))
+            .track_focus_handle(&self.ai.rows[me as usize])
+            .a11y_radio(title.clone(), selected, index, order.len())
+            .aria_description(desc.clone())
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .items_center()
+            .gap(px(14.))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _, _, cx| this.select_ai(me, cx)))
+            .child(radio_dot(selected, cx))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(2.))
+                    .child(plain(title, 15., FontWeight::SEMIBOLD, c.ink).line_height(px(18.)))
+                    .child(plain(desc, 13., FontWeight::NORMAL, c.graphite).line_height(px(16.))),
+            )
+            .when_some(trailing, |d, t| d.child(t));
         let mut card = div()
-            .id(SharedString::from(format!("ai-{me:?}")))
+            .id(SharedString::from(format!("ai-card-{me:?}")))
             .flex()
             .flex_col()
-            .gap(px(14.))
-            .py(px(14.))
-            .px(px(16.))
-            .rounded(px(12.))
-            .cursor_pointer()
-            .on_click(cx.listener(move |this, _, _, cx| this.select_ai(me, cx)));
+            .rounded(px(12.));
         card = if selected {
             let mut s = vec![BoxShadow::new(px(0.), px(0.), c.ink).spread_radius(px(2.))];
             s.push(BoxShadow::new(px(0.), px(1.), c.shadow(0.14)).blur_radius(px(2.)));
@@ -517,37 +615,49 @@ impl OnboardingView {
                 .flex()
                 .items_center()
                 .gap(px(14.))
-                .child(radio_dot(selected, cx))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w_0()
-                        .gap(px(2.))
-                        .child(text::ui(title, 15., FontWeight::SEMIBOLD, c.ink).line_height(px(18.)))
-                        .child(text::ui(desc, 13., FontWeight::NORMAL, c.graphite).line_height(px(16.))),
-                )
-                .when_some(trailing, |d, t| d.child(t)),
+                .py(px(14.))
+                .px(px(16.))
+                .child(div().flex().flex_1().min_w_0().child(radio))
+                .when_some(control, |d, t| d.child(t)),
         )
-        .when_some(extra, |d, e| d.child(div().pl(px(32.)).child(e)))
+        .when_some(extra, |d, e| d.child(div().px(px(16.)).pb(px(14.)).child(div().pl(px(32.)).child(e))))
         .into_any_element()
     }
 
+    /// A preset of the cloud form: its URL goes in the field.
+    fn select_preset(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.ai.preset = i;
+        self.ai.test = None;
+        self.ai.model = None;
+        self.ai.base_url.update(cx, |s, cx| s.set_value(PRESETS[i].2, window, cx));
+        cx.notify();
+    }
+
     fn cloud_form(&mut self, c: &Colors, cx: &mut Context<Self>) -> AnyElement {
-        let mut presets = div().flex().gap(px(6.));
-        for (i, (label, id, url)) in PRESETS.into_iter().enumerate() {
+        let preset = self.ai.preset;
+        let mut presets = div()
+            .id("ai-presets")
+            .role(Role::RadioGroup)
+            .aria_label(t!("onboarding.ai.preset_label"))
+            .flex()
+            .gap(px(6.))
+            .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                let Some((next, forward)) = arrow_target(&e.keystroke.key, Some(preset), PRESETS.len()) else { return };
+                cx.stop_propagation();
+                this.select_preset(next, window, cx);
+                if forward { window.focus_next(cx) } else { window.focus_prev(cx) }
+            }));
+        for (i, (label, id, _)) in PRESETS.into_iter().enumerate() {
             // The last preset is any other endpoint.
             let label = if id == "custom" { t!("onboarding.ai.preset_other") } else { label.to_string() };
-            presets = presets.child(Chip::new(("preset", i), label, self.ai.preset == i).on_click(cx.listener(move |this, _, window, cx| {
-                this.ai.preset = i;
-                this.ai.test = None;
-                this.ai.model = None;
-                this.ai.base_url.update(cx, |s, cx| s.set_value(url, window, cx));
-                cx.notify();
-            })));
+            presets = presets.child(
+                Chip::new(("preset", i), label, self.ai.preset == i)
+                    .role(ChipRole::Choice { index: i, count: PRESETS.len() })
+                    .on_click(cx.listener(move |this, _, window, cx| this.select_preset(i, window, cx))),
+            );
         }
-        let field = |label: String, state: &Entity<InputState>, mono: bool| {
+        let field = |label: String, state: &Entity<InputState>, mono: bool, secret: bool| {
+            let label_name = label.clone();
             div()
                 .flex()
                 .items_center()
@@ -565,15 +675,24 @@ impl OnboardingView {
                         .debossed(c)
                         .text_size(px(13.))
                         .when(mono, |d| d.font_family(sayso_ui::fonts::MONO))
-                        .child(Input::new(state).appearance(false).w_full()),
+                        .child(Input::new(state).appearance(false).w_full().aria_label(label_name).when(secret, |i| i.content_type(InputContentType::Password))),
                 )
         };
+        // One live node for the test: a screen reader reads the result when it arrives.
         let test_line: AnyElement = if self.ai.testing {
-            text::ui(t!("onboarding.ai.testing"), 13., FontWeight::NORMAL, c.graphite).into_any_element()
+            live_ui("ai-test-status", t!("onboarding.ai.testing"), 13., FontWeight::NORMAL, c.graphite, false).into_any_element()
         } else {
             match &self.ai.test {
-                Some(Ok(ms)) => super::check_line(t!("onboarding.ai.test_works", seconds = format!("{:.1}", *ms as f64 / 1000.0)), c).into_any_element(),
-                Some(Err(e)) => text::ui(t!("onboarding.ai.test_failed", error = e), 13., FontWeight::NORMAL, c.danger).into_any_element(),
+                Some(Ok(ms)) => {
+                    let works = t!("onboarding.ai.test_works", seconds = format!("{:.1}", *ms as f64 / 1000.0));
+                    div()
+                        .id("ai-test-status")
+                        .role(Role::Status)
+                        .a11y_live(works.clone(), false)
+                        .child(super::check_line(works, c))
+                        .into_any_element()
+                }
+                Some(Err(e)) => live_ui("ai-test-status", t!("onboarding.ai.test_failed", error = e), 13., FontWeight::NORMAL, c.danger, true).into_any_element(),
                 None => div().into_any_element(),
             }
         };
@@ -582,11 +701,9 @@ impl OnboardingView {
             .flex()
             .flex_col()
             .gap(px(10.))
-            // Clicks in the form must not re-select the row.
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(presets)
-            .child(field(t!("onboarding.ai.base_url"), &self.ai.base_url, true))
-            .child(field(t!("onboarding.ai.api_key"), &self.ai.key, true))
+            .child(field(t!("onboarding.ai.base_url"), &self.ai.base_url, true, false))
+            .child(field(t!("onboarding.ai.api_key"), &self.ai.key, true, true))
             .child(self.cloud_model(c, cx))
             .child(
                 div()

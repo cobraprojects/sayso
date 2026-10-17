@@ -10,6 +10,7 @@ onboarding:
     show_all:
       other: "%{count}個のモデルをすべて表示"
     change: "変更"
+    change_label: "音声認識モデルを変更"
     no_engine: "音声エンジンがインストールされていないため、Sayso はモデルをダウンロードできません。Sayso を再インストールしてから、もう一度開いてください。"
     parts_note: "最終認識、ライブプレビュー、辞書の補助を含みます。"
     progress: "%{done}/%{total}"
@@ -32,6 +33,8 @@ onboarding:
     downloaded: "ダウンロードしました。"
   all_models:
     filter_placeholder: "名前または言語で絞り込み"
+    filter_label: "モデルを絞り込む"
+    close: "閉じる"
     downloading: "ダウンロード中"
     downloaded: "ダウンロード済み"
     no_match: "フィルタに一致するモデルはありません。別の名前や言語でお試しください。"

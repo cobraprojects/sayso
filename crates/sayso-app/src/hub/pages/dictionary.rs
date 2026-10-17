@@ -3,13 +3,14 @@
 //! Words are raised slips. Replacements are a ledger with an inline add row.
 //! The "Try a phrase" tray runs the replacements live as you type.
 
-use super::kit::{self, caps, fraunces, mono, ui};
+use super::kit::{self, caps, fraunces, plain, plain_fraunces, plain_mono, ui};
 use crate::model::AppModel;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_core::dictionary::Replacement;
 use sayso_i18n::t;
+use sayso_ui::a11y::{A11yExt as _, Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::fonts::{DISPLAY, Face, LocaleFonts as _, UI};
@@ -221,6 +222,15 @@ impl DictionaryPage {
         let mut slips = div().flex().flex_wrap().gap(px(8.));
         for (id, text) in words {
             let hovered = self.hovered_word == Some(id);
+            // The remove button is always in the tree, so the keyboard and a
+            // screen reader reach it. It has no size until the slip is hovered.
+            let remove = kit::icon_button(("rm-word", id as u64), Icon::Close, 9., cx)
+                .label(t!("dictionary.remove_word", word = text))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.hovered_word = None;
+                    this.model.update(cx, |m, cx| m.remove_word(id, cx));
+                }));
+            let remove = if hovered { remove.size(px(18.)) } else { remove.size(px(0.)).ml(px(-4.)).overflow_hidden() };
             slips = slips.child(
                 div()
                     .id(("word", id as u64))
@@ -246,16 +256,7 @@ impl DictionaryPage {
                         cx.notify();
                     }))
                     .child(fraunces(text, 15., 18., c.ink))
-                    .when(hovered, |d| {
-                        d.child(
-                            kit::icon_button(("rm-word", id as u64), Icon::Close, 9., cx)
-                                .size(px(18.))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.hovered_word = None;
-                                    this.model.update(cx, |m, cx| m.remove_word(id, cx));
-                                })),
-                        )
-                    }),
+                    .child(remove),
             );
         }
         if self.adding_word {
@@ -280,9 +281,10 @@ impl DictionaryPage {
                             this.cancel_word(window, cx);
                         }
                     }))
-                    .child(div().flex_1().min_w_0().child(kit::bare_input(&self.new_word, 15.)))
+                    .child(div().flex_1().min_w_0().child(kit::bare_input(&self.new_word, 15.).aria_label(t!("dictionary.placeholder.new_word"))))
                     .child(
                         kit::icon_button("cancel-word", Icon::Close, 9., cx)
+                            .label(t!("dictionary.cancel_word"))
                             .size(px(18.))
                             .flex_none()
                             .on_click(cx.listener(|this, _, window, cx| this.cancel_word(window, cx))),
@@ -291,11 +293,12 @@ impl DictionaryPage {
         } else {
             slips = slips.child(
                 kit::dashed("add-word", cx)
+                    .label(t!("dictionary.add_word"))
                     .h(px(32.))
                     .px(px(12.))
                     .on_click(cx.listener(|this, _, w, cx| this.start_word(w, cx)))
                     .child(icon(Icon::Plus, 12., c.graphite))
-                    .child(ui(t!("dictionary.add_word"), 14., 18., FontWeight::NORMAL, c.graphite)),
+                    .child(plain(t!("dictionary.add_word"), 14., 18., FontWeight::NORMAL, c.graphite)),
             );
         }
         let note = t!("dictionary.words_note", total = total);
@@ -321,12 +324,13 @@ impl DictionaryPage {
     fn try_tray(&self, cx: &App) -> impl IntoElement {
         let c = cx.paper().colors;
         let phrase = self.phrase.read(cx).value().to_string();
-        let result = if phrase.trim().is_empty() {
-            fraunces(t!("dictionary.try.result_empty"), 15., 21., c.pencil)
+        let (result_text, result_color) = if phrase.trim().is_empty() {
+            (t!("dictionary.try.result_empty"), c.pencil)
         } else {
-            let out = self.model.read(cx).try_phrase(&phrase).replace("\\n", "↵").replace('\n', "↵");
-            fraunces(out, 15., 21., c.ink)
+            (self.model.read(cx).try_phrase(&phrase).replace("\\n", "↵").replace('\n', "↵"), c.ink)
         };
+        // The result changes as you type, so a screen reader reads it.
+        let result = plain_fraunces(result_text.clone(), 15., 21., result_color).id("try-result").role(Role::Status).a11y_live(result_text, false);
         let rules = self.model.read(cx).replacements.len();
         div()
             .flex()
@@ -354,7 +358,7 @@ impl DictionaryPage {
                     .text_size(px(15.))
                     .italic()
                     .text_color(c.graphite)
-                    .child(kit::bare_input(&self.phrase, 15.).h(px(26.))),
+                    .child(kit::bare_input(&self.phrase, 15.).h(px(26.)).aria_label(t!("dictionary.placeholder.phrase"))),
             )
             .child(div().h(px(1.)).bg(c.deboss_shade))
             .child(result)
@@ -424,9 +428,9 @@ impl DictionaryPage {
             .border_color(c.rule);
         if let Some((f, t)) = editing {
             return row
-                .child(small_input(&f, true, cx).w(px(150.)).flex_none())
+                .child(small_input(&f, true, t!("dictionary.column.from"), cx).w(px(150.)).flex_none())
                 .child(icon(Icon::ArrowRight, 16., c.ink))
-                .child(small_input(&t, false, cx).flex_1())
+                .child(small_input(&t, false, t!("dictionary.column.to"), cx).flex_1())
                 .child(
                     div()
                         .flex()
@@ -434,8 +438,8 @@ impl DictionaryPage {
                         .w(px(56.))
                         .justify_end()
                         .gap(px(2.))
-                        .child(kit::icon_button("save-rule", Icon::Check, 12., cx).on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))))
-                        .child(kit::icon_button("cancel-rule", Icon::Close, 10., cx).on_click(cx.listener(|this, _, _, cx| {
+                        .child(kit::icon_button("save-rule", Icon::Check, 12., cx).label(t!("dictionary.save_rule")).on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))))
+                        .child(kit::icon_button("cancel-rule", Icon::Close, 10., cx).label(t!("dictionary.cancel_rule")).on_click(cx.listener(|this, _, _, cx| {
                             this.editing = None;
                             this.error = None;
                             cx.notify();
@@ -455,14 +459,33 @@ impl DictionaryPage {
                     .rounded(px(5.))
                     .bg(c.deboss)
                     .shadow(vec![BoxShadow::new(px(0.), px(1.), c.shadow(0.16)).blur_radius(px(2.)).inset()])
-                    .child(mono(vec!["↵"; breaks].join(" "), 12., c.ink)),
+                    .child(plain_mono(vec!["↵"; breaks].join(" "), 12., c.ink)),
             )
         } else {
-            fraunces(r.to.replace("\\n", "↵").replace('\n', "↵"), 15., 18., c.ink).flex_1().min_w_0().truncate()
+            plain_fraunces(r.to.replace("\\n", "↵").replace('\n', "↵"), 15., 18., c.ink).flex_1().min_w_0().truncate()
+        };
+        // What the rule writes, in words for a screen reader.
+        let writes = {
+            // A line break has no sound, so it reads as a word.
+            let text = r.to.replace("\\n", "\n");
+            let breaks = text.matches('\n').count();
+            match (text.trim().is_empty(), breaks) {
+                (true, 0) => t!("dictionary.nothing"),
+                (true, n) => t!("dictionary.line_breaks", count = n as u64),
+                _ => text.replace('\n', " "),
+            }
         };
         let rule = r.clone();
-        row.cursor_pointer()
-            .hover(|s| s.bg(c.deboss.opacity(0.3)))
+        // The row is split in two controls: the part that opens the editor, and
+        // the remove button. The remove button is always in the tree, with no
+        // size until the row is hovered.
+        let remove = kit::icon_button(("rm-rule", id as u64), Icon::Trash, 13., cx)
+            .label(t!("dictionary.remove_rule", from = r.from))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.hovered_rule = None;
+                this.model.update(cx, |m, cx| m.remove_replacement(id, cx));
+            }));
+        row.hover(|s| s.bg(c.deboss.opacity(0.3)))
             .on_hover(cx.listener(move |this, h: &bool, _, cx| {
                 if *h {
                     this.hovered_rule = Some(id);
@@ -471,19 +494,26 @@ impl DictionaryPage {
                 }
                 cx.notify();
             }))
-            .on_click(cx.listener(move |this, _, w, cx| this.start_edit(&rule, w, cx)))
-            .child(fraunces(r.from.clone(), 15., 18., c.graphite).italic().w(px(150.)).flex_none().truncate())
-            .child(icon(Icon::ArrowRight, 16., c.ink).w(px(18.)))
-            .child(to)
+            .child(
+                Pressable::new(("rule-edit", id as u64))
+                    .label(t!("dictionary.edit_rule", from = r.from, to = writes))
+                    .flex()
+                    .flex_1()
+                    .min_w_0()
+                    .items_center()
+                    .gap(px(12.))
+                    .h_full()
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, w, cx| this.start_edit(&rule, w, cx)))
+                    .child(plain_fraunces(r.from.clone(), 15., 18., c.graphite).italic().w(px(150.)).flex_none().truncate())
+                    .child(icon(Icon::ArrowRight, 16., c.ink).w(px(18.)))
+                    .child(to),
+            )
             .child(div().flex().flex_none().w(px(56.)).justify_end().map(|d| {
                 if hovered {
-                    d.child(kit::icon_button(("rm-rule", id as u64), Icon::Trash, 13., cx).on_click(cx.listener(move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.hovered_rule = None;
-                        this.model.update(cx, |m, cx| m.remove_replacement(id, cx));
-                    })))
+                    d.child(remove)
                 } else {
-                    d.child(mono(r.uses.to_string(), 12., c.graphite))
+                    d.child(remove.size(px(0.)).overflow_hidden()).child(plain_mono(r.uses.to_string(), 12., c.graphite))
                 }
             }))
             .into_any_element()
@@ -501,27 +531,29 @@ impl DictionaryPage {
                 .border_t_1()
                 .border_b_1()
                 .border_color(c.rule)
-                .child(small_input(&self.from, true, cx).w(px(150.)).flex_none())
+                .child(small_input(&self.from, true, t!("dictionary.column.from"), cx).w(px(150.)).flex_none())
                 .child(icon(Icon::ArrowRight, 16., c.pencil).w(px(18.)))
-                .child(small_input(&self.to, false, cx).flex_1())
+                .child(small_input(&self.to, false, t!("dictionary.column.to"), cx).flex_1())
                 .child(
                     div()
                         .flex()
                         .flex_none()
                         .w(px(56.))
                         .justify_end()
-                        .child(Button::new("add-rule", t!("dictionary.add")).small().on_click(cx.listener(|this, _, w, cx| this.add_rule(w, cx)))),
+                        .child(Button::new("add-rule", t!("dictionary.add")).a11y_label(t!("dictionary.add_rule")).small().on_click(cx.listener(|this, _, w, cx| this.add_rule(w, cx)))),
                 ),
         );
         if let Some(e) = &self.error {
-            col = col.child(ui(e.text(), 13., 18., FontWeight::NORMAL, c.danger).pt(px(8.)));
+            // An alert: a screen reader reads a new error.
+            let text = e.text();
+            col = col.child(plain(text.clone(), 13., 18., FontWeight::NORMAL, c.danger).id("dictionary-error").role(Role::Alert).aria_label(text.clone()).a11y_live(text, true).pt(px(8.)));
         }
         col
     }
 }
 
 /// A compact input in a debossed well for the ledger.
-fn small_input(state: &Entity<InputState>, italic: bool, cx: &App) -> Div {
+fn small_input(state: &Entity<InputState>, italic: bool, name: String, cx: &App) -> Div {
     let c = cx.paper().colors;
     div()
         .flex()
@@ -534,7 +566,7 @@ fn small_input(state: &Entity<InputState>, italic: bool, cx: &App) -> Div {
         .font_family(if italic { DISPLAY } else { UI }).locale_fonts(if italic { Face::Serif } else { Face::Sans })
         .text_size(px(14.))
         .when(italic, |d| d.italic())
-        .child(kit::bare_input(state, 14.))
+        .child(kit::bare_input(state, 14.).aria_label(name))
 }
 
 impl Render for DictionaryPage {
@@ -554,6 +586,7 @@ impl Render for DictionaryPage {
         let narrow = self.narrow;
         let needle = self.filter.read(cx).value().trim().to_lowercase();
         let add = Button::new("add", t!("dictionary.add"))
+            .a11y_label(t!("dictionary.add_word"))
             .primary()
             .large()
             .icon(Icon::Plus)
@@ -561,7 +594,7 @@ impl Render for DictionaryPage {
         let actions = div()
             .flex()
             .gap(px(8.))
-            .child(kit::search_well(&self.filter, 36., None, cx).w(px(220.)).gap(px(8.)))
+            .child(kit::search_well_named(&self.filter, Some(t!("dictionary.placeholder.filter").into()), 36., None, cx).w(px(220.)).gap(px(8.)))
             .child(add)
             .into_any_element();
         let head = kit::page_head(

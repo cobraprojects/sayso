@@ -3,6 +3,7 @@ _version: 1
 # The window, the footer, the welcome step, and the last step.
 onboarding:
   step: "第 %{step} 步，共 %{total} 步"
+  go_to_step: "返回第 %{step} 步"
   size_gb: "%{number} GB"
   size_mb: "%{number} MB"
   footer:
@@ -27,6 +28,7 @@ onboarding:
     fact_setup_time: "设置约需 3 分钟"
     interface_language: "界面语言"
     dictation_language: "听写语言"
+    language_button: "%{name}：%{value}"
   done:
     title: "一切就绪"
     lead_toggle: "在任意 App 中按下 %{keys} 即可听写。以下是 Sayso 所在的位置。"

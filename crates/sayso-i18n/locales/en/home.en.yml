@@ -36,6 +36,7 @@ home:
     unknown_app: "Unknown app"
   style:
     default: "Default style"
+    cycle_hotkey: "Hotkey to cycle styles"
     change: "Change style"
     detail_no_ai: "Nothing leaves your %{computer}."
     detail_needs_provider: "AI is off, so Sayso inserts the transcript. Add a provider in Settings."

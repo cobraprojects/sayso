@@ -5,6 +5,7 @@ use crate::model::AppModel;
 use gpui_kit::*;
 use sayso_i18n::t;
 use sayso_platform::{Permission, PermissionState};
+use sayso_ui::a11y::LiveStatus;
 use sayso_ui::components::*;
 
 pub struct PermissionSettings {
@@ -39,13 +40,23 @@ impl Render for PermissionSettings {
         }
         for (i, ((perm, title, desc), state)) in rows.into_iter().zip(states).enumerate() {
             let perm2 = perm;
-            let mut controls = div().flex().flex_none().items_center().gap(px(12.)).child(kit::permission_badge(state, cx).w(px(84.)));
+            // The state reads with the name of the permission, and a change is announced.
+            let state_name = match state {
+                PermissionState::Granted => t!("settings.common.allowed"),
+                PermissionState::Denied => t!("settings.common.blocked"),
+                PermissionState::NotDetermined => t!("settings.common.waiting"),
+            };
+            let spoken = format!("{title}, {state_name}");
+            let badge = LiveStatus::new(("perm-state", i), spoken).w(px(84.)).child(kit::permission_badge(state, cx));
+            let mut controls = div().flex().flex_none().items_center().gap(px(12.)).child(badge);
             if state == PermissionState::NotDetermined && perm != Permission::Accessibility {
-                controls = controls.child(Button::new(("perm-request", i), t!("settings.permissions.request")).small().on_click(cx.listener(move |this, _, _, cx| {
+                controls = controls.child(Button::new(("perm-request", i), t!("settings.permissions.request"))
+                    .a11y_label(format!("{}, {title}", t!("settings.permissions.request")))
+                    .small().on_click(cx.listener(move |this, _, _, cx| {
                     this.model.update(cx, |m, _| m.request_permission(perm2));
                 })));
             }
-            controls = controls.child(Button::new(("perm-open", i), crate::shell::open_permission_settings()).small().on_click(cx.listener(
+            controls = controls.child(Button::new(("perm-open", i), crate::shell::open_permission_settings()).a11y_label(format!("{}, {title}", crate::shell::open_permission_settings())).small().on_click(cx.listener(
                 move |this, _, _, cx| {
                     this.model.update(cx, |m, _| m.open_permission_settings(perm));
                 },

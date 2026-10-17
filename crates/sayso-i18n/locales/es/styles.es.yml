@@ -96,3 +96,12 @@ styles:
     add_bundle_id: "Añadir ID de paquete"
     add_app_id: "Añadir ID de app"
     add_site: "Añadir sitio"
+  a11y:
+    choices: "Apps y sitios"
+    close: "Cerrar"
+    default_style: "Estilo predeterminado"
+    edit: "Editar %{name}"
+    make_default: "Hacer %{name} el predeterminado"
+    remove_app: "Quitar %{name}"
+    remove_site: "Quitar %{name}"
+    show_apps: "Mostrar todas las apps"

@@ -73,3 +73,4 @@ update:
   slip_newer: "A newer Sayso"
   now_version: "Sayso is now %{version}"
   whats_new: "What is new"
+  dismiss: "Dismiss"

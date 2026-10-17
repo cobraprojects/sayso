@@ -10,6 +10,7 @@ use sayso_core::hotkey::{Hotkey, SoloModifier};
 use sayso_i18n::t;
 use sayso_platform::{AppInfo, Permission, PermissionState};
 use sayso_ui::ActivePaper;
+use sayso_ui::a11y::{Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
@@ -59,7 +60,12 @@ impl DictationSettings {
         let items: Vec<(SharedString, bool)> = codes.iter().map(|code| (languages::display(code).into(), *code == current)).collect();
 
         let mut control = div().relative().flex_none().child(
-            Button::new("language", languages::display(&current)).trailing_icon(Icon::ChevronDown).disabled(codes.len() < 2).on_click(cx.listener(
+            Button::new("language", languages::display(&current))
+                .a11y_label(format!("{}, {}", t!("settings.dictation.dictation_language"), languages::display(&current)))
+                .expanded(self.language_menu)
+                .trailing_icon(Icon::ChevronDown)
+                .disabled(codes.len() < 2)
+                .on_click(cx.listener(
                 |this, _, _, cx| {
                     this.language_menu = !this.language_menu;
                     cx.notify();
@@ -90,7 +96,7 @@ impl DictationSettings {
         }
         let spoken = self.model.read(cx).config.dictation.spoken_punctuation;
         let model = self.model.clone();
-        let spoken_switch = Switch::new("spoken-punctuation", spoken).on_toggle(move |on, _, cx| {
+        let spoken_switch = Switch::new("spoken-punctuation", spoken).label(t!("settings.dictation.spoken_punctuation")).on_toggle(move |on, _, cx| {
             model.update(cx, |m, cx| m.edit_config(cx, |c| c.dictation.spoken_punctuation = on));
         });
         group(&t!("settings.dictation.language"), cx).child(kit::row_s(t!("settings.dictation.dictation_language"), description, control, cx)).child(row(
@@ -118,7 +124,7 @@ impl DictationSettings {
             this.model.update(cx, |m, cx| slot.apply(m, None, cx));
         };
 
-        let toggle_field = kit::key_field(Slot::Toggle, toggle, &self.recorder, false, None, start, cancel, clear, cx);
+        let toggle_field = kit::key_field(Slot::Toggle, &t!("settings.dictation.toggle"), toggle, &self.recorder, false, None, start, cancel, clear, cx);
         let right_option = (ptt.is_none() && !self.recorder.is_recording(Slot::PushToTalk)).then(|| {
             Button::new("ptt-right-option", t!("settings.dictation.use_right_option"))
                 .small()
@@ -127,20 +133,22 @@ impl DictationSettings {
                 }))
                 .into_any_element()
         });
-        let ptt_field = kit::key_field(Slot::PushToTalk, ptt, &self.recorder, true, right_option, start, cancel, clear, cx);
-        let paste_field = kit::key_field(Slot::PasteLast, config.hotkeys.paste_last, &self.recorder, true, None, start, cancel, clear, cx);
-        let cycle_field = kit::key_field(Slot::CycleStyle, config.hotkeys.cycle_style, &self.recorder, true, None, start, cancel, clear, cx);
-        let incognito_field = kit::key_field(Slot::Incognito, config.hotkeys.incognito, &self.recorder, true, None, start, cancel, clear, cx);
+        let ptt_field = kit::key_field(Slot::PushToTalk, &t!("settings.dictation.push_to_talk"), ptt, &self.recorder, true, right_option, start, cancel, clear, cx);
+        let paste_field = kit::key_field(Slot::PasteLast, &t!("settings.dictation.paste_last"), config.hotkeys.paste_last, &self.recorder, true, None, start, cancel, clear, cx);
+        let cycle_field = kit::key_field(Slot::CycleStyle, &t!("settings.dictation.next_style"), config.hotkeys.cycle_style, &self.recorder, true, None, start, cancel, clear, cx);
+        let incognito_field = kit::key_field(Slot::Incognito, &t!("settings.dictation.incognito"), config.hotkeys.incognito, &self.recorder, true, None, start, cancel, clear, cx);
 
         let cancel_index = if config.hotkeys.cancel == CancelMode::SingleEscape { 1 } else { 0 };
         let model = self.model.clone();
-        let cancel_control = Segmented::new("cancel-mode", [t!("settings.dictation.cancel_double"), t!("settings.dictation.cancel_single")], cancel_index).on_select(move |i, _, cx| {
+        let cancel_control = Segmented::new("cancel-mode", [t!("settings.dictation.cancel_double"), t!("settings.dictation.cancel_single")], cancel_index)
+            .label(t!("settings.dictation.cancel"))
+            .on_select(move |i, _, cx| {
             let mode = if i == 1 { CancelMode::SingleEscape } else { CancelMode::DoubleEscape };
             model.update(cx, |m, cx| m.edit_config(cx, |c| c.hotkeys.cancel = mode));
         });
 
         let model = self.model.clone();
-        let enter_switch = Switch::new("enter-sends", config.hotkeys.enter_sends).on_toggle(move |on, _, cx| {
+        let enter_switch = Switch::new("enter-sends", config.hotkeys.enter_sends).label(t!("settings.dictation.enter_sends")).on_toggle(move |on, _, cx| {
             model.update(cx, |m, cx| m.edit_config(cx, |c| c.hotkeys.enter_sends = on));
         });
 
@@ -198,19 +206,21 @@ impl DictationSettings {
         let names: Vec<(String, String, _)> =
             apps.iter().map(|b| (b.clone(), m.app_name_for(b, &running), m.icons.get(b))).collect();
         let model = self.model.clone();
-        let restore_switch = Switch::new("restore-clipboard", restore).on_toggle(move |on, _, cx| {
+        let restore_switch = Switch::new("restore-clipboard", restore).label(t!("settings.dictation.restore_clipboard")).on_toggle(move |on, _, cx| {
             model.update(cx, |m, cx| m.edit_config(cx, |c| c.insertion.restore_clipboard = on));
         });
         let model = self.model.clone();
-        let space_switch = Switch::new("trailing-space", trailing_space).on_toggle(move |on, _, cx| {
+        let space_switch = Switch::new("trailing-space", trailing_space).label(t!("settings.dictation.trailing_space")).on_toggle(move |on, _, cx| {
             model.update(cx, |m, cx| m.edit_config(cx, |c| c.insertion.trailing_space = on));
         });
 
         let mut chips = div().flex().flex_wrap().justify_end().gap(px(6.)).max_w(px(460.));
-        for (i, (bundle, name, app_icon)) in names.into_iter().enumerate() {
+        for (bundle, name, app_icon) in names {
             let b = bundle.clone();
+            // The id comes from the bundle id, so it survives a change of the list.
             chips = chips.child(
                 div()
+                    .id(SharedString::from(format!("app-{bundle}")))
                     .flex()
                     .items_center()
                     .gap(px(6.))
@@ -224,10 +234,10 @@ impl DictationSettings {
                         BoxShadow::new(px(0.), px(1.), c.shadow(0.16)).blur_radius(px(2.)),
                     ])
                     .child(AppBadge::new(name.clone()).icon(app_icon).size(16.))
-                    .child(text::ui(name, 13., FontWeight::NORMAL, c.ink))
+                    .child(text::ui(name.clone(), 13., FontWeight::NORMAL, c.ink))
                     .child(
-                        div()
-                            .id(("remove-app", i))
+                        Pressable::new(SharedString::from(format!("remove-app-{bundle}")))
+                            .label(t!("settings.dictation.remove_app", name = name))
                             .flex()
                             .items_center()
                             .justify_center()
@@ -246,6 +256,7 @@ impl DictationSettings {
         let open = self.picker.is_some();
         chips = chips.child(
             kit::dashed("add-app", cx)
+                .aria_expanded(open)
                 .h(px(28.))
                 .px(px(10.))
                 .rounded(px(7.))
@@ -265,6 +276,16 @@ impl DictationSettings {
             let candidates: Vec<AppInfo> = list.iter().filter(|a| !apps.contains(&a.bundle_id)).cloned().collect();
             let mut panel = div()
                 .id("app-picker")
+                .role(Role::Group)
+                .aria_label(t!("settings.dictation.type_in_apps"))
+                // Escape closes the list.
+                .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {
+                    if e.keystroke.key == "escape" {
+                        cx.stop_propagation();
+                        this.picker = None;
+                        cx.notify();
+                    }
+                }))
                 .flex()
                 .flex_col()
                 .max_h(px(240.))
@@ -281,11 +302,11 @@ impl DictationSettings {
                 )));
             }
             let app_icons: Vec<_> = candidates.iter().map(|a| self.model.read(cx).icons.get(&a.bundle_id)).collect();
-            for (i, (app, app_icon)) in candidates.into_iter().zip(app_icons).enumerate() {
+            for (app, app_icon) in candidates.into_iter().zip(app_icons) {
                 let bundle = app.bundle_id.clone();
                 panel = panel.child(
-                    div()
-                        .id(("pick-app", i))
+                    Pressable::new(SharedString::from(format!("pick-app-{}", app.bundle_id)))
+                        .label(app.name.clone())
                         .flex()
                         .items_center()
                         .gap(px(10.))
@@ -295,8 +316,8 @@ impl DictationSettings {
                         .cursor_pointer()
                         .hover(|s| s.bg(c.sheet_raised))
                         .child(AppBadge::new(app.name.clone()).icon(app_icon).size(18.))
-                        .child(text::ui(app.name.clone(), 13., FontWeight::MEDIUM, c.ink))
-                        .child(text::mono(app.bundle_id.clone(), 11., c.pencil).font_weight(FontWeight::NORMAL))
+                        .child(plain_text(app.name.clone(), 13., FontWeight::MEDIUM, c.ink))
+                        .child(plain_text(app.bundle_id.clone(), 11., FontWeight::NORMAL, c.pencil).font_family(sayso_ui::fonts::MONO))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let b = bundle.clone();
                             this.picker = None;
@@ -319,13 +340,14 @@ impl DictationSettings {
         let s = self.model.read(cx).config.sounds.clone();
         let volume = self.volume.unwrap_or(s.volume);
         let model = self.model.clone();
-        let enabled = Switch::new("sounds-on", s.enabled).on_toggle(move |on, _, cx| {
+        let enabled = Switch::new("sounds-on", s.enabled).label(t!("settings.dictation.sounds_row")).on_toggle(move |on, _, cx| {
             model.update(cx, |m, cx| m.edit_config(cx, |c| c.sounds.enabled = on));
         });
         let view = cx.entity().downgrade();
         let view2 = view.clone();
         let slider = kit::slider(
             "volume",
+            &t!("settings.common.volume"),
             volume,
             160.,
             move |v, _, cx| {
@@ -354,9 +376,9 @@ impl DictationSettings {
             (t!("settings.dictation.sound_cancel"), s.cancel),
             (t!("settings.dictation.sound_insert"), s.insert),
         ];
-        let mut chips = div().flex().flex_none().gap(px(6.));
+        let mut chips = div().id("sound-events").role(Role::Group).aria_label(t!("settings.dictation.sound_events")).flex().flex_none().gap(px(6.));
         for (i, (label, on)) in events.into_iter().enumerate() {
-            chips = chips.child(Chip::new(("sound-event", i), label, on).on_click(cx.listener(move |this, _, _, cx| {
+            chips = chips.child(Chip::new(("sound-event", i), label, on).role(ChipRole::Filter).on_click(cx.listener(move |this, _, _, cx| {
                 this.model.update(cx, |m, cx| {
                     m.edit_config(cx, |c| match i {
                         0 => c.sounds.start = !on,
@@ -380,7 +402,6 @@ impl DictationSettings {
     fn styles_group(&mut self, cx: &mut Context<Self>) -> Div {
         let on = self.model.read(cx).config.ai.style_rules.enabled;
         let model = self.model.clone();
-        let switch = Switch::new("style-rules", on).on_toggle(move |on, _, cx| model.update(cx, |m, cx| m.set_style_rules(on, cx)));
         let sites = self.model.read(cx).services.platform.context.reads_page_url();
         let (title, description) = if sites {
             (
@@ -393,6 +414,7 @@ impl DictationSettings {
                 t!("settings.dictation.styles_by_app_detail"),
             )
         };
+        let switch = Switch::new("style-rules", on).label(title.clone()).on_toggle(move |on, _, cx| model.update(cx, |m, cx| m.set_style_rules(on, cx)));
         group(&t!("settings.dictation.styles"), cx).child(row(&title, &description, switch, cx))
     }
 
@@ -405,11 +427,11 @@ impl DictationSettings {
         let http = kit::stepper("http-timeout", t!("settings.dictation.seconds", seconds = http_s), move |d, _, cx| {
             let v = (http_s as i64 + d as i64).clamp(1, 30) as u64 * 1000;
             m1.update(cx, |m, cx| m.edit_config(cx, |c| c.ai.http_timeout_ms = v));
-        }, cx);
+        }, cx).label(t!("settings.dictation.ai_timeout"));
         let cli = kit::stepper("cli-timeout", t!("settings.dictation.seconds", seconds = cli_s), move |d, _, cx| {
             let v = (cli_s as i64 + d as i64).clamp(2, 60) as u64 * 1000;
             m2.update(cx, |m, cx| m.edit_config(cx, |c| c.ai.cli_timeout_ms = v));
-        }, cx);
+        }, cx).label(t!("settings.dictation.ai_timeout_cli"));
         group(&t!("settings.dictation.ai"), cx)
             .child(row(&t!("settings.dictation.ai_timeout"), &t!("settings.dictation.ai_timeout_detail"), http, cx))
             .child(row(&t!("settings.dictation.ai_timeout_cli"), &t!("settings.dictation.ai_timeout_cli_detail"), cli, cx))
@@ -426,14 +448,20 @@ impl Render for DictationSettings {
             .child(self.styles_group(cx))
             .child(self.ai_group(cx));
         div()
+            // The key recorder takes focus while it listens.
             .size_full()
-            .track_focus(&self.recorder.focus)
             .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {
                 let model = this.model.clone();
                 if recorder::on_key_down(rec, this, &model, e, cx) {
                     cx.stop_propagation();
                 }
             }))
+            .child(kit::key_listener("dictation-keys", &self.recorder.focus))
             .child(kit::page("dictation-page", &t!("settings.dictation.title"), &t!("settings.dictation.subtitle"), body, cx))
     }
+}
+
+/// Text inside a control. It has no node: the control carries the name.
+fn plain_text(text: impl Into<SharedString>, size: f32, weight: FontWeight, color: Hsla) -> Div {
+    div().font_family(sayso_ui::fonts::UI).text_size(px(size)).font_weight(weight).text_color(color).child(text.into())
 }

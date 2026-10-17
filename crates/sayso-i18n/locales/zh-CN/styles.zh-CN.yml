@@ -96,3 +96,12 @@ styles:
     add_bundle_id: "添加 bundle ID"
     add_app_id: "添加 App ID"
     add_site: "添加网站"
+  a11y:
+    choices: "应用和网站"
+    close: "关闭"
+    default_style: "默认风格"
+    edit: "编辑 %{name}"
+    make_default: "将 %{name} 设为默认"
+    remove_app: "移除 %{name}"
+    remove_site: "移除 %{name}"
+    show_apps: "显示所有应用"

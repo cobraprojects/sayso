@@ -96,3 +96,12 @@ styles:
     add_bundle_id: "Add bundle ID"
     add_app_id: "Add app ID"
     add_site: "Add site"
+  a11y:
+    choices: "Apps and sites"
+    close: "Close"
+    default_style: "Default style"
+    edit: "Edit %{name}"
+    make_default: "Make %{name} the default"
+    remove_app: "Remove %{name}"
+    remove_site: "Remove %{name}"
+    show_apps: "Show all apps"

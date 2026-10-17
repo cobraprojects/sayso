@@ -8,6 +8,7 @@ use gpui_kit::*;
 use sayso_core::config::ThemeMode;
 use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::ActivePaper;
+use sayso_ui::a11y::{LiveStatus, Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::text;
@@ -50,8 +51,9 @@ pub fn sidebar(model: &Entity<AppModel>, route: Route, rail: bool, forced: bool,
 fn collapse_button(model: &Entity<AppModel>, rail: bool, cx: &App) -> AnyElement {
     let c = cx.paper().colors;
     let model = model.clone();
-    div()
-        .id("sidebar-toggle")
+    let name = if rail { t!("hub.sidebar.expand") } else { t!("hub.sidebar.collapse") };
+    Pressable::new("sidebar-toggle")
+        .label(name.clone())
         .flex()
         .flex_none()
         .items_center()
@@ -61,7 +63,7 @@ fn collapse_button(model: &Entity<AppModel>, rail: bool, cx: &App) -> AnyElement
         .rounded(px(8.))
         .cursor_pointer()
         .hover(|s| s.bg(c.deboss.opacity(0.55)))
-        .tooltip(text_tooltip(if rail { t!("hub.sidebar.expand") } else { t!("hub.sidebar.collapse") }))
+        .tooltip(text_tooltip(name))
         .on_click(move |_, _, cx| model.update(cx, |m, cx| m.edit_config(cx, |c| c.appearance.sidebar_collapsed = !rail)))
         .child(icon(Icon::Sidebar, 18., c.graphite))
         .into_any_element()
@@ -78,7 +80,7 @@ fn wordmark(rail: bool, cx: &App) -> impl IntoElement {
                 .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
                 .text_size(px(24.))
                 .font_weight(FontWeight::SEMIBOLD)
-                .child("Sayso"),
+                .child(sayso_ui::a11y::A11yText::new("Sayso")),
         )
 }
 
@@ -97,12 +99,31 @@ fn main_nav(model: &Entity<AppModel>, route: Route, rail: bool, cx: &App) -> imp
         (Route::Models, Icon::Models, t!("hub.nav.models")),
         (Route::Settings(SettingsPage::General), Icon::Settings, t!("hub.nav.settings")),
     ];
-    let mut nav = div().flex().flex_col().gap(px(2.));
-    for (i, (r, ic, label)) in items.into_iter().enumerate().filter(|(_, (r, ..))| history || *r != Route::History) {
+    let items: Vec<_> = items.into_iter().enumerate().filter(|(_, (r, ..))| history || *r != Route::History).collect();
+    let count = items.len();
+    let mut nav = div().id("main-nav").role(Role::TabList).aria_label(t!("hub.sidebar.main_nav")).flex().flex_col().gap(px(2.));
+    for (k, (i, (r, ic, label))) in items.into_iter().enumerate() {
         let active = route == r;
-        nav = nav.child(NavItem::new(("nav", i), ic, label, active).icon_only(rail).on_click(go(model, r)));
+        nav = nav.child(arrow_keys(k, count, NavItem::new(("nav", i), ic, label, active).position(k, count).icon_only(rail).on_click(go(model, r))));
     }
     nav
+}
+
+/// Up and Down move the focus to the previous and next row of a tab list,
+/// except at the ends. The key event goes up from the focused row to this
+/// wrapper, which knows the place `index` of `count` of its row.
+fn arrow_keys(index: usize, count: usize, row: impl IntoElement) -> Div {
+    div().child(row).on_key_down(move |e, window, cx| match e.keystroke.key.as_str() {
+        "down" if index + 1 < count => {
+            cx.stop_propagation();
+            window.focus_next(cx);
+        }
+        "up" if index > 0 => {
+            cx.stop_propagation();
+            window.focus_prev(cx);
+        }
+        _ => {}
+    })
 }
 
 fn main_footer(model: &Entity<AppModel>, toggle: Option<AnyElement>, cx: &App) -> impl IntoElement {
@@ -129,7 +150,8 @@ fn main_footer(model: &Entity<AppModel>, toggle: Option<AnyElement>, cx: &App) -
                 .px(px(6.))
                 .child(status_dot(color(&c), 8.))
                 .child(
-                    div()
+                    // The engine state changes, so a screen reader reads it when it does.
+                    LiveStatus::new("engine-status", t!("hub.sidebar.engine_status", status = status, detail = detail))
                         .flex()
                         .flex_col()
                         .flex_1()
@@ -144,6 +166,7 @@ fn main_footer(model: &Entity<AppModel>, toggle: Option<AnyElement>, cx: &App) -
         .child(
             Segmented::new("theme", [t!("hub.sidebar.theme_auto"), t!("hub.sidebar.theme_light"), t!("hub.sidebar.theme_dark")], selected)
                 .with_icons([Icon::Display, Icon::Sun, Icon::Moon])
+                .label(t!("hub.sidebar.theme"))
                 .compact()
                 .on_select(move |i, _, cx| {
                     let mode = [ThemeMode::System, ThemeMode::Light, ThemeMode::Dark][i];
@@ -170,8 +193,7 @@ fn rail_footer(model: &Entity<AppModel>, toggle: Option<AnyElement>, cx: &App) -
         .items_center()
         .gap(px(16.))
         .child(
-            div()
-                .id("engine-status")
+            LiveStatus::new("engine-status", t!("hub.sidebar.engine_status", status = status, detail = detail))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -183,6 +205,7 @@ fn rail_footer(model: &Entity<AppModel>, toggle: Option<AnyElement>, cx: &App) -
         .child(
             Segmented::new("theme", [t!("hub.sidebar.theme_auto"), t!("hub.sidebar.theme_light"), t!("hub.sidebar.theme_dark")], selected)
                 .with_icons([Icon::Display, Icon::Sun, Icon::Moon])
+                .label(t!("hub.sidebar.theme"))
                 .rail()
                 .on_select(move |i, _, cx| {
                     let mode = [ThemeMode::System, ThemeMode::Light, ThemeMode::Dark][i];
@@ -195,8 +218,8 @@ fn rail_footer(model: &Entity<AppModel>, toggle: Option<AnyElement>, cx: &App) -
 fn back_button(model: &Entity<AppModel>, rail: bool, cx: &App) -> impl IntoElement {
     let c = cx.paper().colors;
     let model = model.clone();
-    let back = div()
-        .id("settings-back")
+    let back = Pressable::new("settings-back")
+        .label(t!("hub.sidebar.back"))
         .flex()
         .items_center()
         .gap(px(8.))
@@ -234,10 +257,15 @@ pub fn settings_label(page: SettingsPage) -> (String, Icon) {
 }
 
 fn settings_nav(model: &Entity<AppModel>, current: SettingsPage, rail: bool) -> impl IntoElement {
-    let mut nav = div().flex().flex_col().gap(px(2.));
+    let count = SettingsPage::ALL.len();
+    let mut nav = div().id("settings-nav").role(Role::TabList).aria_label(t!("hub.sidebar.settings_sections")).flex().flex_col().gap(px(2.));
     for (i, page) in SettingsPage::ALL.into_iter().enumerate() {
         let (label, ic) = settings_label(page);
-        nav = nav.child(NavItem::new(("settings-nav", i), ic, label, page == current).icon_only(rail).on_click(go(model, Route::Settings(page))));
+        nav = nav.child(arrow_keys(
+            i,
+            count,
+            NavItem::new(("settings-nav", i), ic, label, page == current).position(i, count).icon_only(rail).on_click(go(model, Route::Settings(page))),
+        ));
     }
     nav
 }
@@ -247,8 +275,8 @@ fn config_footer(model: &Entity<AppModel>, rail: bool, toggle: Option<AnyElement
     let path = model.read(cx).config_path_display();
     let model = model.clone();
     if rail {
-        let open = div()
-            .id("open-config")
+        let open = Pressable::new("open-config")
+            .label(t!("hub.sidebar.open_config_file_path", path = path))
             .flex()
             .items_center()
             .justify_center()
@@ -267,11 +295,11 @@ fn config_footer(model: &Entity<AppModel>, rail: bool, toggle: Option<AnyElement
         .gap(px(4.))
         .px(px(10.))
         .child(
-            div()
-                .id("open-config")
+            Pressable::new("open-config")
+                .label(t!("hub.sidebar.open_config_file"))
                 .cursor_pointer()
                 .on_click(move |_, _, cx| model.read(cx).reveal_config_file())
-                .child(text::ui(t!("hub.sidebar.open_config_file"), 13., FontWeight::SEMIBOLD, c.accent)),
+                .child(div().font_family(sayso_ui::fonts::UI).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(c.accent).child(t!("hub.sidebar.open_config_file"))),
         )
         .child(text::mono(path, 11., c.graphite).font_weight(FontWeight::NORMAL));
     div().flex().items_end().child(file.flex_1().min_w_0()).children(toggle).into_any_element()

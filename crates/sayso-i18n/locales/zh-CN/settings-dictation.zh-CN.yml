@@ -38,6 +38,7 @@ settings:
     trailing_space_detail: "下一次听写会作为新词开始。以换行结尾的文本不添加空格。"
     type_in_apps: "在这些 App 中改为键入而非粘贴"
     type_in_apps_detail: "适用于阻止粘贴的 App。长文本会较慢。"
+    remove_app: "移除 %{name}"
     add_app: "添加 App"
     close_list: "关闭列表"
     no_other_apps: "没有打开其他 App。请打开该 App，然后重试。"

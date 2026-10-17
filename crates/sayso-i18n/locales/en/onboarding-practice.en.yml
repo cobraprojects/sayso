@@ -5,6 +5,7 @@ onboarding:
   practice:
     title: "Try it"
     placeholder: "Click here, then press your hotkey and read the sentence."
+    field_label: "Practice field"
     lead_toggle: "Click the field, press %{keys}, read the sentence, then press %{keys} again."
     lead_push: "Click the field, hold your push-to-talk key, and read the sentence."
     read_this: "Read this"

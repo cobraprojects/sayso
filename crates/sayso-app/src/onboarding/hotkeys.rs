@@ -1,12 +1,13 @@
 //! Step 5: the toggle key and an optional push-to-talk key, with conflicts.
 
-use super::{OnboardingView, card, heading, rec};
+use super::{OnboardingView, card, heading, live_ui, plain, rec, status_ui};
 use crate::hub::settings::recorder::{self, Slot};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_i18n::t;
 use sayso_core::hotkey::{Hotkey, SoloModifier};
 use sayso_platform::{Permission, PermissionState};
+use sayso_ui::a11y::{LiveStatus, Pressable};
 use sayso_ui::components::*;
 use sayso_ui::paper::PaperStyled;
 use sayso_ui::{ActivePaper, Colors, text};
@@ -42,18 +43,23 @@ impl OnboardingView {
                 BoxShadow::new(px(0.), px(-1.), c.highlight(0.75)).inset(),
             ]);
         let well = match (rec_toggle, toggle) {
-            (true, _) => well.child(listening(window_only, &c)),
+            (true, _) => well.child(listening(None, window_only, &c)),
             (false, Some(hk)) => well.child(Keycaps::hotkey(&hk).size(KeySize::Large).with_plus()),
             (false, None) => well.child(text::ui(t!("onboarding.hotkeys.no_key"), 14., FontWeight::NORMAL, c.graphite)),
         };
+        // One live node for the state of the key: a screen reader says it when
+        // it changes, for example "Press the new keys".
         let toggle_status: AnyElement = if rec_toggle {
-            text::ui(t!("onboarding.hotkeys.press_new_keys"), 13., FontWeight::NORMAL, c.graphite).into_any_element()
+            status_ui("hotkey-toggle-status", t!("onboarding.hotkeys.press_new_keys"), 13., FontWeight::NORMAL, c.graphite).into_any_element()
         } else if toggle.is_some() && conflicts.iter().all(|x| Some(x.hotkey) != toggle) {
-            super::check_line(t!("onboarding.hotkeys.no_conflict"), &c).into_any_element()
+            let text = t!("onboarding.hotkeys.no_conflict");
+            LiveStatus::new("hotkey-toggle-status", text.clone())
+                .child(super::check_line(text, &c))
+                .into_any_element()
         } else if toggle.is_some() {
-            text::ui(t!("onboarding.hotkeys.conflict"), 13., FontWeight::NORMAL, c.danger).into_any_element()
+            status_ui("hotkey-toggle-status", t!("onboarding.hotkeys.conflict"), 13., FontWeight::NORMAL, c.danger).into_any_element()
         } else {
-            text::ui(t!("onboarding.hotkeys.set_a_key"), 13., FontWeight::NORMAL, c.graphite).into_any_element()
+            status_ui("hotkey-toggle-status", t!("onboarding.hotkeys.set_a_key"), 13., FontWeight::NORMAL, c.graphite).into_any_element()
         };
         let change_label = if rec_toggle { t!("onboarding.hotkeys.cancel") } else { t!("onboarding.hotkeys.change") };
         let toggle_card = card(&c)
@@ -65,10 +71,10 @@ impl OnboardingView {
                     .justify_between()
                     .child(text::title(t!("onboarding.hotkeys.start_stop"), 20., &c).line_height(px(24.)))
                     .child(
-                        div()
-                            .id("change-toggle")
+                        Pressable::new("change-toggle")
+                            .label(if rec_toggle { t!("onboarding.hotkeys.cancel_label") } else { t!("onboarding.hotkeys.change_toggle") })
                             .cursor_pointer()
-                            .child(text::ui(change_label, 13., FontWeight::MEDIUM, c.accent))
+                            .child(plain(change_label, 13., FontWeight::MEDIUM, c.accent))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 if rec_toggle {
                                     this.recorder.cancel();
@@ -84,7 +90,7 @@ impl OnboardingView {
 
         // Push to talk.
         let body: AnyElement = match (rec_ptt, ptt) {
-            (true, _) => dashed_box(&c).child(listening(window_only, &c)).into_any_element(),
+            (true, _) => dashed_box(&c).child(listening(Some("hotkey-ptt-listening"), window_only, &c)).into_any_element(),
             (false, Some(hk)) => div()
                 .flex()
                 .flex_col()
@@ -123,27 +129,27 @@ impl OnboardingView {
                 .flex()
                 .gap(px(14.))
                 .child(
-                    div()
-                        .id("ptt-change")
+                    Pressable::new("ptt-change")
+                        .label(t!("onboarding.hotkeys.change_ptt"))
                         .cursor_pointer()
-                        .child(text::ui(t!("onboarding.hotkeys.change"), 13., FontWeight::MEDIUM, c.accent))
+                        .child(plain(t!("onboarding.hotkeys.change"), 13., FontWeight::MEDIUM, c.accent))
                         .on_click(cx.listener(|this, _, window, cx| this.record(Slot::PushToTalk, window, cx))),
                 )
                 .child(
-                    div()
-                        .id("ptt-clear")
+                    Pressable::new("ptt-clear")
+                        .label(t!("onboarding.hotkeys.clear_ptt"))
                         .cursor_pointer()
-                        .child(text::ui(t!("onboarding.hotkeys.clear"), 13., FontWeight::MEDIUM, c.graphite))
+                        .child(plain(t!("onboarding.hotkeys.clear"), 13., FontWeight::MEDIUM, c.graphite))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.model.update(cx, |m, cx| Slot::PushToTalk.apply(m, None, cx));
                         })),
                 )
         } else if rec_ptt {
             div().child(
-                div()
-                    .id("ptt-cancel")
+                Pressable::new("ptt-cancel")
+                    .label(t!("onboarding.hotkeys.cancel_label"))
                     .cursor_pointer()
-                    .child(text::ui(t!("onboarding.hotkeys.cancel"), 13., FontWeight::MEDIUM, c.accent))
+                    .child(plain(t!("onboarding.hotkeys.cancel"), 13., FontWeight::MEDIUM, c.accent))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.recorder.cancel();
                         cx.notify();
@@ -191,8 +197,9 @@ impl OnboardingView {
             .pb(px(24.))
             .child(heading(&t!("onboarding.hotkeys.title"), &t!("onboarding.hotkeys.lead"), &c))
             .child(self.columns().child(toggle_card).child(ptt_card));
-        for x in &conflicts {
-            col = col.child(crate::hub::settings::kit::notice(BannerKind::Warning, recorder::conflict_text(x, true), cx));
+        for (i, x) in conflicts.iter().enumerate() {
+            // The notice takes its id from its place in the code, so each one in the loop needs a parent id.
+            col = col.child(div().id(("conflict", i)).child(crate::hub::settings::kit::notice(BannerKind::Warning, recorder::conflict_text(x, true), cx)));
         }
         if let Some(note) = &self.recorder.note {
             col = col.child(crate::hub::settings::kit::notice(BannerKind::Warning, note.clone(), cx));
@@ -220,16 +227,12 @@ fn dashed_box(c: &Colors) -> Div {
         .border_color(c.deboss_shade)
 }
 
-fn listening(window_only: bool, c: &Colors) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(10.))
-        .child(div().size(px(8.)).rounded_full().bg(c.accent))
-        .child(text::ui(
-            if window_only { t!("onboarding.hotkeys.listening_window") } else { t!("onboarding.hotkeys.listening") },
-            14.,
-            FontWeight::MEDIUM,
-            c.graphite,
-        ))
+/// The "Press the keys" line. With an `id` it is a live node.
+fn listening(id: Option<&'static str>, window_only: bool, c: &Colors) -> Div {
+    let label = if window_only { t!("onboarding.hotkeys.listening_window") } else { t!("onboarding.hotkeys.listening") };
+    let text: AnyElement = match id {
+        Some(id) => live_ui(id, label, 14., FontWeight::MEDIUM, c.graphite, false).into_any_element(),
+        None => plain(label, 14., FontWeight::MEDIUM, c.graphite).into_any_element(),
+    };
+    div().flex().items_center().gap(px(10.)).child(div().size(px(8.)).rounded_full().bg(c.accent)).child(text)
 }

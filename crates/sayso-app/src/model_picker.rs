@@ -22,10 +22,11 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use crate::shell::{self as mac, native as ns_window};
 use sayso_i18n::t;
+use sayso_ui::a11y::{A11yExt as _, Pressable, Role};
 use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
-use sayso_ui::{ActivePaper, text};
+use sayso_ui::ActivePaper;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -122,13 +123,24 @@ pub fn anchor(key: impl Into<String>) -> impl IntoElement {
     .inset_0()
 }
 
+/// Text inside a control. It has no node: the control carries the name.
+fn plain(text: impl Into<SharedString>, size: f32, weight: FontWeight, color: Hsla) -> Div {
+    div().font_family(sayso_ui::fonts::UI).text_size(px(size)).font_weight(weight).text_color(color).child(text.into())
+}
+
+/// [`plain`] in the mono face.
+fn plain_mono(text: impl Into<SharedString>, size: f32, color: Hsla) -> Div {
+    div().font_family(sayso_ui::fonts::MONO).text_size(px(size)).font_weight(FontWeight::NORMAL).text_color(color).child(text.into())
+}
+
 /// The inline trigger: "Haiku 4.5 ⌄", or "Choose a model ⌄" in accent when
 /// nothing is chosen. Attach `on_click` that calls [`open`].
-pub fn trigger(key: &str, label: impl Into<SharedString>, chosen: bool, cx: &App) -> Stateful<Div> {
+pub fn trigger(key: &str, label: impl Into<SharedString>, chosen: bool, cx: &App) -> Pressable {
     let c = cx.paper().colors;
     let fg = if chosen { c.ink } else { c.accent };
-    div()
-        .id(SharedString::from(format!("trigger-{key}")))
+    let label: SharedString = label.into();
+    Pressable::new(SharedString::from(format!("trigger-{key}")))
+        .label(t!("model_picker.trigger_label", model = label.clone()))
         .relative()
         .flex()
         .flex_none()
@@ -140,7 +152,7 @@ pub fn trigger(key: &str, label: impl Into<SharedString>, chosen: bool, cx: &App
         .rounded(px(6.))
         .cursor_pointer()
         .hover(|s| s.bg(c.sheet_raised))
-        .child(text::ui(label.into(), 12., FontWeight::SEMIBOLD, fg).truncate())
+        .child(plain(label, 12., FontWeight::SEMIBOLD, fg).truncate())
         .child(icon(Icon::ChevronDown, 10., fg))
         .child(anchor(key))
 }
@@ -350,6 +362,24 @@ impl PickerWindow {
         cx.notify();
     }
 
+    /// Move the thinking level by `delta` levels, for the keys and for a screen
+    /// reader. From "Default", the first step goes to the first level.
+    fn step_thinking(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some(thinking) = self.thinking(cx) else { return };
+        let count = thinking.levels.len();
+        let from = thinking.chosen.map_or(0., |stop| stop_value(stop, count));
+        let current = thinking.chosen.map_or(-1, |stop| stop as isize);
+        let stop = (current + delta).clamp(0, count as isize - 1) as usize;
+        if Some(stop) == thinking.chosen {
+            return;
+        }
+        self.held = None;
+        self.settle = Some((from, stop_value(stop, count), Instant::now()));
+        let level = thinking.levels[stop].clone();
+        self.model.update(cx, |m, cx| m.set_provider_thinking(&thinking.provider, level, cx));
+        cx.notify();
+    }
+
     /// The part of the sheet with the thinking level.
     fn thinking_panel(&mut self, thinking: &Thinking, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let c = cx.paper().colors;
@@ -388,19 +418,43 @@ impl PickerWindow {
                     .items_center()
                     .justify_between()
                     .child(crate::hub::pages::kit::caps(t!("model_picker.thinking"), 10., c.graphite).font_weight(FontWeight::SEMIBOLD))
-                    .child(crate::hub::pages::kit::fraunces(name, 21., 24., c.ink).italic()),
+                    .child(crate::hub::pages::kit::plain_fraunces(name.clone(), 21., 24., c.ink).italic()),
             )
-            .child(
-                div()
-                    .id("thinking-line")
+            // The pen line is a slider: a stop for each level. The keys and the
+            // actions of a screen reader move one stop, as the pointer does.
+            .child({
+                let view = cx.entity();
+                let step = move |delta: isize| {
+                    let view = view.clone();
+                    move |_: Option<&gpui_kit::accesskit::ActionData>, _: &mut Window, cx: &mut App| view.update(cx, |this, cx| this.step_thinking(delta, cx))
+                };
+                Pressable::new("thinking-line")
+                    .a11y_role(Role::Slider)
+                    .label(t!("model_picker.thinking"))
+                    .aria_value(name)
+                    .aria_numeric_value(marked.unwrap_or(0) as f64)
+                    .aria_min_numeric_value(0.)
+                    .aria_max_numeric_value(count.saturating_sub(1) as f64)
+                    .aria_numeric_value_step(1.)
+                    .on_a11y_action(gpui_kit::accesskit::Action::Increment, step(1))
+                    .on_a11y_action(gpui_kit::accesskit::Action::Decrement, step(-1))
+                    .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                        let delta = match ev.keystroke.key.as_str() {
+                            "right" | "up" => 1,
+                            "left" | "down" => -1,
+                            _ => return,
+                        };
+                        cx.stop_propagation();
+                        this.step_thinking(delta, cx);
+                    }))
                     .relative()
                     .w_full()
                     .h(px(pen_line_height(SHEET_W - THINKING_PAD * 2.)))
                     .cursor_pointer()
                     .child(canvas(move |bounds, _, _| line.set(bounds), |_, _, _, _| {}).absolute().inset_0())
                     .child(pen_line(value, count, marked.unwrap_or(usize::MAX), self.held.is_some(), &c).size_full())
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, _, cx| this.hold(ev.position.x, cx))),
-            )
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, _, cx| this.hold(ev.position.x, cx)))
+            })
     }
 
     fn pick(&mut self, pick: Option<String>, cx: &mut Context<Self>) {
@@ -444,14 +498,60 @@ impl Render for PickerWindow {
         let query = self.filter.read(cx).value().trim().to_lowercase();
         let selected = self.req.selected.clone();
 
-        let mut rows = div().id("model-rows").flex().flex_col().max_h(px(280.)).overflow_y_scroll().py(px(4.)).px(px(4.));
+        // The models that the filter shows. The rows are the options of one
+        // list. The arrow keys move the focus, and Enter or Space picks, which
+        // closes the list.
+        let shown: Vec<_> = match &list {
+            Some(ModelList::Ready(models)) => models
+                .iter()
+                .filter(|m| query.is_empty() || m.name.to_lowercase().contains(&query) || m.id.to_lowercase().contains(&query))
+                .collect(),
+            _ => Vec::new(),
+        };
+        let total = shown.len() + usize::from(self.req.extra.is_some());
+        let mut rows = div()
+            .id("model-rows")
+            .role(Role::ListBox)
+            .aria_label(t!("model_picker.models_label"))
+            .on_key_down(cx.listener(|_, ev: &KeyDownEvent, window, cx| match ev.keystroke.key.as_str() {
+                "down" | "right" => {
+                    cx.stop_propagation();
+                    window.focus_next(cx)
+                }
+                "up" | "left" => {
+                    cx.stop_propagation();
+                    window.focus_prev(cx)
+                }
+                _ => {}
+            }))
+            .flex()
+            .flex_col()
+            .max_h(px(280.))
+            .overflow_y_scroll()
+            .py(px(4.))
+            .px(px(4.));
         // A row: the name in the display serif, the id at the right, and a
-        // note below. An ink dot marks the chosen model.
-        let row = |id: ElementId, name: String, model_id: Option<String>, note: Option<String>, is_selected: bool| {
+        // note below. An ink dot marks the chosen model. `index` of `total` is
+        // its place in the list.
+        let row = |id: ElementId, name: String, model_id: Option<String>, note: Option<String>, is_selected: bool, index: usize| {
             let mark = div().flex().flex_none().items_center().w(px(8.)).h(px(20.));
-            let mut row = div().id(id).flex().items_start().gap(px(8.)).py(px(6.)).px(px(10.)).rounded(px(8.)).cursor_pointer();
+            let spoken = [model_id.clone(), note.clone()].into_iter().flatten().collect::<Vec<_>>().join(". ");
+            let mut row = Pressable::new(id)
+                .a11y_role(Role::ListBoxOption)
+                .label(name.clone())
+                .aria_selected(is_selected)
+                .aria_position_in_set(index + 1)
+                .aria_size_of_set(total)
+                .aria_description(spoken)
+                .flex()
+                .items_start()
+                .gap(px(8.))
+                .py(px(6.))
+                .px(px(10.))
+                .rounded(px(8.))
+                .cursor_pointer();
             row = if is_selected {
-                row.bg(c.sheet).shadow(vec![
+                row.bg(c.sheet).shadows(vec![
                     BoxShadow::new(px(0.), px(1.), c.shadow(0.14)).blur_radius(px(2.)).inset(),
                     BoxShadow::new(px(0.), px(-1.), c.highlight(0.8)).inset(),
                 ])
@@ -472,53 +572,65 @@ impl Render for PickerWindow {
                             .justify_between()
                             .gap(px(12.))
                             .child(
-                                crate::hub::pages::kit::fraunces(name, 15., 20., c.ink)
+                                crate::hub::pages::kit::plain_fraunces(name, 15., 20., c.ink)
                                     .font_weight(if is_selected { FontWeight::SEMIBOLD } else { FontWeight::NORMAL })
                                     .min_w_0()
                                     .truncate(),
                             )
-                            .when_some(model_id, |d, id| {
-                                d.child(text::mono(id, 10., if is_selected { c.graphite } else { c.pencil }).font_weight(FontWeight::NORMAL).flex_none())
-                            }),
+                            .when_some(model_id, |d, id| d.child(plain_mono(id, 10., if is_selected { c.graphite } else { c.pencil }).flex_none())),
                     )
-                    .when_some(note, |d, n| d.child(text::ui(n, 11., FontWeight::NORMAL, c.graphite).line_height(px(15.)).truncate())),
+                    .when_some(note, |d, n| d.child(plain(n, 11., FontWeight::NORMAL, c.graphite).line_height(px(15.)).truncate())),
             )
         };
         if let Some(extra) = &self.req.extra {
             rows = rows.child(
-                row("model-extra".into(), extra.label.to_string(), None, None, extra.selected)
+                row("model-extra".into(), extra.label.to_string(), None, None, extra.selected, 0)
                     .on_click(cx.listener(|this, _, _, cx| this.pick(None, cx))),
             );
         }
-        let message = |s: String, color: Hsla| div().px(px(10.)).py(px(8.)).child(text::ui(s, 13., FontWeight::NORMAL, color).line_height(px(18.)));
+        // A message is a live node: a screen reader reads it when it shows.
+        let message = |s: String, color: Hsla, assertive: bool| {
+            div()
+                .id("model-list-status")
+                .role(Role::Status)
+                .a11y_live(s.clone(), assertive)
+                .px(px(10.))
+                .py(px(8.))
+                .child(plain(s, 13., FontWeight::NORMAL, color).line_height(px(18.)))
+        };
         let mut count = None;
         match &list {
-            None | Some(ModelList::Loading) => rows = rows.child(message(t!("model_picker.loading"), c.graphite)),
+            None | Some(ModelList::Loading) => rows = rows.child(message(t!("model_picker.loading"), c.graphite, false)),
             Some(ModelList::Failed(e, reason)) => {
                 let text = match reason {
                     Some(reason) => crate::engine_text::describe(Some(*reason), e),
                     None => t!("model_picker.load_failed", error = e),
                 };
-                rows = rows.child(message(text, c.danger));
+                rows = rows.child(message(text, c.danger, true));
             }
             Some(ModelList::Ready(models)) => {
                 count = Some(models.len());
-                let shown: Vec<_> = models
-                    .iter()
-                    .filter(|m| query.is_empty() || m.name.to_lowercase().contains(&query) || m.id.to_lowercase().contains(&query))
-                    .collect();
                 if models.is_empty() {
-                    rows = rows.child(message(t!("model_picker.no_models"), c.graphite));
+                    rows = rows.child(message(t!("model_picker.no_models"), c.graphite, false));
                 } else if shown.is_empty() {
-                    rows = rows.child(message(t!("model_picker.no_match"), c.graphite));
+                    rows = rows.child(message(t!("model_picker.no_match"), c.graphite, false));
                 }
+                let offset = usize::from(self.req.extra.is_some());
                 for (i, m) in shown.into_iter().enumerate() {
                     // HTTP lists give only ids: the name is then the id, and it shows one time.
                     let model_id = (m.name != m.id).then(|| m.id.clone());
                     let id = m.id.clone();
+                    // The row id comes from the model id, so it stays when the filter changes.
                     rows = rows.child(
-                        row(ElementId::from(("model", i)), m.name.clone(), model_id, m.description.clone(), selected.as_deref() == Some(m.id.as_str()))
-                            .on_click(cx.listener(move |this, _, _, cx| this.pick(Some(id.clone()), cx))),
+                        row(
+                            SharedString::from(format!("model-{}", m.id)).into(),
+                            m.name.clone(),
+                            model_id,
+                            m.description.clone(),
+                            selected.as_deref() == Some(m.id.as_str()),
+                            offset + i,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| this.pick(Some(id.clone()), cx))),
                     );
                 }
             }
@@ -534,7 +646,7 @@ impl Render for PickerWindow {
             .border_b_1()
             .border_color(c.rule)
             .child(icon(Icon::Search, 12., c.pencil))
-            .child(crate::hub::pages::kit::bare_input(&self.filter, 13.).flex_1())
+            .child(crate::hub::pages::kit::bare_input(&self.filter, 13.).aria_label(t!("model_picker.filter")).flex_1())
             .children(count.map(|n| {
                 let models = t!("model_picker.count", count = n);
                 crate::hub::pages::kit::caps(models, 10., c.pencil).font_weight(FontWeight::SEMIBOLD).flex_none()
@@ -552,6 +664,8 @@ impl Render for PickerWindow {
         let measured = self.measured.clone();
         let sheet = div()
             .id("model-picker")
+            .role(Role::Dialog)
+            .aria_label(t!("model_picker.title"))
             .relative()
             .flex()
             .flex_col()
@@ -596,11 +710,17 @@ impl Render for PickerWindow {
             .font_family(sayso_ui::fonts::UI)
             .locale_fonts(Face::Sans)
             .text_color(c.ink)
-            .capture_key_down(cx.listener(|_, ev: &KeyDownEvent, _, cx| {
-                if ev.keystroke.key == "escape" {
+            .capture_key_down(cx.listener(|_, ev: &KeyDownEvent, window, cx| match ev.keystroke.key.as_str() {
+                "escape" => {
                     cx.stop_propagation();
                     let _ = close_open(cx);
                 }
+                // This window is not in the kit root, so it has no Tab of its own.
+                "tab" => {
+                    cx.stop_propagation();
+                    if ev.keystroke.modifiers.shift { window.focus_prev(cx) } else { window.focus_next(cx) }
+                }
+                _ => {}
             }))
             // The whole window: the pointer can leave the line while the user holds it.
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {

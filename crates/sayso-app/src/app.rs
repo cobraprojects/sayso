@@ -90,6 +90,7 @@ pub fn run() {
 
         crate::overlay::open(&model, cx);
         crate::popover::install(&model, cx);
+        crate::a11y::start(cx);
         // A second start of Sayso (Linux) asks this one to open the Hub.
         let m = model.clone();
         cx.spawn(async move |cx| {

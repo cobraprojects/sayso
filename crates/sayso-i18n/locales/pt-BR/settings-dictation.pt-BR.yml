@@ -38,6 +38,7 @@ settings:
     trailing_space_detail: "Seu próximo ditado começa como uma palavra nova. Texto que termina com quebra de linha não recebe espaço."
     type_in_apps: "Digitar em vez de colar nestes apps"
     type_in_apps_detail: "Para apps que bloqueiam a colagem. Mais lento para textos longos."
+    remove_app: "Remover %{name}"
     add_app: "Adicionar app"
     close_list: "Fechar lista"
     no_other_apps: "Nenhum outro app está aberto. Abra o app e tente de novo."

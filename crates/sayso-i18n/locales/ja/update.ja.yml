@@ -73,3 +73,4 @@ update:
   slip_newer: "新しい Sayso"
   now_version: "Sayso は %{version} になりました"
   whats_new: "新機能"
+  dismiss: "閉じる"

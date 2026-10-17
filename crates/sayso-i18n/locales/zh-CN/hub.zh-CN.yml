@@ -27,6 +27,9 @@ hub:
     theme_light: "浅色"
     theme_dark: "深色"
     back: "返回"
+    main_nav: "页面"
+    settings_sections: "设置分区"
+    theme: "主题"
     open_config_file: "打开配置文件"
     open_config_file_path: "打开配置文件：%{path}"
     engine_status: "%{status}。%{detail}"
@@ -40,6 +43,10 @@ hub:
   duration:
     seconds: "%{seconds} 秒"
     minutes_seconds: "%{minutes} 分 %{seconds} 秒"
+  window:
+    minimize: "最小化"
+    maximize: "最大化"
+    close: "关闭"
   place:
     cloud: "云端"
     local: "本地"

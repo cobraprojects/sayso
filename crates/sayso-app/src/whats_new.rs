@@ -12,6 +12,7 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::*;
 use sayso_i18n::t;
 use sayso_core::paths::Paths;
+use sayso_ui::a11y::{Pressable, Role};
 use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
@@ -232,8 +233,13 @@ impl WhatsNewView {
         header.into_any_element()
     }
 
-    fn item(item: &Item, c: &Colors) -> Div {
+    /// Item `index` of `count`: a list item that reads as one thing.
+    fn item(item: &Item, index: usize, count: usize, c: &Colors) -> Stateful<Div> {
         div()
+            .id(("whats-new-item", index))
+            .role(Role::ListItem)
+            .aria_position_in_set(index + 1)
+            .aria_size_of_set(count)
             .flex()
             .items_start()
             .gap(px(14.))
@@ -298,7 +304,15 @@ impl Render for WhatsNewView {
             .gap(px(10.))
             .child(text::ui(t!("whats_new.heading", version = release.version), 12., FontWeight::SEMIBOLD, c.accent).line_height(px(16.)))
             .child(text::title(release.title.clone(), 36., &c).line_height(px(42.)));
-        let items = div().flex().flex_col().gap(px(20.)).children(release.item.iter().map(|item| Self::item(item, &c)));
+        let count = release.item.len();
+        let items = div()
+            .id("whats-new-list")
+            .role(Role::List)
+            .aria_label(t!("whats_new.list_label"))
+            .flex()
+            .flex_col()
+            .gap(px(20.))
+            .children(release.item.iter().enumerate().map(|(i, item)| Self::item(item, i, count, &c)));
         let footer = div()
             .flex()
             .flex_none()
@@ -310,11 +324,12 @@ impl Render for WhatsNewView {
             .border_t_1()
             .border_color(c.rule)
             .child(
-                div()
-                    .id("whats-new-all")
+                Pressable::new("whats-new-all")
+                    .label(t!("whats_new.all_changes"))
+                    .a11y_role(Role::Link)
                     .cursor_pointer()
                     .on_click(move |_, _, _| crate::shell::open(&notes))
-                    .child(text::ui(t!("whats_new.all_changes"), 13., FontWeight::SEMIBOLD, c.accent)),
+                    .child(div().font_family(sayso_ui::fonts::UI).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(c.accent).child(t!("whats_new.all_changes"))),
             )
             .child(Button::new("whats-new-done", t!("whats_new.done")).primary().large().on_click(|_, window, cx| close(window, cx)));
         div()
@@ -328,6 +343,13 @@ impl Render for WhatsNewView {
             .font_family(sayso_ui::fonts::UI)
             .locale_fonts(Face::Sans)
             .text_color(c.ink)
+            // Esc closes the window.
+            .on_key_down(|e, window, cx| {
+                if e.keystroke.key == "escape" {
+                    cx.stop_propagation();
+                    close(window, cx);
+                }
+            })
             .child(grain(Grain::Board, px(0.), cx))
             .child(
                 div()

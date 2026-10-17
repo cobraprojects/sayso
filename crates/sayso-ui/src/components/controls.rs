@@ -2,11 +2,13 @@
 
 use super::{OnClick, basics::icon};
 use crate::ActivePaper;
+use crate::a11y::{A11yExt as _, Pressable, Role, Toggled};
 use crate::assets::Icon;
 use crate::fonts::{MONO, UI};
 use crate::paper::{self, PaperStyled};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use sayso_i18n::t;
 
 /// A tooltip with one line of text, for a control that shows only an icon.
 pub fn text_tooltip(label: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
@@ -51,6 +53,9 @@ pub struct Button {
     trailing: Option<Icon>,
     disabled: bool,
     full_width: bool,
+    /// The name for a screen reader when the label is not enough: "Delete Parakeet".
+    a11y_label: Option<SharedString>,
+    expanded: Option<bool>,
     on_click: Option<OnClick>,
 }
 
@@ -66,8 +71,20 @@ impl Button {
             trailing: None,
             disabled: false,
             full_width: false,
+            a11y_label: None,
+            expanded: None,
             on_click: None,
         }
+    }
+    /// The name that a screen reader reads, in place of the visible label.
+    pub fn a11y_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.a11y_label = Some(label.into());
+        self
+    }
+    /// For a button that opens a menu or a popup: is it open now?
+    pub fn expanded(mut self, expanded: bool) -> Self {
+        self.expanded = Some(expanded);
+        self
     }
     pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
         self.detail = Some(detail.into());
@@ -122,8 +139,10 @@ impl Button {
     }
 }
 
-impl RenderOnce for Button {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+impl Button {
+    /// The control as a [`Pressable`]; `render` draws it. Tests read its node.
+    #[doc(hidden)]
+    pub fn pressable(self, cx: &App) -> Pressable {
         let c = cx.paper().colors;
         let (h, pad, text, radius) = match self.size {
             ButtonSize::Small => (28., 12., 13., 8.),
@@ -137,8 +156,14 @@ impl RenderOnce for Button {
             ButtonKind::Danger => (c.danger, FontWeight::MEDIUM),
         };
         let kind = self.kind;
-        let mut b = div()
-            .id(self.id)
+        let name = self.a11y_label.clone().unwrap_or_else(|| match &self.detail {
+            Some(d) => format!("{}, {d}", self.label).into(),
+            None => self.label.clone(),
+        });
+        let mut b = Pressable::new(self.id)
+            .label(name)
+            .disabled(self.disabled)
+            .when_some(self.expanded, |b, open| b.aria_expanded(open))
             .flex()
             .flex_none()
             .items_center()
@@ -158,12 +183,13 @@ impl RenderOnce for Button {
             .when_some(self.trailing, |b, i| b.child(icon(i, 14., fg)));
         b = match kind {
             ButtonKind::Primary => b
-                .ink_button(&c)
+                .bg(c.ink_fill)
+                .shadows(paper::ink_button(&c))
                 .hover(|s| s.bg(c.ink_fill.opacity(0.92)))
                 .active(|s| s.shadow(paper::ink_pressed(&c))),
             ButtonKind::Secondary | ButtonKind::Danger => b
                 .bg(c.sheet_raised)
-                .shadow(paper::raised_small(&c))
+                .shadows(paper::raised_small(&c))
                 .hover(|s| s.bg(c.sheet))
                 .active(|s| s.bg(c.deboss).shadow(paper::debossed(&c))),
             ButtonKind::Ghost => b.hover(|s| s.bg(c.deboss.opacity(0.6))).active(|s| s.bg(c.deboss)),
@@ -177,17 +203,34 @@ impl RenderOnce for Button {
     }
 }
 
+impl RenderOnce for Button {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        self.pressable(cx)
+    }
+}
+
 /// The paper-tab switch: an ink track when on, a debossed track when off.
 #[derive(IntoElement)]
 pub struct Switch {
     id: ElementId,
     on: bool,
+    label: Option<SharedString>,
+    disabled: bool,
     on_toggle: Option<OnBool>,
 }
 
 impl Switch {
     pub fn new(id: impl Into<ElementId>, on: bool) -> Self {
-        Self { id: id.into(), on, on_toggle: None }
+        Self { id: id.into(), on, label: None, disabled: false, on_toggle: None }
+    }
+    /// The name that a screen reader reads: the title of the settings row.
+    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
     }
     pub fn on_toggle(mut self, f: impl Fn(bool, &mut Window, &mut App) + 'static) -> Self {
         self.on_toggle = Some(std::rc::Rc::new(f));
@@ -195,8 +238,10 @@ impl Switch {
     }
 }
 
-impl RenderOnce for Switch {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+impl Switch {
+    /// The control as a [`Pressable`]; `render` draws it. Tests read its node.
+    #[doc(hidden)]
+    pub fn pressable(self, cx: &App) -> Pressable {
         let c = cx.paper().colors;
         let on = self.on;
         let knob = div()
@@ -207,8 +252,11 @@ impl RenderOnce for Switch {
                 BoxShadow::new(px(0.), px(1.), c.highlight(1.0)).inset(),
                 BoxShadow::new(px(0.), px(1.), c.shadow(if on { 0.35 } else { 0.3 })).blur_radius(px(2.)),
             ]);
-        let mut track = div()
-            .id(self.id)
+        let mut track = Pressable::new(self.id)
+            .a11y_role(Role::Switch)
+            .when_some(self.label, |t, l| t.label(l))
+            .disabled(self.disabled)
+            .aria_toggled(if on { Toggled::True } else { Toggled::False })
             .flex()
             .flex_none()
             .items_center()
@@ -219,19 +267,28 @@ impl RenderOnce for Switch {
             .cursor_pointer()
             .child(knob);
         track = if on {
-            track.justify_end().bg(c.ink_fill).shadow(vec![
+            track.justify_end().bg(c.ink_fill).shadows(vec![
                 BoxShadow::new(px(0.), px(1.), gpui_kit::black().opacity(0.45)).blur_radius(px(3.)).inset(),
             ])
         } else {
-            track.justify_start().bg(c.deboss).shadow(vec![
+            track.justify_start().bg(c.deboss).shadows(vec![
                 BoxShadow::new(px(0.), px(1.), c.shadow(0.3)).blur_radius(px(3.)).inset(),
                 BoxShadow::new(px(0.), px(-1.), c.highlight(0.7)).inset(),
             ])
         };
+        if self.disabled {
+            track = track.opacity(0.45);
+        }
         if let Some(f) = self.on_toggle {
             track = track.on_click(move |_, w, cx| f(!on, w, cx));
         }
         track
+    }
+}
+
+impl RenderOnce for Switch {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        self.pressable(cx)
     }
 }
 
@@ -243,6 +300,7 @@ pub struct Segmented {
     selected: usize,
     compact: bool,
     rail: bool,
+    label: Option<SharedString>,
     on_select: Option<OnIndex>,
 }
 
@@ -254,8 +312,14 @@ impl Segmented {
             selected,
             compact: false,
             rail: false,
+            label: None,
             on_select: None,
         }
+    }
+    /// The name of the group: the title of the settings row.
+    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
+        self.label = Some(label.into());
+        self
     }
     pub fn with_icons(mut self, icons: impl IntoIterator<Item = Icon>) -> Self {
         for (opt, ic) in self.options.iter_mut().zip(icons) {
@@ -283,7 +347,33 @@ impl RenderOnce for Segmented {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let c = cx.paper().colors;
         let (h, text) = if self.compact { (28., 12.) } else { (30., 13.) };
-        let mut track = div().id(self.id).flex().p(px(3.)).gap(px(2.)).rounded(px(10.)).debossed(&c);
+        let count = self.options.len();
+        let selected_index = self.selected;
+        // The arrow keys move the selection and the focus, as in a group of
+        // radio buttons. Each segment is a tab stop, so the focus moves with
+        // `focus_next` and `focus_prev`.
+        let keys = self.on_select.clone();
+        let mut track = div()
+            .id(self.id)
+            .role(Role::RadioGroup)
+            .when_some(self.label, |t, l| t.aria_label(l))
+            .flex()
+            .p(px(3.))
+            .gap(px(2.))
+            .rounded(px(10.))
+            .debossed(&c)
+            .when_some(keys, move |t, f| {
+                t.on_key_down(move |e, w, cx| {
+                    let next = match e.keystroke.key.as_str() {
+                        "right" | "down" if selected_index + 1 < count => selected_index + 1,
+                        "left" | "up" if selected_index > 0 => selected_index - 1,
+                        _ => return,
+                    };
+                    cx.stop_propagation();
+                    f(next, w, cx);
+                    if next > selected_index { w.focus_next(cx) } else { w.focus_prev(cx) }
+                })
+            });
         if self.compact {
             track = track.w_full();
         }
@@ -293,8 +383,8 @@ impl RenderOnce for Segmented {
         for (i, (label, ic)) in self.options.into_iter().enumerate() {
             let selected = i == self.selected;
             let fg = if selected { c.ink } else { c.graphite };
-            let mut seg = div()
-                .id(i)
+            let mut seg = Pressable::new(i)
+                .a11y_radio(label.clone(), selected, i, count)
                 .flex()
                 .items_center()
                 .justify_center()
@@ -313,7 +403,7 @@ impl RenderOnce for Segmented {
                 seg = seg.flex_1().px(px(4.));
             }
             if selected {
-                seg = seg.bg(c.sheet_raised).shadow(vec![
+                seg = seg.bg(c.sheet_raised).shadows(vec![
                     BoxShadow::new(px(0.), px(1.), c.highlight(1.0)).inset(),
                     BoxShadow::new(px(0.), px(1.), c.shadow(0.18)).blur_radius(px(2.)),
                 ]);
@@ -334,12 +424,20 @@ pub struct NavItem {
     label: SharedString,
     active: bool,
     icon_only: bool,
+    position: Option<(usize, usize)>,
     on_click: Option<OnClick>,
 }
 
+/// A navigation row is a tab: macOS reads "Home, selected, tab 1 of 6".
+/// Put the rows in a container with [`Role::TabList`].
 impl NavItem {
     pub fn new(id: impl Into<ElementId>, icon: Icon, label: impl Into<SharedString>, active: bool) -> Self {
-        Self { id: id.into(), icon, label: label.into(), active, icon_only: false, on_click: None }
+        Self { id: id.into(), icon, label: label.into(), active, icon_only: false, position: None, on_click: None }
+    }
+    /// The place of this row in its list: `index` of `count`.
+    pub fn position(mut self, index: usize, count: usize) -> Self {
+        self.position = Some((index, count));
+        self
     }
     /// The rail version: a square with the icon. The label is a tooltip.
     pub fn icon_only(mut self, icon_only: bool) -> Self {
@@ -352,12 +450,17 @@ impl NavItem {
     }
 }
 
-impl RenderOnce for NavItem {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+impl NavItem {
+    /// The control as a [`Pressable`]; `render` draws it. Tests read its node.
+    #[doc(hidden)]
+    pub fn pressable(self, cx: &App) -> Pressable {
         let c = cx.paper().colors;
         let fg = if self.active { c.ink } else { c.graphite };
-        let mut row = div()
-            .id(self.id)
+        let mut row = Pressable::new(self.id)
+            .a11y_role(Role::Tab)
+            .label(self.label.clone())
+            .aria_selected(self.active)
+            .when_some(self.position, |r, (i, n)| r.aria_position_in_set(i + 1).aria_size_of_set(n))
             .flex()
             .items_center()
             .gap(px(12.))
@@ -371,7 +474,7 @@ impl RenderOnce for NavItem {
             .child(icon(self.icon, 18., fg));
         row = if self.icon_only { row.w(px(36.)).px_0().justify_center().tooltip(text_tooltip(self.label)) } else { row.child(self.label) };
         if self.active {
-            row = row.bg(c.deboss).shadow(vec![
+            row = row.bg(c.deboss).shadows(vec![
                 BoxShadow::new(px(0.), px(1.), c.shadow(0.22)).blur_radius(px(2.5)).inset(),
                 BoxShadow::new(px(0.), px(-1.), c.highlight(0.7)).inset(),
             ]);
@@ -385,16 +488,29 @@ impl RenderOnce for NavItem {
     }
 }
 
+impl RenderOnce for NavItem {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        self.pressable(cx)
+    }
+}
+
 /// A debossed track with an ink fill.
 #[derive(IntoElement)]
 pub struct Progress {
     fraction: f32,
     height: f32,
+    label: Option<SharedString>,
 }
 
 impl Progress {
     pub fn new(fraction: f32) -> Self {
-        Self { fraction: fraction.clamp(0.0, 1.0), height: 6. }
+        Self { fraction: fraction.clamp(0.0, 1.0), height: 6., label: None }
+    }
+    /// What the bar measures: "Downloading Parakeet". Without a label the bar
+    /// has no node, for a bar that only repeats text next to it.
+    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
+        self.label = Some(label.into());
+        self
     }
     pub fn height(mut self, h: f32) -> Self {
         self.height = h;
@@ -405,7 +521,17 @@ impl Progress {
 impl RenderOnce for Progress {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let c = cx.paper().colors;
+        let percent = (self.fraction * 100.).round() as f64;
+        let id = crate::a11y::call_site_id(self.label.as_deref().unwrap_or("progress"));
         div()
+            .id(id)
+            .when_some(self.label, |d, label| {
+                d.role(Role::ProgressIndicator)
+                    .aria_label(label)
+                    .aria_min_numeric_value(0.)
+                    .aria_max_numeric_value(100.)
+                    .aria_numeric_value(percent)
+            })
             .flex()
             .w_full()
             .h(px(self.height))
@@ -416,17 +542,25 @@ impl RenderOnce for Progress {
     }
 }
 
-/// The − value + stepper.
+/// The − value + stepper. For a screen reader it is one spin button: the
+/// value is its text, Up and Down change it, and so do the Increment and
+/// Decrement actions. − and + are for the pointer and are not tab stops.
 #[derive(IntoElement)]
 pub struct Stepper {
     id: ElementId,
+    label: Option<SharedString>,
     value: SharedString,
     on_change: Option<OnDelta>,
 }
 
 impl Stepper {
     pub fn new(id: impl Into<ElementId>, value: impl Into<SharedString>) -> Self {
-        Self { id: id.into(), value: value.into(), on_change: None }
+        Self { id: id.into(), label: None, value: value.into(), on_change: None }
+    }
+    /// The name that a screen reader reads: the title of the settings row.
+    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
+        self.label = Some(label.into());
+        self
     }
     /// Called with -1 or +1.
     pub fn on_change(mut self, f: impl Fn(i32, &mut Window, &mut App) + 'static) -> Self {
@@ -435,12 +569,15 @@ impl Stepper {
     }
 }
 
-impl RenderOnce for Stepper {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+impl Stepper {
+    /// The control as a [`Pressable`]; `render` draws it. Tests read its node.
+    #[doc(hidden)]
+    pub fn pressable(self, cx: &App) -> Pressable {
         let c = cx.paper().colors;
-        let step = |id: &'static str, label: &'static str, delta: i32, f: Option<OnDelta>| {
-            div()
-                .id(id)
+        let step = |id: &'static str, glyph: &'static str, name: SharedString, delta: i32, f: Option<OnDelta>| {
+            Pressable::new(id)
+                .label(name)
+                .tab_stop(false)
                 .flex()
                 .items_center()
                 .justify_center()
@@ -450,30 +587,58 @@ impl RenderOnce for Stepper {
                 .text_size(px(15.))
                 .text_color(c.graphite)
                 .hover(|s| s.bg(c.sheet_raised).text_color(c.ink))
-                .child(label)
+                .child(glyph)
                 .when_some(f, move |d, f| d.on_click(move |_, w, cx| f(delta, w, cx)))
         };
-        div()
-            .id(self.id)
+        let f = self.on_change.clone();
+        let (inc, dec) = (f.clone(), f.clone());
+        Pressable::new(self.id)
+            .a11y_role(Role::SpinButton)
+            .when_some(self.label, |s, l| s.label(l))
+            .aria_value(self.value.clone())
+            .when_some(inc, |s, f| s.on_a11y_action(gpui_kit::AccessibleAction::Increment, move |_, w, cx| f(1, w, cx)))
+            .when_some(dec, |s, f| s.on_a11y_action(gpui_kit::AccessibleAction::Decrement, move |_, w, cx| f(-1, w, cx)))
+            .when_some(f, |s, f| {
+                s.on_key_down(move |e, w, cx| {
+                    let delta = match e.keystroke.key.as_str() {
+                        "up" | "right" => 1,
+                        "down" | "left" => -1,
+                        _ => return,
+                    };
+                    cx.stop_propagation();
+                    f(delta, w, cx);
+                })
+            })
             .flex()
+            .flex_none()
             .items_center()
             .gap(px(2.))
             .h(px(32.))
             .px(px(3.))
             .rounded(px(9.))
-            .debossed(&c)
-            .child(step("dec", "−", -1, self.on_change.clone()))
+            .bg(c.deboss)
+            .shadows(paper::debossed(&c))
+            .child(step("dec", "−", t!("a11y.decrease").into(), -1, self.on_change.clone()))
             .child(
                 div()
-                    .w(px(44.))
-                    .text_center()
+                    .min_w(px(40.))
+                    .px(px(4.))
+                    .flex()
+                    .justify_center()
+                    .whitespace_nowrap()
                     .font_family(MONO)
                     .text_size(px(13.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(c.ink)
                     .child(self.value),
             )
-            .child(step("inc", "+", 1, self.on_change))
+            .child(step("inc", "+", t!("a11y.increase").into(), 1, self.on_change))
+    }
+}
+
+impl RenderOnce for Stepper {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        self.pressable(cx)
     }
 }
 
@@ -513,6 +678,20 @@ pub fn option_card(id: impl Into<ElementId>, selected: bool, cx: &App) -> Statef
     }
 }
 
+/// What a chip does, for a screen reader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ChipRole {
+    /// A command, such as a preset. A plain button.
+    #[default]
+    Command,
+    /// A filter that is on or off by itself. A toggle button.
+    Filter,
+    /// One choice of a set: `index` of `count`. A radio button.
+    Choice { index: usize, count: usize },
+    /// Opens a menu. A button with an expanded state.
+    Menu { open: bool },
+}
+
 /// A filter chip: ink when selected, raised paper otherwise.
 #[derive(IntoElement)]
 pub struct Chip {
@@ -521,12 +700,23 @@ pub struct Chip {
     selected: bool,
     dot: Option<Hsla>,
     trailing: Option<Icon>,
+    role: ChipRole,
+    a11y_label: Option<SharedString>,
     on_click: Option<OnClick>,
 }
 
 impl Chip {
     pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>, selected: bool) -> Self {
-        Self { id: id.into(), label: label.into(), selected, dot: None, trailing: None, on_click: None }
+        Self { id: id.into(), label: label.into(), selected, dot: None, trailing: None, role: ChipRole::Command, a11y_label: None, on_click: None }
+    }
+    pub fn role(mut self, role: ChipRole) -> Self {
+        self.role = role;
+        self
+    }
+    /// The name that a screen reader reads, in place of the visible label.
+    pub fn a11y_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.a11y_label = Some(label.into());
+        self
     }
     pub fn dot(mut self, color: Hsla) -> Self {
         self.dot = Some(color);
@@ -542,13 +732,21 @@ impl Chip {
     }
 }
 
-impl RenderOnce for Chip {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+impl Chip {
+    /// The control as a [`Pressable`]; `render` draws it. Tests read its node.
+    #[doc(hidden)]
+    pub fn pressable(self, cx: &App) -> Pressable {
         let c = cx.paper().colors;
         let fg = if self.selected && self.dot.is_none() { c.on_ink } else if self.selected { c.ink } else { c.graphite };
-        let mut chip = div()
-            .id(self.id)
-            .flex()
+        let name = self.a11y_label.unwrap_or_else(|| self.label.clone());
+        let mut chip = Pressable::new(self.id).flex();
+        chip = match self.role {
+            ChipRole::Command => chip.label(name),
+            ChipRole::Filter => chip.label(name).aria_toggled(if self.selected { Toggled::True } else { Toggled::False }),
+            ChipRole::Choice { index, count } => chip.a11y_radio(name, self.selected, index, count),
+            ChipRole::Menu { open } => chip.label(name).aria_expanded(open),
+        };
+        let mut chip = chip
             .flex_none()
             .items_center()
             .gap(px(6.))
@@ -565,18 +763,24 @@ impl RenderOnce for Chip {
             .when_some(self.trailing, |d, i| d.child(icon(i, 10., fg)));
         chip = match (self.selected, self.dot.is_some()) {
             // A style chip: selected shows an ink ring on paper.
-            (true, true) => chip.bg(c.sheet_raised).shadow(vec![
+            (true, true) => chip.bg(c.sheet_raised).shadows(vec![
                 BoxShadow::new(px(0.), px(0.), c.ink).spread_radius(px(1.5)),
                 BoxShadow::new(px(0.), px(1.), c.shadow(0.16)).blur_radius(px(2.)),
             ]),
-            (true, false) => chip.bg(c.ink_fill).shadow(vec![
+            (true, false) => chip.bg(c.ink_fill).shadows(vec![
                 BoxShadow::new(px(0.), px(-1.5), gpui_kit::black().opacity(0.35)).blur_radius(px(2.)).inset(),
             ]),
-            (false, _) => chip.raised_small(&c).hover(|s| s.text_color(c.ink)),
+            (false, _) => chip.bg(c.sheet_raised).shadows(paper::raised_small(&c)).hover(|s| s.text_color(c.ink)),
         };
         if let Some(f) = self.on_click {
             chip = chip.on_click(move |e, w, cx| f(e, w, cx));
         }
         chip
+    }
+}
+
+impl RenderOnce for Chip {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        self.pressable(cx)
     }
 }

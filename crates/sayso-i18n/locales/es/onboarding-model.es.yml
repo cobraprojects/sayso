@@ -11,6 +11,7 @@ onboarding:
       one: "Mostrar %{count} modelo"
       other: "Mostrar los %{count} modelos"
     change: "Cambiar"
+    change_label: "Cambiar el modelo de voz"
     no_engine: "El motor de voz no está instalado, así que Sayso no puede descargar un modelo. Reinstala Sayso y ábrelo de nuevo."
     parts_note: "Incluye la pasada final, la vista previa en vivo y el ayudante del diccionario."
     progress: "%{done} de %{total}"
@@ -33,6 +34,8 @@ onboarding:
     downloaded: "Descargado."
   all_models:
     filter_placeholder: "Filtrar por nombre o idioma"
+    filter_label: "Filtrar modelos"
+    close: "Cerrar"
     downloading: "Descargando"
     downloaded: "Descargado"
     no_match: "Ningún modelo coincide con el filtro. Prueba con otro nombre o idioma."

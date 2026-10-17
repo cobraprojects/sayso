@@ -8,6 +8,7 @@
 //!
 //! The values come from the Paper file "Sayso — v0.1 Design".
 
+pub mod a11y;
 pub mod assets;
 pub mod components;
 pub mod fonts;

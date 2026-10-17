@@ -2,6 +2,7 @@ _version: 1
 
 popover:
   cloud: "云端"
+  title: "Sayso"
   system_default: "系统默认"
   no_model_downloaded: "尚未下载任何模型。"
   no_microphone: "未找到麦克风。"

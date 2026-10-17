@@ -5,6 +5,7 @@ onboarding:
   practice:
     title: "Experimente"
     placeholder: "Clique aqui, pressione seu atalho e leia a frase."
+    field_label: "Campo de prática"
     lead_toggle: "Clique no campo, pressione %{keys}, leia a frase e pressione %{keys} de novo."
     lead_push: "Clique no campo, segure sua tecla de segurar para falar e leia a frase."
     read_this: "Leia isto"

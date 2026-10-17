@@ -9,7 +9,6 @@ use sayso_core::languages;
 use sayso_i18n::t;
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
-use sayso_ui::fonts::{Face, LocaleFonts as _};
 use sayso_ui::ActivePaper;
 use sayso_ui::components::ink_waveform;
 use sayso_ui::text;
@@ -43,15 +42,6 @@ impl OnboardingView {
             .child(droplet(86., 60., 2.1, 0.3))
             .child(droplet(313., 74., 1.6, 0.3));
         let title = t!("onboarding.welcome.title");
-        let display = |color: Hsla| {
-            div()
-                .font_family(sayso_ui::fonts::DISPLAY).locale_fonts(Face::Serif)
-                .text_size(px(56.))
-                .line_height(px(59.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(color)
-                .child(title.clone())
-        };
         let fact = |label: String| {
             div()
                 .flex()
@@ -76,7 +66,7 @@ impl OnboardingView {
                     .flex_col()
                     .items_center()
                     .gap(px(14.))
-                    .child(div().relative().child(display(c.highlight(0.85)).absolute().top(px(1.)).left_0()).child(display(c.ink)))
+                    .child(text::letterpress(title, 56., 59., 1, &c))
                     .child(
                         text::ui(
                             t!(crate::shell::os_text!("onboarding.welcome.lead_mac", "onboarding.welcome.lead_windows", "onboarding.welcome.lead_other")),
@@ -108,7 +98,15 @@ impl OnboardingView {
         let config = &self.model.read(cx).config;
         let (setting, spoken) = (config.general.language.clone(), config.dictation.language.clone());
         let InterfaceLanguages { codes, items, label, detail } = interface_languages(&setting);
-        let mut button = Button::new("welcome-interface-language", label);
+        let value = match &detail {
+            Some(detail) => format!("{label}, {detail}"),
+            None => label.clone(),
+        };
+        let mut button = Button::new("welcome-interface-language", label).a11y_label(t!(
+            "onboarding.welcome.language_button",
+            name = t!("onboarding.welcome.interface_language"),
+            value = value
+        ));
         if let Some(detail) = detail {
             button = button.detail(detail);
         }
@@ -128,7 +126,11 @@ impl OnboardingView {
         let dictation = self.language_picker(
             LanguageMenu::Dictation,
             t!("onboarding.welcome.dictation_language"),
-            Button::new("welcome-dictation-language", languages::display(&spoken)),
+            Button::new("welcome-dictation-language", languages::display(&spoken)).a11y_label(t!(
+                "onboarding.welcome.language_button",
+                name = t!("onboarding.welcome.dictation_language"),
+                value = languages::display(&spoken)
+            )),
             items,
             move |code, m, cx| {
                 let model = super::model_step::suggested(&code);
@@ -155,11 +157,23 @@ impl OnboardingView {
         cx: &mut Context<Self>,
     ) -> Div {
         let c = cx.paper().colors;
-        let mut control = div().relative().flex_none().child(button.trailing_icon(Icon::ChevronDown).on_click(cx.listener(move |this, _, _, cx| {
-            this.language_menu = if this.language_menu == Some(which) { None } else { Some(which) };
-            cx.notify();
-        })));
-        if self.language_menu == Some(which) {
+        let open = self.language_menu == Some(which);
+        let mut control = div()
+            .relative()
+            .flex_none()
+            // Esc closes the list.
+            .on_key_down(cx.listener(move |this, e: &KeyDownEvent, _, cx| {
+                if e.keystroke.key == "escape" && this.language_menu == Some(which) {
+                    cx.stop_propagation();
+                    this.language_menu = None;
+                    cx.notify();
+                }
+            }))
+            .child(button.trailing_icon(Icon::ChevronDown).expanded(open).on_click(cx.listener(move |this, _, _, cx| {
+                this.language_menu = if this.language_menu == Some(which) { None } else { Some(which) };
+                cx.notify();
+            })));
+        if open {
             let (picked, close) = (cx.entity(), cx.entity());
             control = control.child(div().absolute().top_full().left_0().w(px(260.)).child(kit::menu_items(
                 match which {

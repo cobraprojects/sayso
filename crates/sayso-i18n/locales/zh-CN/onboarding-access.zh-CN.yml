@@ -33,6 +33,7 @@ onboarding:
     allowed: "已允许"
     blocked: "已阻止"
     waiting: "等待中"
+    download_label: "%{name} 的下载"
   hotkeys:
     title: "选择快捷键"
     lead: "按下快捷键进行测试。Sayso 会检查是否有其他 App 使用了相同的按键。"
@@ -46,6 +47,10 @@ onboarding:
     change: "更改"
     cancel: "取消"
     clear: "清除"
+    cancel_label: "停止录制按键"
+    change_toggle: "更改开始和停止按键"
+    change_ptt: "更改按住说话按键"
+    clear_ptt: "移除按住说话按键"
     optional: "可选"
     hold_hint: "按住按键录音，松开即插入。"
     use_right_option: "使用右侧 Option 键"

@@ -10,6 +10,7 @@ settings:
     searching: "正在这台%{computer}上查找 AI 服务商。"
     none: "尚未设置服务商。添加一个服务商，即可使用带 AI 的风格。"
     default_badge: "默认"
+    details: "详情"
     cancel: "取消"
     sign_in: "登录"
     remove: "移除"

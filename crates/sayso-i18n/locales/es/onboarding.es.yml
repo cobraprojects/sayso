@@ -3,6 +3,7 @@ _version: 1
 # The window, the footer, the welcome step, and the last step.
 onboarding:
   step: "Paso %{step} de %{total}"
+  go_to_step: "Ir al paso %{step}"
   size_gb: "%{number} GB"
   size_mb: "%{number} MB"
   footer:
@@ -27,6 +28,7 @@ onboarding:
     fact_setup_time: "La configuración tarda unos 3 minutos"
     interface_language: "Idioma de la interfaz"
     dictation_language: "Idioma del dictado"
+    language_button: "%{name}: %{value}"
   done:
     title: "Todo listo"
     lead_toggle: "Pulsa %{keys} en cualquier app para dictar. Aquí vive Sayso."

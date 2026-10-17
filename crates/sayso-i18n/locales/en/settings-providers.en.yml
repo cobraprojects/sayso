@@ -10,6 +10,7 @@ settings:
     searching: "Looking for AI providers on this %{computer}."
     none: "No provider is set up. Add one to use styles with AI."
     default_badge: "Default"
+    details: "Details"
     cancel: "Cancel"
     sign_in: "Sign in"
     remove: "Remove"

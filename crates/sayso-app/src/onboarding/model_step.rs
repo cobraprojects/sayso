@@ -2,14 +2,14 @@
 //! the step does not continue until a model is on disk. The step offers
 //! three models, and a list of all local models (`all_models`).
 
-use super::{OnboardingView, heading, size_text};
-use crate::hub::pages::kit;
+use super::{OnboardingView, arrow_target, heading, link, plain, plain_mono, plain_title, size_text};
 use crate::hub::pages::models::size_label;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sayso_i18n::t;
 use sayso_core::models::{ModelId, ModelInfo};
 use sayso_core::stt::ModelStatus;
+use sayso_ui::a11y::{A11yExt as _, LiveStatus, Pressable, Role};
 use sayso_ui::assets::Icon;
 use sayso_ui::components::*;
 use sayso_ui::paper::{self, PaperStyled};
@@ -99,14 +99,32 @@ impl OnboardingView {
         let status = m.status_of(&active);
         let active_info = m.active_model();
 
-        let mut cards = self.columns().items_stretch();
+        // One choice of a set: the cards are radio buttons, and the arrow keys
+        // change the choice, as in a `Segmented`.
+        let count = infos.len();
+        let ids: Vec<ModelId> = infos.iter().map(|i| i.id.clone()).collect();
+        let selected_index = ids.iter().position(|id| *id == active);
+        let mut cards = self
+            .columns()
+            .items_stretch()
+            .id("model-choices")
+            .role(Role::RadioGroup)
+            .aria_label(t!("onboarding.model.title"))
+            .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                let Some((next, forward)) = arrow_target(&e.keystroke.key, selected_index, count) else { return };
+                cx.stop_propagation();
+                this.choose_model(ids[next].clone(), cx);
+                if forward { window.focus_next(cx) } else { window.focus_prev(cx) }
+            }));
         for (i, info) in infos.into_iter().enumerate() {
             let selected = info.id == active;
             let id = info.id.clone();
             let lang = info.language_label();
+            let details = format!("{} {} · {lang}", info.description, size_text(info.size_bytes));
             cards = cards.child(
-                div()
-                    .id(("model-card", i))
+                Pressable::new(SharedString::from(format!("model-card-{}", info.id)))
+                    .a11y_radio(info.name.clone(), selected, i, count)
+                    .aria_description(details.clone())
                     .flex()
                     .flex_col()
                     .flex_1()
@@ -116,7 +134,7 @@ impl OnboardingView {
                     .rounded(px(14.))
                     .bg(c.sheet_raised)
                     .cursor_pointer()
-                    .map(|d| if selected { d.shadow(super::ring(&c)) } else { d.shadow(paper::raised(&c)).hover(|s| s.bg(c.sheet)) })
+                    .map(|d| if selected { d.shadows(super::ring(&c)) } else { d.shadows(paper::raised(&c)).hover(|s| s.bg(c.sheet)) })
                     .on_click(cx.listener(move |this, _, _, cx| this.choose_model(id.clone(), cx)))
                     .child(
                         div()
@@ -127,13 +145,9 @@ impl OnboardingView {
                             .child(radio_dot(selected, cx))
                             .when(i == 0, |d| d.child(Badge::new(t!("onboarding.model.recommended"), BadgeTone::Accent))),
                     )
-                    .child(text::title(info.name.clone(), 20., &c).line_height(px(24.)))
-                    .child(text::ui(info.description.clone(), 13., FontWeight::NORMAL, c.graphite).line_height(px(19.)))
-                    .child(
-                        text::mono(format!("{} · {lang}", size_text(info.size_bytes)), 12., c.ink)
-                            .font_weight(FontWeight::NORMAL)
-                            .pt(px(4.)),
-                    ),
+                    .child(plain_title(info.name.clone(), 20., &c).line_height(px(24.)))
+                    .child(plain(info.description.clone(), 13., FontWeight::NORMAL, c.graphite).line_height(px(19.)))
+                    .child(plain_mono(format!("{} · {lang}", size_text(info.size_bytes)), 12., c.ink).pt(px(4.))),
             );
         }
 
@@ -145,7 +159,7 @@ impl OnboardingView {
                 .items_center()
                 .gap(px(6.))
                 .child(text::ui(t!("onboarding.model.different_model"), 13., FontWeight::NORMAL, c.graphite))
-                .child(kit::link("all-models-link", t!("onboarding.model.show_all", count = self.local_models(cx).len()), 13., cx).on_click(open))
+                .child(link("all-models-link", t!("onboarding.model.show_all", count = self.local_models(cx).len()), 13., &c).on_click(open))
         } else {
             div()
                 .flex()
@@ -163,7 +177,7 @@ impl OnboardingView {
                         .font_weight(FontWeight::NORMAL)
                         .flex_1(),
                 )
-                .child(kit::link("all-models-link", t!("onboarding.model.change"), 13., cx).on_click(open))
+                .child(link("all-models-link", t!("onboarding.model.change"), 13., &c).label(t!("onboarding.model.change_label")).on_click(open))
         };
 
         let strip = self.download_strip(&active_info, status, engine, &c, cx);
@@ -181,7 +195,11 @@ impl OnboardingView {
     }
 
     fn download_strip(&mut self, info: &ModelInfo, status: ModelStatus, engine: bool, c: &Colors, cx: &mut Context<Self>) -> AnyElement {
-        let well = || div().flex().flex_col().gap(px(10.)).py(px(16.)).px(px(18.)).rounded(px(12.)).debossed(c);
+        // One live node for the state of the download: a screen reader reads
+        // its text when the state changes, not at each step of the progress.
+        let well = |state: String| {
+            LiveStatus::new("model-status", state).flex().flex_col().gap(px(10.)).py(px(16.)).px(px(18.)).rounded(px(12.)).debossed(c)
+        };
         if !engine {
             return crate::hub::settings::kit::notice(
                 BannerKind::Warning,
@@ -198,16 +216,17 @@ impl OnboardingView {
                 if let Some(left) = self.time_left(&info.id, bytes_done, total) {
                     right = t!("onboarding.model.progress_left", progress = right, left = left);
                 }
-                well()
+                let title = t!("onboarding.model.downloading", name = info.name);
+                well(title.clone())
                     .child(
                         div()
                             .flex()
                             .items_center()
                             .justify_between()
-                            .child(text::ui(t!("onboarding.model.downloading", name = info.name), 14., FontWeight::SEMIBOLD, c.ink))
+                            .child(text::ui(title.clone(), 14., FontWeight::SEMIBOLD, c.ink))
                             .child(text::mono(right, 12., c.graphite).font_weight(FontWeight::NORMAL)),
                     )
-                    .child(track(fraction, 8., c))
+                    .child(track(fraction, 8., title, c))
                     .when_some(parts_note, |d, n| d.child(text::ui(n, 12., FontWeight::NORMAL, c.graphite)))
                     .into_any_element()
             }
@@ -223,7 +242,7 @@ impl OnboardingView {
                     }, cx)))
                 .child(Button::new("retry-download", t!("onboarding.model.try_again")).on_click(cx.listener(|this, _, _, cx| this.ensure_download(cx))))
                 .into_any_element(),
-            ModelStatus::NotDownloaded => well()
+            ModelStatus::NotDownloaded => well(t!("onboarding.model.not_downloaded", name = info.name))
                 .child(
                     div()
                         .flex()
@@ -245,7 +264,7 @@ impl OnboardingView {
                     ModelStatus::Optimizing => t!(crate::shell::os_text!("onboarding.model.optimizing_mac", "onboarding.model.optimizing_other")),
                     _ => t!("onboarding.model.downloaded"),
                 };
-                well()
+                well(format!("{}. {detail}", info.name))
                     .child(super::check_line_w(format!("{} · {}", info.name, size_label(info)), FontWeight::SEMIBOLD, c))
                     .child(text::ui(detail, 12., FontWeight::NORMAL, c.graphite))
                     .into_any_element()
@@ -255,8 +274,15 @@ impl OnboardingView {
 }
 
 /// A progress track. The design uses the darker deboss shade inside a well.
-pub(super) fn track(fraction: f32, height: f32, c: &Colors) -> Div {
+/// `label` says what it measures.
+pub(super) fn track(fraction: f32, height: f32, label: String, c: &Colors) -> Stateful<Div> {
     div()
+        .id("download-progress")
+        .role(Role::ProgressIndicator)
+        .aria_label(label)
+        .aria_min_numeric_value(0.)
+        .aria_max_numeric_value(100.)
+        .aria_numeric_value((fraction.clamp(0.0, 1.0) * 100.).round() as f64)
         .flex()
         .w_full()
         .h(px(height))
