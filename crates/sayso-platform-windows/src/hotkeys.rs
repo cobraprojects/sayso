@@ -148,7 +148,7 @@ impl HotkeySource for WinHotkeys {
             ptt = None;
         }
         if let Err(reason) =
-            self.hook.configure(ptt, bindings.single_escape, bindings.double_escape_window, bindings.enter_sends)
+            self.hook.configure(ptt, bindings.single_escape, bindings.double_escape_window, bindings.enter_sends, bindings.take_escape)
             && let Some(ptt) = ptt
         {
             failed.push((ptt, reason));
@@ -208,6 +208,7 @@ mod tests {
             cycle_style: None,
             incognito: None,
             enter_sends: false,
+            take_escape: false,
             single_escape: false,
             double_escape_window: Duration::from_millis(400),
         }

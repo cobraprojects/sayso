@@ -3,9 +3,10 @@
 //!
 //! The tap thread turns each CGEvent into a [`RawEvent`] and calls
 //! [`TapLogic::handle`]. The logic answers with hotkey events and, while the
-//! key recorder is open, with the captured hotkey.
+//! key recorder is open, with the captured hotkey. The active tap calls
+//! [`TapLogic::active_esc`] for Esc while Sayso takes Esc.
 
-use crate::esc::EscDetector;
+use crate::esc::{EscDetector, EscTake};
 use crate::keymap::{
     self, KC_ESCAPE, modifiers_from_cg_flags, solo_from_keycode, solo_is_down,
 };
@@ -43,6 +44,11 @@ pub struct TapLogic {
     ptt_down: bool,
     recording: bool,
     esc: EscDetector,
+    /// The "take Esc" setting, and the Esc that the active tap took.
+    take: EscTake,
+    /// The active tap runs and sees Esc first. With `take` on, it sends the
+    /// cancel, so the listen-only tap leaves Esc alone.
+    active_tap: bool,
     /// The key recorder is open.
     capturing: bool,
     /// A solo modifier went down and nothing else happened since.
@@ -51,7 +57,16 @@ pub struct TapLogic {
 
 impl TapLogic {
     pub fn new(esc: EscDetector) -> Self {
-        Self { ptt: None, ptt_down: false, recording: false, esc, capturing: false, solo_candidate: None }
+        Self {
+            ptt: None,
+            ptt_down: false,
+            recording: false,
+            esc,
+            take: EscTake::default(),
+            active_tap: false,
+            capturing: false,
+            solo_candidate: None,
+        }
     }
 
     /// True when the tap has any reason to run.
@@ -74,9 +89,40 @@ impl TapLogic {
         self.esc.configure(single, window);
     }
 
+    pub fn set_take_escape(&mut self, on: bool) {
+        self.take.set_on(on);
+    }
+
+    pub fn takes_escape(&self) -> bool {
+        self.take.is_on()
+    }
+
+    /// Whether the active tap runs.
+    pub fn set_active_tap(&mut self, running: bool) {
+        self.active_tap = running;
+    }
+
     pub fn set_recording(&mut self, recording: bool) {
         self.recording = recording;
         self.esc.reset();
+        self.take.set_recording(recording);
+    }
+
+    /// The active tap owns Esc: it takes the key and sends the cancel.
+    fn active_owns_esc(&self) -> bool {
+        self.active_tap && self.take.is_on()
+    }
+
+    /// One Esc event in the active tap. Returns the cancel, if this press
+    /// completes one, and true when the app must not get the event.
+    pub fn active_esc(&mut self, down: bool, repeat: bool, flags: u64, now: Instant) -> (Option<HotkeyEvent>, bool) {
+        if self.capturing || !self.active_owns_esc() {
+            return (None, false);
+        }
+        let plain = is_plain(flags);
+        let swallow = self.take.key(down, repeat, plain);
+        let cancel = down && !repeat && self.recording && plain && self.esc.press(now);
+        (cancel.then_some(HotkeyEvent::Cancel), swallow)
     }
 
     pub fn set_capturing(&mut self, capturing: bool) {
@@ -118,8 +164,12 @@ impl TapLogic {
                 {
                     self.set_ptt_down(true, &mut out.events);
                 }
-                let plain = flags & (FLAG_COMMAND | FLAG_CONTROL | FLAG_ALT) == 0;
-                if code == KC_ESCAPE && self.recording && plain && self.esc.press(now) {
+                if code == KC_ESCAPE
+                    && self.recording
+                    && is_plain(flags)
+                    && !self.active_owns_esc()
+                    && self.esc.press(now)
+                {
                     out.events.push(HotkeyEvent::Cancel);
                 }
             }
@@ -187,6 +237,11 @@ impl TapLogic {
             RawEvent::KeyUp { .. } => None,
         }
     }
+}
+
+/// No Command, Control, or Option is down. Only a plain Esc cancels.
+fn is_plain(flags: u64) -> bool {
+    flags & (FLAG_COMMAND | FLAG_CONTROL | FLAG_ALT) == 0
 }
 
 /// The modifiers a chord needs, without Fn (which is checked on its own).
@@ -338,6 +393,45 @@ mod tests {
         l.set_recording(false);
         l.set_recording(true);
         assert!(l.handle(key_down(53, 0), t0 + Duration::from_millis(100)).events.is_empty());
+    }
+
+    #[test]
+    fn the_active_tap_takes_esc_and_sends_the_cancel() {
+        let mut l = logic();
+        l.set_take_escape(true);
+        l.set_active_tap(true);
+        l.set_recording(true);
+        let t0 = Instant::now();
+        assert_eq!(l.active_esc(true, false, 0, t0), (None, true), "the first of a double Esc");
+        assert_eq!(l.active_esc(false, false, 0, t0), (None, true));
+        assert_eq!(l.active_esc(true, false, 0, t0 + Duration::from_millis(180)), (Some(HotkeyEvent::Cancel), true));
+        // The listen-only tap sees the same press, but must not cancel twice.
+        l.set_recording(true);
+        assert!(l.handle(key_down(53, 0), t0).events.is_empty());
+        assert!(l.handle(key_down(53, 0), t0 + Duration::from_millis(100)).events.is_empty());
+    }
+
+    #[test]
+    fn the_active_tap_leaves_a_modified_esc_and_other_states_alone() {
+        let mut l = logic();
+        l.set_take_escape(true);
+        l.set_active_tap(true);
+        let now = Instant::now();
+        assert_eq!(l.active_esc(true, false, 0, now), (None, false), "not recording");
+        l.set_recording(true);
+        assert_eq!(l.active_esc(true, false, FLAG_COMMAND, now), (None, false));
+        l.set_capturing(true);
+        assert_eq!(l.active_esc(true, false, 0, now), (None, false), "the key recorder is open");
+    }
+
+    #[test]
+    fn without_the_active_tap_the_listen_tap_cancels_as_before() {
+        let mut l = logic();
+        l.set_take_escape(true);
+        l.configure_esc(true, Duration::from_millis(400));
+        l.set_recording(true);
+        assert_eq!(l.active_esc(true, false, 0, Instant::now()), (None, false));
+        assert_eq!(l.handle(key_down(53, 0), Instant::now()).events, vec![HotkeyEvent::Cancel]);
     }
 
     #[test]

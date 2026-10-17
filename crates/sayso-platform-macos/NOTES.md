@@ -9,7 +9,7 @@ macOS implementations of the `sayso-platform` traits. Build all of them with
 |---|---|
 | `hotkeys` | `HotkeySource`. Chords go through Carbon with `global-hotkey`. Push-to-talk, Esc, and the key recorder go through the tap. |
 | `tap`, `tap_logic` | A listen-only `CGEventTap` on its own thread with its own run loop. `tap_logic` holds the decisions (no FFI). `tap` holds the thread, the C callback, and re-enable after a timeout. |
-| `esc` | Double-Esc and single-Esc state machine. It takes the time of each press as an argument. |
+| `esc` | Double-Esc and single-Esc state machine (it takes the time of each press as an argument), and `EscTake`, which decides when Sayso takes Esc from the app. |
 | `keymap` | `Hotkey` to key code, `CGEventFlags`, Carbon mask, and `global-hotkey` types. Solo modifiers use device bits (Right Option is `0x40`). |
 | `conflicts` | System shortcuts from `CopySymbolicHotKeys` (Carbon mask), a name table, and a table of apps (ChatGPT, Raycast, Alfred) checked against running apps. |
 | `secure_input` | `IsSecureEventInputEnabled` plus the PID from `CGSessionCopyCurrentDictionary`, turned into an app name. |

@@ -89,6 +89,10 @@ pub struct Hotkeys {
     /// after the insert. Sayso then takes that Enter from the app. macOS and
     /// Windows; off by default.
     pub enter_sends: bool,
+    /// While recording, Sayso takes every plain Esc from the app, so the Esc
+    /// that cancels does not also close a dialog or clear a field. macOS and
+    /// Windows; on by default.
+    pub take_escape: bool,
 }
 
 /// A hotkey with no key is the empty string in the file. TOML has no null, and
@@ -117,8 +121,19 @@ impl Hotkeys {
     /// Whether Send with Enter can work: it is on, and the toggle and
     /// push-to-talk hotkeys do not use Return, which it takes while recording.
     pub fn enter_sends_usable(&self) -> bool {
-        let uses_return = |h: &Option<Hotkey>| matches!(h, Some(Hotkey::Chord { key: crate::hotkey::Key::Return, .. }));
-        self.enter_sends && !uses_return(&self.toggle) && !uses_return(&self.push_to_talk)
+        self.enter_sends && !self.uses_key(crate::hotkey::Key::Return)
+    }
+
+    /// Whether Sayso can take Esc while recording: the setting is on, and the
+    /// toggle and push-to-talk hotkeys do not use Esc.
+    pub fn take_escape_usable(&self) -> bool {
+        self.take_escape && !self.uses_key(crate::hotkey::Key::Escape)
+    }
+
+    /// The toggle or push-to-talk hotkey uses `key`.
+    fn uses_key(&self, key: crate::hotkey::Key) -> bool {
+        let uses = |h: &Option<Hotkey>| matches!(h, Some(Hotkey::Chord { key: k, .. }) if *k == key);
+        uses(&self.toggle) || uses(&self.push_to_talk)
     }
 }
 
@@ -133,6 +148,7 @@ impl Default for Hotkeys {
             cycle_style: "ctrl+opt+s".parse().ok(),
             incognito: None,
             enter_sends: false,
+            take_escape: true,
         }
     }
 }
@@ -930,6 +946,21 @@ mod tests {
         h.toggle = Some("cmd+return".parse().unwrap());
         assert!(!h.enter_sends_usable());
         assert!(!Hotkeys::default().enter_sends_usable(), "off by default");
+    }
+
+    #[test]
+    fn esc_is_taken_by_default_unless_a_hotkey_uses_it() {
+        let mut h = Hotkeys::default();
+        assert!(h.take_escape_usable(), "on by default");
+        h.toggle = Some("shift+esc".parse().unwrap());
+        assert!(!h.take_escape_usable());
+        h.toggle = Hotkeys::default().toggle;
+        h.take_escape = false;
+        assert!(!h.take_escape_usable());
+        // A config file from before the setting.
+        let old = Config::parse("[hotkeys]\nenter_sends = true\n");
+        assert!(old.issues.is_empty(), "{:?}", old.issues);
+        assert!(old.config.hotkeys.take_escape);
     }
 
     #[test]

@@ -36,6 +36,7 @@ fn bindings(toggle: &str, ptt: &str) -> HotkeyBindings {
         cycle_style: None,
         incognito: None,
         enter_sends: false,
+        take_escape: false,
         single_escape: false,
         double_escape_window: Duration::from_millis(400),
     }

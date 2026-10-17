@@ -5,21 +5,22 @@
 //! swallows events, so it cannot break system shortcuts such as double-Fn
 //! dictation. It needs Input Monitoring.
 //!
-//! The Enter tap is for "Send with Enter" (see [`crate::enter_send`]). It is
-//! an active tap, so it can take Enter from the app, and that needs
-//! Accessibility. It runs while the setting is on. It takes Return and keypad
-//! Enter only, and only while a dictation records, or while an Enter that it
-//! took is still down.
+//! The active tap takes keys from the app, and that needs Accessibility. It
+//! runs while "Send with Enter" (see [`crate::enter_send`]) or "take Esc"
+//! (see [`crate::esc::EscTake`]) is on. It takes Return, keypad Enter, and
+//! plain Esc only, and only while a dictation records, or while a key that it
+//! took is still down. While it takes Esc, it also sends the Esc cancel, as
+//! the listen-only tap may not see an Esc that it took.
 //!
 //! Spike result: with Secure Event Input on, the tap still gets
 //! `flagsChanged`, but no `keyDown` or `keyUp`. Solo-modifier push-to-talk
-//! keeps working. Chord push-to-talk, Esc, the key recorder, and the Enter
+//! keeps working. Chord push-to-talk, Esc, the key recorder, and the active
 //! tap do not.
 
 use crate::enter_send::EnterSend;
 use crate::esc::EscDetector;
 use crate::ffi::*;
-use crate::keymap::{KC_KEYPAD_ENTER, KC_RETURN};
+use crate::keymap::{KC_ESCAPE, KC_KEYPAD_ENTER, KC_RETURN};
 use crate::tap_logic::{RawEvent, TapLogic};
 use crossbeam_channel::{Receiver, Sender};
 use parking_lot::Mutex;
@@ -46,8 +47,8 @@ pub struct TapSink {
 enum Job {
     /// The listen-only tap.
     Listen { logic: Arc<Mutex<TapLogic>>, sink: Arc<TapSink> },
-    /// The Enter tap.
-    Enter { logic: Arc<Mutex<EnterSend>>, events: Sender<HotkeyEvent> },
+    /// The active tap: Enter, and Esc while Sayso takes it.
+    Active { enter: Arc<Mutex<EnterSend>>, logic: Arc<Mutex<TapLogic>>, events: Sender<HotkeyEvent> },
 }
 
 /// Everything the C callback needs. Lives from thread start to thread end.
@@ -77,10 +78,10 @@ pub struct TapController {
     logic: Arc<Mutex<TapLogic>>,
     sink: Arc<TapSink>,
     thread: Mutex<Option<TapThread>>,
-    /// The state of Send with Enter, shared with the Enter tap.
+    /// The state of Send with Enter, shared with the active tap.
     enter_logic: Arc<Mutex<EnterSend>>,
-    /// The Enter tap, while the setting is on.
-    enter: Mutex<Option<TapThread>>,
+    /// The active tap, while Send with Enter or "take Esc" is on.
+    active: Mutex<Option<TapThread>>,
 }
 
 impl TapController {
@@ -91,17 +92,26 @@ impl TapController {
             sink: Arc::new(TapSink { events, capture: Mutex::new(None), capturing }),
             thread: Mutex::new(None),
             enter_logic: Arc::default(),
-            enter: Mutex::new(None),
+            active: Mutex::new(None),
         }
     }
 
-    /// Apply the push-to-talk, Esc, and Enter settings. Starts the tap when something needs it.
-    pub fn configure(&self, ptt: Option<Hotkey>, single_esc: bool, window: Duration, enter_sends: bool) -> Result<(), String> {
+    /// Apply the push-to-talk, Esc, and Enter settings. Starts the taps when something needs them.
+    pub fn configure(
+        &self,
+        ptt: Option<Hotkey>,
+        single_esc: bool,
+        window: Duration,
+        enter_sends: bool,
+        take_escape: bool,
+    ) -> Result<(), String> {
         self.enter_logic.lock().set_on(enter_sends);
-        if enter_sends {
-            self.ensure_enter_tap();
+        self.logic.lock().set_take_escape(take_escape);
+        if enter_sends || take_escape {
+            self.ensure_active_tap();
         } else {
-            self.enter.lock().take();
+            self.active.lock().take();
+            self.logic.lock().set_active_tap(false);
         }
         let (released, needed) = {
             let mut logic = self.logic.lock();
@@ -116,10 +126,10 @@ impl TapController {
     }
 
     pub fn set_recording(&self, recording: bool) -> Result<(), String> {
-        let needed = {
+        let (needed, take_on) = {
             let mut logic = self.logic.lock();
             logic.set_recording(recording);
-            logic.is_needed()
+            (logic.is_needed(), logic.takes_escape())
         };
         let enter_on = {
             let mut enter = self.enter_logic.lock();
@@ -127,22 +137,25 @@ impl TapController {
             enter.is_on()
         };
         // Accessibility may have come since the last try.
-        if recording && enter_on {
-            self.ensure_enter_tap();
+        if recording && (enter_on || take_on) {
+            self.ensure_active_tap();
         }
         if recording && needed { self.ensure_running() } else { Ok(()) }
     }
 
-    /// Start the Enter tap if it does not run. Without it, Enter goes to the app as usual.
-    fn ensure_enter_tap(&self) {
-        let mut slot = self.enter.lock();
+    /// Start the active tap if it does not run. Without it, Enter and Esc go to the app as usual.
+    fn ensure_active_tap(&self) {
+        let mut slot = self.active.lock();
         if slot.is_some() {
             return;
         }
-        let job = Job::Enter { logic: self.enter_logic.clone(), events: self.sink.events.clone() };
+        let job = Job::Active { enter: self.enter_logic.clone(), logic: self.logic.clone(), events: self.sink.events.clone() };
         match spawn_tap(job) {
-            Ok(thread) => *slot = Some(thread),
-            Err(err) => log::warn!("Send with Enter is unavailable: {err}"),
+            Ok(thread) => {
+                *slot = Some(thread);
+                self.logic.lock().set_active_tap(true);
+            }
+            Err(err) => log::warn!("Send with Enter and taking Esc are unavailable: {err}"),
         }
     }
 
@@ -187,7 +200,7 @@ impl TapController {
 fn spawn_tap(job: Job) -> Result<TapThread, String> {
     let name = match job {
         Job::Listen { .. } => "sayso-event-tap",
-        Job::Enter { .. } => "sayso-enter-tap",
+        Job::Active { .. } => "sayso-active-tap",
     };
     let (ready_tx, ready_rx) = crossbeam_channel::bounded::<Result<usize, String>>(1);
     let join = std::thread::Builder::new()
@@ -208,7 +221,7 @@ fn run_tap_thread(job: Job, ready: Sender<Result<usize, String>>) {
     let keys = (1u64 << kCGEventKeyDown) | (1 << kCGEventKeyUp);
     let (option, mask) = match job {
         Job::Listen { .. } => (kCGEventTapOptionListenOnly, keys | (1 << kCGEventFlagsChanged)),
-        Job::Enter { .. } => (kCGEventTapOptionDefault, keys),
+        Job::Active { .. } => (kCGEventTapOptionDefault, keys),
     };
     let listen = matches!(job, Job::Listen { .. });
     let ctx = Box::into_raw(Box::new(CallbackContext { job, tap: AtomicPtr::new(ptr::null_mut()) }));
@@ -274,22 +287,36 @@ fn handle(ctx: &CallbackContext, etype: u32, event: *mut c_void) -> bool {
             listen(logic, sink, etype, event);
             false
         }
-        Job::Enter { logic, events } => {
+        Job::Active { enter, logic, events } => {
+            if etype != kCGEventKeyDown && etype != kCGEventKeyUp {
+                return false;
+            }
             // SAFETY: `event` is a live CGEvent for the duration of the callback.
-            let (code, repeat) = unsafe {
+            let (code, flags, repeat) = unsafe {
                 (
                     CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode) as u16,
+                    CGEventGetFlags(event),
                     CGEventGetIntegerValueField(event, kCGKeyboardEventAutorepeat) != 0,
                 )
             };
-            if !matches!(code, KC_RETURN | KC_KEYPAD_ENTER) || (etype != kCGEventKeyDown && etype != kCGEventKeyUp) {
-                return false;
+            let down = etype == kCGEventKeyDown;
+            match code {
+                KC_RETURN | KC_KEYPAD_ENTER => {
+                    let decision = enter.lock().key(down, repeat);
+                    if decision.submit {
+                        let _ = events.send(HotkeyEvent::Submit);
+                    }
+                    decision.swallow
+                }
+                KC_ESCAPE => {
+                    let (cancel, swallow) = logic.lock().active_esc(down, repeat, flags, Instant::now());
+                    if let Some(cancel) = cancel {
+                        let _ = events.send(cancel);
+                    }
+                    swallow
+                }
+                _ => false,
             }
-            let decision = logic.lock().key(etype == kCGEventKeyDown, repeat);
-            if decision.submit {
-                let _ = events.send(HotkeyEvent::Submit);
-            }
-            decision.swallow
         }
     }
 }
@@ -330,19 +357,22 @@ mod tests {
 
     #[test]
     #[ignore = "needs Accessibility for the test binary; sends no keys"]
-    fn the_enter_tap_runs_only_while_the_setting_is_on() {
+    fn the_active_tap_runs_only_while_a_setting_needs_it() {
         let (tx, _rx) = crossbeam_channel::unbounded();
         let taps = TapController::new(tx, Arc::default());
         let window = Duration::from_millis(400);
-        taps.configure(None, false, window, true).unwrap();
-        assert!(taps.enter.lock().is_some(), "the active tap could not start");
+        taps.configure(None, false, window, true, false).unwrap();
+        assert!(taps.active.lock().is_some(), "the active tap could not start");
         let _ = taps.set_recording(true);
         let _ = taps.set_recording(false);
-        assert!(taps.enter.lock().is_some(), "it stays for the next recording");
-        taps.configure(None, false, window, false).unwrap();
-        assert!(taps.enter.lock().is_none(), "the setting is off");
+        assert!(taps.active.lock().is_some(), "it stays for the next recording");
+        taps.configure(None, false, window, false, false).unwrap();
+        assert!(taps.active.lock().is_none(), "both settings are off");
         let _ = taps.set_recording(true);
-        assert!(taps.enter.lock().is_none());
+        assert!(taps.active.lock().is_none());
         let _ = taps.set_recording(false);
+        taps.configure(None, false, window, false, true).unwrap();
+        assert!(taps.active.lock().is_some(), "taking Esc needs it too");
+        taps.configure(None, false, window, false, false).unwrap();
     }
 }

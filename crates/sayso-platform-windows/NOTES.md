@@ -13,7 +13,7 @@ dependency sits under `[target.'cfg(windows)'.dependencies]`).
 |---|---|
 | `hotkeys` | `HotkeySource`. Chords go through `RegisterHotKey` with `global-hotkey`. Push-to-talk, Esc, and the key recorder go through the hook. |
 | `hook`, `hook_logic` | A listen-only `WH_KEYBOARD_LL` hook on its own thread with its own message loop, installed only while push-to-talk is bound, a dictation records, or the key recorder is open. `hook_logic` holds the decisions (no FFI). `hook` holds the thread, the callback, and the mask key. |
-| `esc` | Double-Esc and single-Esc state machine. Copied from the macOS crate. |
+| `esc` | Double-Esc and single-Esc state machine, and `EscTake`, which decides when Sayso takes Esc from the app. Copied from the macOS crate. |
 | `keymap` | `Hotkey` to virtual-key code, `RegisterHotKey` flags, and `global-hotkey` types. Solo modifiers are `VK_RMENU`, `VK_LMENU`, `VK_RWIN`, `VK_RCONTROL`, `VK_RSHIFT`. |
 | `conflicts` | A table of Windows shortcuts (every Win+letter counts), a table of apps (PowerToys Run, Command Palette, Copilot, ChatGPT, Raycast, Flow Launcher, Wox) checked against running processes, and a real `RegisterHotKey` probe. |
 | `input` | `SendInput` key lists (paste, typing, mask key, releasing held modifiers). |

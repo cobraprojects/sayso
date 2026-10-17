@@ -40,6 +40,8 @@ pub struct HotkeyBindings {
     pub incognito: Option<Hotkey>,
     /// Enter while recording sends `Submit`, and no app gets that Enter.
     pub enter_sends: bool,
+    /// Esc while recording goes to no app.
+    pub take_escape: bool,
     /// Cancel on one Esc instead of two.
     pub single_escape: bool,
     pub double_escape_window: Duration,
@@ -90,7 +92,8 @@ pub trait HotkeySource {
     /// Replace all bindings. Main thread.
     fn register(&self, bindings: &HotkeyBindings) -> HotkeyRegistration;
     /// While true, Esc presses produce `Cancel`, and with `enter_sends` an
-    /// Enter produces `Submit`. Main thread.
+    /// Enter produces `Submit`. With `take_escape`, no app gets those Esc
+    /// presses. Main thread.
     fn set_recording(&self, recording: bool);
     fn events(&self) -> Receiver<HotkeyEvent>;
     fn conflicts(&self, hotkey: &Hotkey) -> Vec<HotkeyConflict>;

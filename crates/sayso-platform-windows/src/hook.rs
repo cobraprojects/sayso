@@ -4,8 +4,9 @@
 //! The hook serves four jobs: push-to-talk (solo modifiers and chords), Esc
 //! cancel while recording, the key recorder, and Send with Enter. It passes
 //! each event on with `CallNextHookEx`, so it cannot break other shortcuts.
-//! The one exception is Send with Enter: with the setting on, Enter while
-//! recording goes to no app (see [`crate::enter_send`]). It needs no
+//! The exceptions are Send with Enter and taking Esc: with a setting on,
+//! Enter or a plain Esc while recording goes to no app (see
+//! [`crate::enter_send`] and [`crate::esc::EscTake`]). It needs no
 //! permission. It is installed only while one of its jobs needs it, and
 //! removed again after.
 //!
@@ -109,11 +110,19 @@ impl HookController {
     }
 
     /// Apply the push-to-talk, Esc, and Enter settings. Installs or removes the hook.
-    pub fn configure(&self, ptt: Option<Hotkey>, single_esc: bool, window: Duration, enter_sends: bool) -> Result<(), String> {
+    pub fn configure(
+        &self,
+        ptt: Option<Hotkey>,
+        single_esc: bool,
+        window: Duration,
+        enter_sends: bool,
+        take_escape: bool,
+    ) -> Result<(), String> {
         let released = {
             let mut logic = self.shared.logic.lock();
             logic.configure_esc(single_esc, window);
             logic.set_enter_sends(enter_sends);
+            logic.set_take_escape(take_escape);
             logic.set_ptt(ptt)
         };
         if let Some(event) = released {
@@ -292,7 +301,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         }));
     }
     if swallow {
-        // Send with Enter: no hook after us and no app gets this event.
+        // Send with Enter or a taken Esc: no hook after us and no app gets this event.
         return LRESULT(1);
     }
     // Every other event goes on to the next hook and the app.
@@ -370,9 +379,9 @@ mod tests {
         assert!(hook.is_installed());
         hook.set_recording(false).unwrap();
         assert!(!hook.is_installed());
-        hook.configure(Some("right_shift".parse().unwrap()), false, Duration::from_millis(400), false).unwrap();
+        hook.configure(Some("right_shift".parse().unwrap()), false, Duration::from_millis(400), false, false).unwrap();
         assert!(hook.is_installed());
-        hook.configure(None, false, Duration::from_millis(400), false).unwrap();
+        hook.configure(None, false, Duration::from_millis(400), false, false).unwrap();
         assert!(!hook.is_installed());
     }
 
@@ -380,7 +389,7 @@ mod tests {
     fn a_ptt_with_fn_does_not_install_the_hook() {
         let (tx, _rx) = crossbeam_channel::unbounded();
         let hook = HookController::new(tx, Arc::default());
-        hook.configure(Some("fn".parse().unwrap()), false, Duration::from_millis(400), false).unwrap();
+        hook.configure(Some("fn".parse().unwrap()), false, Duration::from_millis(400), false, false).unwrap();
         assert!(!hook.is_installed());
     }
 
@@ -392,7 +401,7 @@ mod tests {
         assert!(window.wait_in_front(), "the test window could not come to the front; no keys were sent");
         let (tx, rx) = crossbeam_channel::unbounded();
         let hook = HookController::new(tx, Arc::default());
-        hook.configure(Some("right_option".parse().unwrap()), false, Duration::from_millis(400), false).unwrap();
+        hook.configure(Some("right_option".parse().unwrap()), false, Duration::from_millis(400), false, false).unwrap();
         let before = INJECTED_SEEN.load(Ordering::SeqCst);
         assert!(window.is_in_front());
         let right_alt = keymap::VK_RMENU;
@@ -401,7 +410,7 @@ mod tests {
         while INJECTED_SEEN.load(Ordering::SeqCst) < before + 2 && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
-        hook.configure(None, false, Duration::from_millis(400), false).unwrap();
+        hook.configure(None, false, Duration::from_millis(400), false, false).unwrap();
         assert!(INJECTED_SEEN.load(Ordering::SeqCst) >= before + 2, "the hook saw both events");
         assert!(rx.try_recv().is_err(), "Sayso's own keys never trigger push-to-talk");
     }

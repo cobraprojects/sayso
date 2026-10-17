@@ -14,7 +14,7 @@
 //!   key recorder does not record Ctrl+Alt.
 
 use crate::enter_send::EnterSend;
-use crate::esc::EscDetector;
+use crate::esc::{EscDetector, EscTake};
 use crate::keymap::{self, ModKeys, VK_ESCAPE, VK_LCONTROL, VK_RETURN};
 use sayso_core::hotkey::{Hotkey, Key, Modifiers, SoloModifier};
 use sayso_platform::HotkeyEvent;
@@ -50,7 +50,7 @@ pub struct Outcome {
     /// Send the mask key now: an Alt or Win key that Sayso uses is down, and
     /// its release must not open the menu bar or the Start menu.
     pub mask: bool,
-    /// Keep the event from the app (Send with Enter).
+    /// Keep the event from the app (Send with Enter, taking Esc).
     pub swallow: bool,
 }
 
@@ -93,6 +93,13 @@ pub struct HookLogic {
     /// The fake Left Ctrl of AltGr is down.
     altgr_ctrl: bool,
     enter: EnterSend,
+    esc_take: EscTake,
+}
+
+/// No Win, Ctrl, or Alt is down. Only a plain Esc cancels.
+fn is_plain(held: ModKeys) -> bool {
+    let m = held.modifiers();
+    !(m.command || m.control || m.option)
 }
 
 /// Whether this is the fake Left Ctrl that the keyboard layout sends with AltGr.
@@ -112,13 +119,14 @@ impl HookLogic {
             pressed: KeySet::default(),
             altgr_ctrl: false,
             enter: EnterSend::default(),
+            esc_take: EscTake::default(),
         }
     }
 
-    /// True when the hook has any reason to be installed. A taken Enter that
-    /// is still down keeps it, so its repeats and release reach no app.
+    /// True when the hook has any reason to be installed. A taken Enter or Esc
+    /// that is still down keeps it, so its repeats and release reach no app.
     pub fn is_needed(&self) -> bool {
-        self.ptt.is_some() || self.recording || self.capturing || self.enter.is_held()
+        self.ptt.is_some() || self.recording || self.capturing || self.enter.is_held() || self.esc_take.is_held()
     }
 
     /// Set the push-to-talk binding. Returns a release event when a held
@@ -142,10 +150,15 @@ impl HookLogic {
         self.recording = recording;
         self.esc.reset();
         self.enter.set_recording(recording);
+        self.esc_take.set_recording(recording);
     }
 
     pub fn set_enter_sends(&mut self, on: bool) {
         self.enter.set_on(on);
+    }
+
+    pub fn set_take_escape(&mut self, on: bool) {
+        self.esc_take.set_on(on);
     }
 
     pub fn set_capturing(&mut self, capturing: bool) {
@@ -193,6 +206,9 @@ impl HookLogic {
                 out.events.push(HotkeyEvent::Submit);
             }
         }
+        if event.vk == VK_ESCAPE {
+            out.swallow = self.esc_take.key(event.down, repeat, is_plain(held));
+        }
         if keymap::is_modifier(event.vk) {
             match self.ptt {
                 Some(Ptt::Solo { vk }) if vk == event.vk => {
@@ -219,9 +235,7 @@ impl HookLogic {
             {
                 self.set_ptt_down(true, &mut out.events);
             }
-            let m = held.modifiers();
-            let plain = !(m.command || m.control || m.option);
-            if event.vk == VK_ESCAPE && self.recording && plain && self.esc.press(now) {
+            if event.vk == VK_ESCAPE && self.recording && is_plain(held) && self.esc.press(now) {
                 out.events.push(HotkeyEvent::Cancel);
             }
         } else if let Some(Ptt::Chord { vk, .. }) = self.ptt
@@ -557,6 +571,38 @@ mod tests {
         l.set_recording(false);
         let idle = l.handle(down(VK_RETURN, &[]), now);
         assert!(idle.events.is_empty() && !idle.swallow);
+    }
+
+    #[test]
+    fn a_double_esc_cancels_and_both_presses_reach_no_app() {
+        let mut l = logic();
+        l.set_take_escape(true);
+        l.set_recording(true);
+        let t0 = Instant::now();
+        let first = l.handle(down(VK_ESCAPE, &[]), t0);
+        assert!(first.events.is_empty() && first.swallow);
+        assert!(l.handle(up(VK_ESCAPE, &[]), t0).swallow);
+        let second = l.handle(down(VK_ESCAPE, &[]), t0 + Duration::from_millis(180));
+        assert_eq!(second.events, vec![HotkeyEvent::Cancel]);
+        assert!(second.swallow);
+        l.set_recording(false);
+        assert!(l.is_needed(), "Esc is still down");
+        assert!(l.handle(up(VK_ESCAPE, &[]), t0).swallow);
+        assert!(!l.is_needed());
+    }
+
+    #[test]
+    fn esc_goes_to_the_app_with_the_setting_off_modified_or_when_not_recording() {
+        let mut l = logic();
+        l.set_recording(true);
+        let now = Instant::now();
+        assert!(!l.handle(down(VK_ESCAPE, &[]), now).swallow, "the setting is off");
+        l.handle(up(VK_ESCAPE, &[]), now);
+        l.set_take_escape(true);
+        assert!(!l.handle(down(VK_ESCAPE, &[VK_LCONTROL]), now).swallow, "Ctrl+Esc opens Start");
+        l.handle(up(VK_ESCAPE, &[VK_LCONTROL]), now);
+        l.set_recording(false);
+        assert!(!l.handle(down(VK_ESCAPE, &[]), now).swallow, "not recording");
     }
 
     #[test]

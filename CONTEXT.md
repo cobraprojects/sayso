@@ -14,7 +14,10 @@ A key that starts a dictation on the first press and stops it on the second pres
 A key that records while you hold it and stops when you release it. It has no default.
 
 **Send with Enter**
-A setting on macOS and Windows, off by default (`hotkeys.enter_sends`). While a dictation records, Enter stops it, and Sayso presses Enter after the insert, so a chat sends the message. Sayso takes that first Enter from the app. It is the only key, apart from the hotkeys of Sayso, that Sayso takes. It does not work when the toggle or push-to-talk hotkey uses Return. On Linux the command `sayso --push-to-talk-up-submit` does the same for push-to-talk.
+A setting on macOS and Windows, off by default (`hotkeys.enter_sends`). While a dictation records, Enter stops it, and Sayso presses Enter after the insert, so a chat sends the message. Sayso takes that first Enter from the app. Apart from the hotkeys of Sayso, Enter and Esc (see Block Esc) are the only keys that Sayso takes. It does not work when the toggle or push-to-talk hotkey uses Return. On Linux the command `sayso --push-to-talk-up-submit` does the same for push-to-talk.
+
+**Block Esc**
+A setting on macOS and Windows, on by default (`hotkeys.take_escape`). While a dictation records, Sayso takes each Esc without Command, Control, or Option from the app, so the Esc that cancels does not also close a dialog or clear a field. With double Esc, Sayso takes both presses. It does not work when the toggle or push-to-talk hotkey uses Esc. On macOS it needs Accessibility; without it, Esc goes to the app as before. Linux cannot take keys, so there Esc always goes to the app.
 
 **Transcript**
 The raw text from the speech model, before any changes.

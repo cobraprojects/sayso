@@ -23,6 +23,8 @@ settings:
     cancel_detail: "仅在录音时有效。"
     cancel_double: "按两次 Esc"
     cancel_single: "按一次 Esc"
+    take_escape: "录音时拦截 Esc"
+    take_escape_detail: "用于取消的 Esc 不会传给当前应用。"
     enter_sends: "按 Enter 发送"
     enter_sends_detail: "听写时按 Enter，插入文字并发送。适用于聊天和终端。"
     paste_last: "粘贴上次文本"

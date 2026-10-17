@@ -4,8 +4,8 @@
 //!
 //! The key must not reach the app: the app would send its message before the
 //! text is in. So the keyboard tap takes the key while it records, and the
-//! repeats and the release of that key after. Apart from its own hotkeys, this
-//! is the one key that Sayso takes. Pure state machine: the tap feeds it each
+//! repeats and the release of that key after. Apart from its own hotkeys, Sayso
+//! takes only this key and Esc (see `esc::EscTake`). Pure state machine: the tap feeds it each
 //! Return or keypad Enter event and does what it answers.
 
 /// What the tap does with one Enter event.

@@ -148,6 +148,11 @@ impl DictationSettings {
         });
 
         let model = self.model.clone();
+        let take_escape_switch = Switch::new("take-escape", config.hotkeys.take_escape).label(t!("settings.dictation.take_escape")).on_toggle(move |on, _, cx| {
+            model.update(cx, |m, cx| m.edit_config(cx, |c| c.hotkeys.take_escape = on));
+        });
+
+        let model = self.model.clone();
         let enter_switch = Switch::new("enter-sends", config.hotkeys.enter_sends).label(t!("settings.dictation.enter_sends")).on_toggle(move |on, _, cx| {
             model.update(cx, |m, cx| m.edit_config(cx, |c| c.hotkeys.enter_sends = on));
         });
@@ -186,9 +191,10 @@ impl DictationSettings {
             g = g.child(banner(BannerKind::Warning, note.text(), cx));
         }
         g = g.child(row(&t!("settings.dictation.cancel"), &t!("settings.dictation.cancel_detail"), cancel_control, cx));
-        // Linux has the --push-to-talk-up-submit command instead: its key
-        // sources cannot keep Enter from the app.
+        // The key sources on Linux cannot keep Esc or Enter from the app. For
+        // Enter, it has the --push-to-talk-up-submit command instead.
         if cfg!(any(target_os = "macos", windows)) {
+            g = g.child(row(&t!("settings.dictation.take_escape"), &t!("settings.dictation.take_escape_detail"), take_escape_switch, cx));
             g = g.child(row(&t!("settings.dictation.enter_sends"), &t!("settings.dictation.enter_sends_detail"), enter_switch, cx));
         }
         g.child(row(&t!("settings.dictation.paste_last"), &t!("settings.dictation.paste_last_detail"), paste_field, cx))

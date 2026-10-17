@@ -4,8 +4,8 @@
 //!   `global-hotkey` crate. No permission is needed.
 //! - Push-to-talk and Esc go through our own listen-only event tap
 //!   (see [`crate::tap`]). That needs Input Monitoring.
-//! - Send with Enter goes through an active tap while the setting is on. That
-//!   needs Accessibility, as the paste does.
+//! - Send with Enter and taking Esc go through an active tap while one of the
+//!   settings is on. That needs Accessibility, as the paste does.
 //!
 //! Carbon hotkeys only fire while the main thread runs an event loop. GPUI
 //! does. A bare `CFRunLoop` does not (spike result).
@@ -122,7 +122,7 @@ impl HotkeySource for MacHotkeys {
         // Push-to-talk, Esc, and Enter through the taps.
         let ptt = bindings.push_to_talk;
         if let Err(reason) =
-            self.tap.configure(ptt, bindings.single_escape, bindings.double_escape_window, bindings.enter_sends)
+            self.tap.configure(ptt, bindings.single_escape, bindings.double_escape_window, bindings.enter_sends, bindings.take_escape)
             && let Some(ptt) = ptt
         {
             failed.push((ptt, reason));

@@ -23,6 +23,8 @@ settings:
     cancel_detail: "録音中のみ。"
     cancel_double: "Esc を2回"
     cancel_single: "Esc を1回"
+    take_escape: "録音中は Esc をブロック"
+    take_escape_detail: "キャンセルの Esc を、使用中のアプリに送りません。"
     enter_sends: "Enter で送信"
     enter_sends_detail: "音声入力中に Enter を押すと、テキストを挿入して送信します。チャットやターミナル向けです。"
     paste_last: "最後のテキストをペースト"

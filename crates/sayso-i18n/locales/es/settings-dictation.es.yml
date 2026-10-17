@@ -23,6 +23,8 @@ settings:
     cancel_detail: "Solo mientras grabas."
     cancel_double: "Esc doble"
     cancel_single: "Esc simple"
+    take_escape: "Bloquear Esc al grabar"
+    take_escape_detail: "La tecla Esc que cancela no llega a la app que usas."
     enter_sends: "Enviar con Enter"
     enter_sends_detail: "Pulsa Enter mientras dictas para insertar el texto y enviarlo. Para chats y terminales."
     paste_last: "Pegar el último texto"

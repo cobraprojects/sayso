@@ -42,6 +42,60 @@ impl EscDetector {
     }
 }
 
+/// Take Esc from the app while a dictation records, so the Esc that cancels
+/// does not also close a dialog or clear a field. Pure state machine like
+/// [`EscDetector`]: the tap feeds it each Esc event and takes the key when it
+/// answers true.
+#[derive(Debug, Clone, Default)]
+pub struct EscTake {
+    /// The setting is on.
+    on: bool,
+    recording: bool,
+    /// Esc went down while recording and is not up yet. Its repeats and its
+    /// release go to no app either, also after the recording stopped.
+    held: bool,
+}
+
+impl EscTake {
+    pub fn set_on(&mut self, on: bool) {
+        self.on = on;
+    }
+
+    pub fn is_on(&self) -> bool {
+        self.on
+    }
+
+    /// An Esc that went down while recording is not up yet.
+    pub fn is_held(&self) -> bool {
+        self.held
+    }
+
+    pub fn set_recording(&mut self, recording: bool) {
+        self.recording = recording;
+        if recording {
+            // A release that the tap did not see must not take the next Esc.
+            self.held = false;
+        }
+    }
+
+    /// One Esc event. `plain` is true when no Command, Control, or Option is
+    /// down: only a plain Esc cancels, so only a plain Esc is taken. `repeat`
+    /// is an auto-repeat of a key that is still down. True: the app must not get it.
+    pub fn key(&mut self, down: bool, repeat: bool, plain: bool) -> bool {
+        if !down {
+            return std::mem::take(&mut self.held);
+        }
+        if repeat {
+            return self.held;
+        }
+        if self.on && self.recording && plain {
+            self.held = true;
+            return true;
+        }
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,5 +168,74 @@ mod tests {
         assert!(!d.press(at(t0, 100)));
         d.configure(true, WINDOW);
         assert!(d.press(at(t0, 200)));
+    }
+
+    fn taking(on: bool) -> EscTake {
+        let mut t = EscTake::default();
+        t.set_on(on);
+        t.set_recording(true);
+        t
+    }
+
+    #[test]
+    fn esc_while_recording_reaches_no_app() {
+        let mut t = taking(true);
+        assert!(t.key(true, false, true));
+        assert!(t.is_held());
+        assert!(t.key(true, true, true), "auto-repeat");
+        assert!(t.key(false, false, true), "the release");
+        assert!(!t.is_held());
+        assert!(t.key(true, false, true), "the second press of a double Esc");
+    }
+
+    #[test]
+    fn with_the_setting_off_esc_goes_to_the_app() {
+        let mut t = taking(false);
+        assert!(!t.key(true, false, true));
+        assert!(!t.key(false, false, true));
+    }
+
+    #[test]
+    fn esc_outside_a_recording_goes_to_the_app() {
+        let mut t = EscTake::default();
+        t.set_on(true);
+        assert!(!t.key(true, false, true));
+        assert!(!t.key(false, false, true));
+    }
+
+    #[test]
+    fn a_modified_esc_goes_to_the_app() {
+        let mut t = taking(true);
+        assert!(!t.key(true, false, false), "Command+Esc and the like");
+        assert!(!t.key(false, false, false));
+    }
+
+    #[test]
+    fn a_held_esc_stays_taken_after_the_cancel() {
+        let mut t = taking(true);
+        assert!(t.key(true, false, true));
+        t.set_recording(false);
+        assert!(t.key(true, true, true), "auto-repeat after the stop");
+        assert!(t.key(false, false, true));
+        assert!(!t.key(true, false, true), "the next press is the app's again");
+    }
+
+    #[test]
+    fn an_esc_held_from_before_the_recording_goes_to_the_app() {
+        let mut t = EscTake::default();
+        t.set_on(true);
+        assert!(!t.key(true, false, true));
+        t.set_recording(true);
+        assert!(!t.key(true, true, true), "its auto-repeat");
+        assert!(!t.key(false, false, true), "its release");
+    }
+
+    #[test]
+    fn a_new_recording_forgets_a_lost_release() {
+        let mut t = taking(true);
+        assert!(t.key(true, false, true));
+        t.set_recording(false);
+        t.set_recording(true);
+        assert!(!t.is_held());
     }
 }

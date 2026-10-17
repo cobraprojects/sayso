@@ -23,6 +23,8 @@ settings:
     cancel_detail: "Só durante a gravação."
     cancel_double: "Esc duas vezes"
     cancel_single: "Esc uma vez"
+    take_escape: "Bloquear Esc ao gravar"
+    take_escape_detail: "O Esc que cancela não chega ao app em uso."
     enter_sends: "Enviar com Enter"
     enter_sends_detail: "Pressione Enter enquanto dita para inserir o texto e enviá-lo. Para chats e terminais."
     paste_last: "Colar o último texto"

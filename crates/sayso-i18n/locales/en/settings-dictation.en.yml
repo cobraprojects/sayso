@@ -23,6 +23,8 @@ settings:
     cancel_detail: "Only while recording."
     cancel_double: "Double Esc"
     cancel_single: "Single Esc"
+    take_escape: "Block Esc while recording"
+    take_escape_detail: "The Esc that cancels does not reach the app you are in."
     enter_sends: "Send with Enter"
     enter_sends_detail: "Press Enter while you dictate to insert the text and send it. For chats and terminals."
     paste_last: "Paste last text"
