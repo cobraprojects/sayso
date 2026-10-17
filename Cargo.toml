@@ -27,7 +27,7 @@ sayso-update = { path = "crates/sayso-update" }
 workspace-hack = { path = "crates/workspace-hack" }
 
 # UI. Exact pins: gpui-pre snapshots break the API between versions.
-gpui-kit = "=0.7.0"
+gpui-kit = "=0.7.3"
 
 anyhow = "1"
 thiserror = "2"
