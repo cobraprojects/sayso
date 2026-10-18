@@ -29,8 +29,8 @@ DESKTOP = ROOT / "packaging/linux/dev.sayso.Sayso.desktop"
 METAINFO = ROOT / "packaging/linux/dev.sayso.Sayso.metainfo.xml"
 
 # The name of each locale in each system's convention.
-LPROJ = {"es": "es", "pt-BR": "pt-BR", "zh-CN": "zh-Hans", "ja": "ja"}
-DESKTOP_LANG = {"es": "es", "pt-BR": "pt_BR", "zh-CN": "zh_CN", "ja": "ja"}
+LPROJ = {"es": "es", "pt-BR": "pt-BR", "zh-CN": "zh-Hans", "ja": "ja", "de": "de", "fr": "fr", "it": "it", "ko": "ko", "ru": "ru"}
+DESKTOP_LANG = {"es": "es", "pt-BR": "pt_BR", "zh-CN": "zh_CN", "ja": "ja", "de": "de", "fr": "fr", "it": "it", "ko": "ko", "ru": "ru"}
 GENERATED = "/* Written by scripts/i18n-system-files.py from the system catalog. */\n"
 
 

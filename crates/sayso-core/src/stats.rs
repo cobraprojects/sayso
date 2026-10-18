@@ -53,14 +53,12 @@ pub fn compute(entries: &[HistoryEntry], now: DateTime<Local>) -> Stats {
     s
 }
 
-/// "2,184", "11.9k".
+/// "2,184", "11.9k", with the separators of the interface language.
 pub fn format_count(n: usize) -> String {
     if n >= 10_000 {
-        format!("{:.1}k", n as f64 / 1000.0)
-    } else if n >= 1000 {
-        format!("{},{:03}", n / 1000, n % 1000)
+        format!("{}k", sayso_i18n::numbers::decimal(n as f64 / 1000.0, 1))
     } else {
-        n.to_string()
+        sayso_i18n::numbers::integer(n as u64)
     }
 }
 

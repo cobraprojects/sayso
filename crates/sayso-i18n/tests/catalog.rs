@@ -42,13 +42,15 @@ fn locales_and_folders_match() {
 /// Each translated catalog has the keys of English, no others, and the same
 /// arguments in each text. A plural can have other categories than English
 /// ("many" in Spanish, only "other" in Japanese), so plurals compare by their
-/// base key, and each needs "other".
+/// base key. Each plural needs a text for each category that the counts of its
+/// language give, and for "other".
 #[test]
 fn every_locale_matches_english() {
     let en = catalog("en");
     let plural = Regex::new(r"^(.+)\.(zero|one|two|few|many|other)$").unwrap();
     let base = |key: &str| plural.captures(key).map_or(key.to_string(), |c| c[1].to_string());
     let en_plurals: BTreeSet<String> = en.keys().filter(|k| plural.is_match(k)).map(|k| base(k)).collect();
+    let mut failures = Vec::new();
     for locale in translated_locales() {
         let locale = locale.as_str();
         let other = catalog(locale);
@@ -62,8 +64,10 @@ fn every_locale_matches_english() {
             problems.push(format!("not in en.yml: {extra}"));
         }
         for key in &en_plurals {
-            if !other.contains_key(&format!("{key}.other")) {
-                problems.push(format!("{key} has no \"other\""));
+            for category in sayso_i18n::__plural_categories(locale) {
+                if !other.contains_key(&format!("{key}.{category}")) {
+                    problems.push(format!("{key} has no \"{category}\""));
+                }
             }
         }
         for (key, text) in &other {
@@ -74,8 +78,11 @@ fn every_locale_matches_english() {
                 problems.push(format!("{key} has other arguments than English"));
             }
         }
-        assert!(problems.is_empty(), "{locale}:\n  {}", problems.join("\n  "));
+        if !problems.is_empty() {
+            failures.push(format!("{locale}:\n  {}", problems.join("\n  ")));
+        }
     }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// Each `t!` key in the workspace is in `en.yml`. A typo in a key would

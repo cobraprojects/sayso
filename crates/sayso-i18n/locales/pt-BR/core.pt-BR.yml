@@ -6,6 +6,7 @@ core:
     many_languages: "Muitos idiomas"
     languages:
       one: "%{count} idioma"
+      many: "%{count} de idiomas"
       other: "%{count} idiomas"
   # The descriptions of the local models in the Models page and onboarding.
   model:

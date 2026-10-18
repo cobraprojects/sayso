@@ -29,6 +29,7 @@ settings:
     config_file: "Archivo de configuración"
     config_problems:
       one: "config.toml tiene %{count} problema. Sayso usa el valor predeterminado de cada valor de abajo hasta que corrijas el archivo."
+      many: "config.toml tiene %{count} de problemas. Sayso usa el valor predeterminado de cada valor de abajo hasta que corrijas el archivo."
       other: "config.toml tiene %{count} problemas. Sayso usa el valor predeterminado de cada valor de abajo hasta que corrijas el archivo."
     open_config_file: "Abrir el archivo de configuración"
     issue:

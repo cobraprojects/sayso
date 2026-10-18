@@ -58,6 +58,7 @@ settings:
     suggest_ollama_empty: "Se ejecuta en este %{computer} · aún sin modelos descargados"
     suggest_ollama:
       one: "Se ejecuta en este %{computer} · %{count} modelo"
+      many: "Se ejecuta en este %{computer} · %{count} de modelos"
       other: "Se ejecuta en este %{computer} · %{count} modelos"
     suggest_claude: "Encontrado en este %{computer} · Nube"
     suggest_codex: "Encontrado en este %{computer} · Nube · unos 5 s"

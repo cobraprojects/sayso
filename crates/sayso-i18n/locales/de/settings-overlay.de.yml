@@ -1,0 +1,27 @@
+_version: 1
+
+settings:
+  overlay:
+    title: "Overlay"
+    subtitle: "Die Pille und was sie beim Diktieren zeigt."
+    pill: "Pille"
+    size: "Größe"
+    size_small: "Klein"
+    size_medium: "Mittel"
+    size_large: "Groß"
+    size_detail: "Die Größe der Pille und von allem, was sie beim Diktieren zeigt."
+    idle_pill: "Ruhende Pille zeigen"
+    idle_pill_detail: "Eine kleine Pille am unteren Bildschirmrand. Klicke sie an, um ein Diktat zu starten."
+    hide_fullscreen: "Über Vollbild-Apps ausblenden"
+    hide_fullscreen_detail: "Die Pille stört keine Videos und Präsentationen."
+    follow: "Dem genutzten Bildschirm folgen"
+    follow_detail_placed: "Die Pille wechselt auf den Bildschirm deiner Maus oder des Fensters, das du nutzt, je nachdem, was sich zuletzt geändert hat."
+    follow_detail: "Die Pille wechselt bei jedem Start eines Diktats auf den Bildschirm, den du nutzt."
+    position: "Position der Pille"
+    position_detail: "Setzt die Pille zurück auf die Mitte unten. Um das jetzt zu tun, klicke mit der rechten Maustaste auf die Pille und wähle „Position zurücksetzen“."
+    reset_position: "Position zurücksetzen"
+    reset_done: "Sayso hat die gespeicherte Position vergessen. Die Pille wandert beim nächsten Start von Sayso in die Mitte unten."
+    reset_failed: "Sayso konnte die Position nicht zurücksetzen: %{error}. Prüfe, ob der Datenordner beschreibbar ist."
+    while_dictating: "Beim Diktieren"
+    live_preview: "Live-Vorschau zeigen"
+    live_preview_detail: "Zeigt deine Worte über der Pille, während du sprichst. Nur der Endtext geht in die App."

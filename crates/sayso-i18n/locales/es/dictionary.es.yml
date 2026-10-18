@@ -19,6 +19,7 @@ dictionary:
   replacements: "Reemplazos"
   replacements_note:
     one: "%{count} regla · se aplica antes del estilo"
+    many: "%{count} de reglas · se aplican antes del estilo"
     other: "%{count} reglas · se aplican antes del estilo"
   rules_empty: "Añade una regla abajo. Por ejemplo, cuando dices “git hub”, Sayso escribe “GitHub”."
   placeholder:
@@ -36,6 +37,7 @@ dictionary:
     result_empty: "El resultado aparece aquí."
     rules_apply:
       one: "Se aplica %{count} regla"
+      many: "Se aplican %{count} de reglas"
       other: "Se aplican %{count} reglas"
   error:
     word_exists: "“%{word}” ya está en tus palabras."

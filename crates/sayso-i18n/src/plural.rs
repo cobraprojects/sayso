@@ -13,15 +13,40 @@ pub(crate) fn category(locale: &str, n: u64) -> &'static str {
             _ if is_million(n) => "many",
             _ => "other",
         },
-        "es" | "pt" | "fr" | "it" => match n {
+        "fr" => match n {
+            0 | 1 => "one",
+            _ if is_million(n) => "many",
+            _ => "other",
+        },
+        "es" | "pt" | "it" => match n {
             1 => "one",
             _ if is_million(n) => "many",
             _ => "other",
+        },
+        // "other" is only for fractions, which counts never are.
+        "ru" => match (n % 10, n % 100) {
+            (1, 11) => "many",
+            (1, _) => "one",
+            (2..=4, 12..=14) => "many",
+            (2..=4, _) => "few",
+            _ => "many",
         },
         _ => match n {
             1 => "one",
             _ => "other",
         },
+    }
+}
+
+/// The categories that [`category`] gives for the counts of a locale. Each
+/// plural of its catalog needs a text for each one, and for "other".
+pub(crate) fn categories(locale: &str) -> &'static [&'static str] {
+    let language = locale.split(['-', '_']).next().unwrap_or(locale);
+    match language {
+        "ja" | "zh" | "ko" => &["other"],
+        "es" | "pt" | "fr" | "it" => &["one", "many", "other"],
+        "ru" => &["one", "few", "many", "other"],
+        _ => &["one", "other"],
     }
 }
 
@@ -61,10 +86,62 @@ mod tests {
     }
 
     #[test]
-    fn chinese_and_japanese_have_no_plural() {
+    fn chinese_japanese_and_korean_have_no_plural() {
         for n in [0, 1, 2, 1_000_000] {
             assert_eq!(category("zh-CN", n), "other");
             assert_eq!(category("ja", n), "other");
+            assert_eq!(category("ko", n), "other");
+        }
+    }
+
+    #[test]
+    fn french_counts_zero_as_one() {
+        assert_eq!(category("fr", 0), "one");
+        assert_eq!(category("fr", 1), "one");
+        assert_eq!(category("fr", 2), "other");
+        assert_eq!(category("fr", 1_000_000), "many");
+        assert_eq!(category("fr-CA", 0), "one");
+    }
+
+    #[test]
+    fn german_and_italian() {
+        assert_eq!(category("de", 0), "other");
+        assert_eq!(category("de", 1), "one");
+        assert_eq!(category("de", 1_000_000), "other");
+        assert_eq!(category("it", 0), "other");
+        assert_eq!(category("it", 1), "one");
+        assert_eq!(category("it", 1_000_000), "many");
+    }
+
+    #[test]
+    fn russian() {
+        for (n, expected) in [
+            (0, "many"),
+            (1, "one"),
+            (2, "few"),
+            (4, "few"),
+            (5, "many"),
+            (11, "many"),
+            (12, "many"),
+            (14, "many"),
+            (21, "one"),
+            (22, "few"),
+            (25, "many"),
+            (101, "one"),
+            (111, "many"),
+            (112, "many"),
+            (1_000_000, "many"),
+        ] {
+            assert_eq!(category("ru", n), expected, "{n}");
+        }
+    }
+
+    #[test]
+    fn categories_cover_every_count() {
+        for locale in ["en", "es", "pt-BR", "pt-PT", "fr", "it", "de", "ru", "ko", "ja", "zh-CN"] {
+            for n in (0..2_000).chain([1_000_000, 2_000_000, 21_000_000]) {
+                assert!(super::categories(locale).contains(&category(locale, n)), "{locale} {n}");
+            }
         }
     }
 }

@@ -9,6 +9,7 @@ onboarding:
     different_model: "¿Quieres otro modelo?"
     show_all:
       one: "Mostrar %{count} modelo"
+      many: "Mostrar los %{count} de modelos"
       other: "Mostrar los %{count} modelos"
     change: "Cambiar"
     change_label: "Cambiar el modelo de voz"

@@ -1209,7 +1209,7 @@ impl HistoryPage {
                     style = style_name,
                     provider = m.provider_name(provider_id),
                     model = super::ext::short_model(model),
-                    seconds = format!("{:.2}", *elapsed_ms as f64 / 1000.0)
+                    seconds = sayso_i18n::numbers::decimal(*elapsed_ms as f64 / 1000.0, 2)
                 ),
                 (!style_desc.is_empty()).then(|| ui(style_desc.clone(), 14., 18., FontWeight::NORMAL, c.graphite).into_any_element()),
             )),

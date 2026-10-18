@@ -86,7 +86,7 @@ fn title_case(s: &str) -> String {
 mod tests {
     use super::*;
 
-    const CODES: &[&str] = &["en", "es", "pt-BR", "zh-CN", "ja"];
+    const CODES: &[&str] = &["en", "es", "pt-BR", "zh-CN", "ja", "de", "fr", "it", "ko", "ru"];
 
     fn r(setting: &str, system: &[&str]) -> &'static str {
         let system: Vec<String> = system.iter().map(|s| s.to_string()).collect();
@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn system_takes_the_first_language_with_a_catalog() {
-        assert_eq!(r("system", &["de-DE", "es-MX", "en-US"]), "es");
+        assert_eq!(r("system", &["nl-NL", "es-MX", "en-US"]), "es");
         assert_eq!(r("system", &["en-GB"]), "en");
         assert_eq!(r("system", &["ja-JP"]), "ja");
     }
@@ -109,6 +109,16 @@ mod tests {
     #[test]
     fn an_unknown_setting_follows_the_system() {
         assert_eq!(r("xx", &["ja-JP"]), "ja");
+    }
+
+    #[test]
+    fn regional_variants_get_their_language() {
+        assert_eq!(r("system", &["de-AT"]), "de");
+        assert_eq!(r("system", &["de_CH.UTF-8"]), "de");
+        assert_eq!(r("system", &["fr-CA"]), "fr");
+        assert_eq!(r("system", &["it-CH"]), "it");
+        assert_eq!(r("system", &["ko-KR"]), "ko");
+        assert_eq!(r("system", &["ru-UA"]), "ru");
     }
 
     #[test]
@@ -137,7 +147,7 @@ mod tests {
     #[test]
     fn nothing_known_gives_english() {
         assert_eq!(r("system", &[]), "en");
-        assert_eq!(r("system", &["C", "POSIX", "de"]), "en");
+        assert_eq!(r("system", &["C", "POSIX", "nl"]), "en");
     }
 
     #[test]

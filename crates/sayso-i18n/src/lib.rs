@@ -15,6 +15,7 @@
 //! first argument.
 
 pub mod dates;
+pub mod numbers;
 mod plural;
 mod pseudo;
 mod resolve;
@@ -45,6 +46,11 @@ pub const LOCALES: &[Locale] = &[
     Locale { code: "pt-BR", name: "Português (Brasil)", draft: false },
     Locale { code: "zh-CN", name: "简体中文", draft: false },
     Locale { code: "ja", name: "日本語", draft: false },
+    Locale { code: "de", name: "Deutsch", draft: false },
+    Locale { code: "fr", name: "Français", draft: false },
+    Locale { code: "it", name: "Italiano", draft: false },
+    Locale { code: "ko", name: "한국어", draft: false },
+    Locale { code: "ru", name: "Русский", draft: false },
 ];
 
 /// The locales that the Language menu offers and that "system" can select:
@@ -66,6 +72,11 @@ pub fn language_name(code: &str) -> String {
         "pt-BR" => t!("language.pt-BR"),
         "zh-CN" => t!("language.zh-CN"),
         "ja" => t!("language.ja"),
+        "de" => t!("language.de"),
+        "fr" => t!("language.fr"),
+        "it" => t!("language.it"),
+        "ko" => t!("language.ko"),
+        "ru" => t!("language.ru"),
         _ => code.to_string(),
     }
 }
@@ -146,6 +157,12 @@ fn interpolate(text: &str, args: &[(&str, &dyn Display)]) -> String {
         out = out.replace(&format!("%{{{name}}}"), &value.to_string());
     }
     out
+}
+
+/// The plural categories that the counts of a locale need, for the tests.
+#[doc(hidden)]
+pub fn __plural_categories(locale: &str) -> &'static [&'static str] {
+    plural::categories(locale)
 }
 
 /// All keys and texts of a catalog, for the tests. None for a locale without

@@ -64,4 +64,5 @@ home:
       other: "%{count} palabras"
     rules:
       one: "%{count} regla"
+      many: "%{count} de reglas"
       other: "%{count} reglas"
