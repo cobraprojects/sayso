@@ -491,7 +491,7 @@ fn arrow_target(key: &str, selected: Option<usize>, count: usize) -> Option<(usi
 /// "1.3 GB", "626 MB".
 fn size_text(bytes: u64) -> String {
     if bytes >= 1_000_000_000 {
-        t!("onboarding.size_gb", number = format!("{:.1}", bytes as f64 / 1e9))
+        t!("onboarding.size_gb", number = sayso_i18n::numbers::decimal(bytes as f64 / 1e9, 1))
     } else {
         t!("onboarding.size_mb", number = (bytes as f64 / 1e6).round() as u64)
     }

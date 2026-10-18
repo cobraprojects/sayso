@@ -1,0 +1,6 @@
+_version: 1
+
+# Text from sayso-enhance that the interface shows.
+enhance:
+  # The note under Apple Intelligence in the model list of a style provider.
+  runs_on_this_mac: "이 Mac에서 실행"

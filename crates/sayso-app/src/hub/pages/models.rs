@@ -67,12 +67,12 @@ pub fn accuracy_level(wer: f32) -> u8 {
 
 /// "94.1%": the share of words the model gets right.
 pub fn accuracy_label(wer: f32) -> String {
-    t!("models.accuracy_percent", value = format!("{:.1}", 100. - wer))
+    t!("models.accuracy_percent", value = sayso_i18n::numbers::decimal((100. - wer) as f64, 1))
 }
 
 /// "160 ms" or "1.1 s".
 fn interval_label(ms: u32) -> String {
-    if ms >= 1000 { format!("{:.1} s", ms as f32 / 1000.) } else { format!("{ms} ms") }
+    if ms >= 1000 { format!("{} s", sayso_i18n::numbers::decimal(ms as f64 / 1000., 1)) } else { format!("{ms} ms") }
 }
 
 /// A large number over a small note, in the setup card.
@@ -1000,7 +1000,7 @@ impl ModelsPage {
             .child(fact(t!("models.details.dictionary"), if info.vocabulary { t!("models.details.used") } else { t!("models.details.not_used") }, !info.vocabulary))
             .child(fact(t!("models.details.size"), if remote { t!("models.hero.cloud") } else { size_label(&info) }, false).border_b_1());
         let facts = div().flex().gap(px(28.)).pt(px(4.)).pb(px(16.)).px(px(30.)).child(left).child(right);
-        let source = info.wer_percent.map(|wer| ui(t!("models.details.source", wer = format!("{wer:.2}")), 12., 17., FontWeight::NORMAL, c.graphite).px(px(30.)).pb(px(18.)));
+        let source = info.wer_percent.map(|wer| ui(t!("models.details.source", wer = sayso_i18n::numbers::decimal(wer as f64, 2)), 12., 17., FontWeight::NORMAL, c.graphite).px(px(30.)).pb(px(18.)));
 
         // The action bar.
         let is_final = active.id == info.id;

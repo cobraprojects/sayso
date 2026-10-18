@@ -1,0 +1,27 @@
+_version: 1
+
+settings:
+  overlay:
+    title: "Indicateur"
+    subtitle: "La pastille et ce qu’elle affiche pendant que vous dictez."
+    pill: "Pastille"
+    size: "Taille"
+    size_small: "Petite"
+    size_medium: "Moyenne"
+    size_large: "Grande"
+    size_detail: "La taille de la pastille et de tout ce qu’elle affiche pendant que vous dictez."
+    idle_pill: "Afficher la pastille au repos"
+    idle_pill_detail: "Une petite pastille en bas de l’écran. Cliquez dessus pour démarrer une dictée."
+    hide_fullscreen: "Masquer sur les apps en plein écran"
+    hide_fullscreen_detail: "La pastille ne gêne pas les vidéos ni les présentations."
+    follow: "Suivre l’écran utilisé"
+    follow_detail_placed: "La pastille passe sur l’écran de votre souris ou de la fenêtre que vous utilisez, selon le dernier qui a changé."
+    follow_detail: "La pastille passe sur l’écran que vous utilisez à chaque début de dictée."
+    position: "Position de la pastille"
+    position_detail: "Remet la pastille en bas au centre. Pour le faire maintenant, faites un clic droit sur la pastille et choisissez Réinitialiser la position."
+    reset_position: "Réinitialiser la position"
+    reset_done: "Sayso a oublié la position enregistrée. La pastille passe en bas au centre au prochain démarrage de Sayso."
+    reset_failed: "Sayso n’a pas pu réinitialiser la position : %{error}. Vérifiez que le dossier de données est accessible en écriture."
+    while_dictating: "Pendant la dictée"
+    live_preview: "Afficher l’aperçu en direct"
+    live_preview_detail: "Affiche vos mots au-dessus de la pastille pendant que vous parlez. Seul le texte final entre dans l’app."

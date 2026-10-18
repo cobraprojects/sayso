@@ -1,0 +1,27 @@
+_version: 1
+
+settings:
+  overlay:
+    title: "Indicatore"
+    subtitle: "La pillola e ciò che mostra mentre detti."
+    pill: "Pillola"
+    size: "Dimensione"
+    size_small: "Piccola"
+    size_medium: "Media"
+    size_large: "Grande"
+    size_detail: "La dimensione della pillola e di tutto ciò che mostra mentre detti."
+    idle_pill: "Mostra la pillola a riposo"
+    idle_pill_detail: "Una piccola pillola in basso sullo schermo. Cliccala per avviare una dettatura."
+    hide_fullscreen: "Nascondi sulle app a schermo intero"
+    hide_fullscreen_detail: "La pillola non dà fastidio a video e presentazioni."
+    follow: "Segui il display in uso"
+    follow_detail_placed: "La pillola si sposta sul display del mouse o della finestra che usi, quello cambiato per ultimo."
+    follow_detail: "La pillola si sposta sul display che usi ogni volta che inizia una dettatura."
+    position: "Posizione della pillola"
+    position_detail: "Rimette la pillola in basso al centro. Per farlo subito, fai clic destro sulla pillola e scegli Ripristina posizione."
+    reset_position: "Ripristina posizione"
+    reset_done: "Sayso ha dimenticato la posizione salvata. La pillola si sposta in basso al centro al prossimo avvio di Sayso."
+    reset_failed: "Sayso non ha potuto ripristinare la posizione: %{error}. Controlla che la cartella dei dati sia scrivibile."
+    while_dictating: "Mentre detti"
+    live_preview: "Mostra l'anteprima in tempo reale"
+    live_preview_detail: "Mostra le tue parole sopra la pillola mentre parli. Nell'app entra solo il testo finale."

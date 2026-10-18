@@ -60,7 +60,9 @@ home:
     dictionary_summary: "%{words} · %{rules}"
     words:
       one: "Palavras: %{count}"
+      many: "Palavras: %{count}"
       other: "Palavras: %{count}"
     rules:
       one: "Regras: %{count}"
+      many: "Regras: %{count}"
       other: "Regras: %{count}"

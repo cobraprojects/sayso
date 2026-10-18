@@ -684,7 +684,7 @@ impl OnboardingView {
         } else {
             match &self.ai.test {
                 Some(Ok(ms)) => {
-                    let works = t!("onboarding.ai.test_works", seconds = format!("{:.1}", *ms as f64 / 1000.0));
+                    let works = t!("onboarding.ai.test_works", seconds = sayso_i18n::numbers::decimal(*ms as f64 / 1000.0, 1));
                     div()
                         .id("ai-test-status")
                         .role(Role::Status)

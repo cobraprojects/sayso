@@ -179,8 +179,8 @@ impl AppearanceSettings {
                 BannerKind::Warning,
                 t!(
                     "settings.appearance.low_contrast",
-                    light = format!("{:.1}", report.light_ratio),
-                    dark = format!("{:.1}", report.dark_ratio)
+                    light = sayso_i18n::numbers::decimal(report.light_ratio, 1),
+                    dark = sayso_i18n::numbers::decimal(report.dark_ratio, 1)
                 ), cx));
         }
         Some(col)
@@ -227,9 +227,9 @@ fn specimen(appearance: Appearance, ink: Ink, cx: &App) -> Stateful<Div> {
     let ratio = palette.ink.contrast(palette.sheet);
     let pass = ratio >= 4.5;
     let ratio_text = if pass {
-        t!("settings.appearance.specimen_pass", ratio = format!("{ratio:.1}"))
+        t!("settings.appearance.specimen_pass", ratio = sayso_i18n::numbers::decimal(ratio, 1))
     } else {
-        t!("settings.appearance.specimen_fail", ratio = format!("{ratio:.1}"))
+        t!("settings.appearance.specimen_fail", ratio = sayso_i18n::numbers::decimal(ratio, 1))
     };
     // Each specimen has an id, so the text inside has unique ids.
     let (id, name) = match appearance {
