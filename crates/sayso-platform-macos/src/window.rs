@@ -112,7 +112,7 @@ fn resolve(ptr: *mut c_void) -> Option<Retained<NSWindow>> {
     }
 }
 
-/// Make a window behave as a non-activating overlay: no shadow, clear
+/// Make a window behave as a non-activating overlay: no frame, no shadow, clear
 /// background, status-bar level, on every Space, over full-screen apps, out of
 /// Cmd+Tab and window cycling.
 ///
@@ -122,6 +122,10 @@ fn resolve(ptr: *mut c_void) -> Option<Retained<NSWindow>> {
 /// [`order_front_without_activating`].
 pub fn configure_overlay(window: *mut c_void) {
     let Some(win) = resolve(window) else { return };
+    // GPUI makes a window without a title bar a titled window with a
+    // transparent title bar. macOS 26 draws a light line along the top edge
+    // of a titled window, even a clear one, so the overlay must be borderless.
+    win.setStyleMask(win.styleMask() & !NSWindowStyleMask::Titled);
     win.setHasShadow(false);
     win.setOpaque(false);
     win.setBackgroundColor(Some(&NSColor::clearColor()));
