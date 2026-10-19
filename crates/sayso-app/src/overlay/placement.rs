@@ -250,6 +250,17 @@ impl Placement {
     }
 }
 
+/// The window origin (GPUI coordinates) for the notch on a display: the top
+/// of the window on the top edge of the display, and the window centered on
+/// the notch. The compositor places the window when no display is known.
+pub fn notch_origin(screen: Option<&mac::ScreenInfo>) -> Point<Pixels> {
+    let Some(screen) = screen else { return point(px(0.), px(0.)) };
+    let h = mac::primary_screen_height();
+    let x = super::notch::center_x(screen) - (WIDTH / 2.) as f64;
+    let top = screen.frame.y + screen.frame.height;
+    point(px(x as f32), px((h - top) as f32))
+}
+
 fn origin_for(vf: Rect, spot: Spot) -> (Point<Pixels>, Anchor) {
     let h = mac::primary_screen_height();
     let center_x = vf.x + vf.width / 2.0 + spot.dx;

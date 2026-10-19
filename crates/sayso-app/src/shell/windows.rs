@@ -117,10 +117,13 @@ pub fn show_and_focus(window: NativeWindow) {
 
 // Overlay -------------------------------------------------------------------
 
-/// The window kind of the overlay.
-pub fn overlay_kind() -> WindowKind {
+/// The window kind of the overlay. The app places it, at the top or not.
+pub fn overlay_kind(_at_top: bool) -> WindowKind {
     WindowKind::PopUp
 }
+
+/// The system does not keep windows out of a top bar, so there is nothing to do.
+pub fn allow_over_menu_bar(_window: NativeWindow) {}
 
 /// The window kind of the tray popover.
 pub fn popover_kind() -> WindowKind {

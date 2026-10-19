@@ -258,6 +258,12 @@ impl Insertion {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Overlay {
+    /// How the overlay shows a dictation: the pill or the notch.
+    pub style: OverlayStyle,
+    /// With the notch style, draw a notch on a display that has no camera
+    /// notch. When false, such a display uses the pill. Only macOS has
+    /// displays with a notch, so the other systems always draw one.
+    pub notch_on_other_displays: bool,
     /// Show the small idle pill.
     pub idle_pill: bool,
     pub hide_in_fullscreen: bool,
@@ -271,8 +277,32 @@ pub struct Overlay {
 
 impl Default for Overlay {
     fn default() -> Self {
-        Self { idle_pill: true, hide_in_fullscreen: true, follow_display: true, show_preview: true, size: OverlaySize::default() }
+        Self {
+            style: OverlayStyle::default(),
+            notch_on_other_displays: true,
+            idle_pill: true,
+            hide_in_fullscreen: true,
+            follow_display: true,
+            show_preview: true,
+            size: OverlaySize::default(),
+        }
     }
+}
+
+/// The look of the overlay (Settings › Overlay › Style).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayStyle {
+    /// A slip of paper that waits on the screen and that the user can drag.
+    #[default]
+    Pill,
+    /// The camera notch at the top center of the display, which opens only
+    /// while a dictation runs.
+    Notch,
+}
+
+impl OverlayStyle {
+    pub const ALL: [OverlayStyle; 2] = [OverlayStyle::Pill, OverlayStyle::Notch];
 }
 
 /// Large is the size of the design.
@@ -1162,6 +1192,17 @@ mod tests {
         let small = OverlaySize::Small;
         assert!(small.scale() < OverlaySize::Medium.scale() && OverlaySize::Medium.scale() < OverlaySize::Large.scale());
         assert!(small.text_scale() > small.scale(), "text shrinks less than shapes");
+    }
+
+    #[test]
+    fn overlay_style_defaults_to_the_pill_and_reads_from_toml() {
+        let default = Config::default().overlay;
+        assert_eq!(default.style, OverlayStyle::Pill);
+        assert!(default.notch_on_other_displays);
+        let loaded = Config::parse("[overlay]\nstyle = \"notch\"\nnotch_on_other_displays = false\n");
+        assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
+        assert_eq!(loaded.config.overlay.style, OverlayStyle::Notch);
+        assert!(!loaded.config.overlay.notch_on_other_displays);
     }
 
     #[test]

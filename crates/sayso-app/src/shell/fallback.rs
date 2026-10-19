@@ -35,7 +35,7 @@ pub struct ScreenInfo {
     pub frame: Rect,
     pub visible_frame: Rect,
     pub scale: f64,
-    pub has_notch: bool,
+    pub notch: Option<Rect>,
 }
 
 pub struct MonitorToken;
@@ -85,7 +85,10 @@ pub fn order_front_without_activating(_window: NativeWindow) {}
 pub fn order_out(_window: NativeWindow) {}
 pub fn show_and_focus(_window: NativeWindow) {}
 
-pub fn overlay_kind() -> WindowKind {
+/// The system does not keep windows out of a top bar, so there is nothing to do.
+pub fn allow_over_menu_bar(_window: NativeWindow) {}
+
+pub fn overlay_kind(_at_top: bool) -> WindowKind {
     WindowKind::PopUp
 }
 pub fn popover_kind() -> WindowKind {
