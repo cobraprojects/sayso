@@ -143,6 +143,23 @@ where
         .map_err(map_error)
 }
 
+/// The device to record from: the chosen device, or the default input when
+/// the chosen device is not connected (a USB microphone on a dock, for
+/// example).
+fn input_device(host: &cpal::Host, device_id: Option<&str>) -> Option<cpal::Device> {
+    if let Some(id) = device_id {
+        // Accept a device id or, for older configs, a device name.
+        let chosen = id.parse().ok().and_then(|parsed| host.device_by_id(&parsed)).or_else(|| {
+            host.input_devices().ok()?.find(|d| d.description().is_ok_and(|desc| desc.name() == id))
+        });
+        if chosen.is_some() {
+            return chosen;
+        }
+        log::warn!("the input device {id} is not connected, so the default input device records");
+    }
+    host.default_input_device()
+}
+
 struct Handle {
     stream: cpal::Stream,
 }
@@ -178,14 +195,7 @@ impl AudioCapture for CpalAudio {
             return Err(PlatformError::PermissionDenied(Permission::Microphone));
         }
         let host = cpal::default_host();
-        let device = match device_id {
-            // Accept a device id or, for older configs, a device name.
-            Some(id) => id.parse().ok().and_then(|parsed| host.device_by_id(&parsed)).or_else(|| {
-                host.input_devices().ok()?.find(|d| d.description().is_ok_and(|desc| desc.name() == id))
-            }),
-            None => host.default_input_device(),
-        }
-        .ok_or_else(|| PlatformError::Failed("no audio input device found".into()))?;
+        let device = input_device(&host, device_id).ok_or_else(|| PlatformError::Failed("no audio input device found".into()))?;
 
         let supported = device.default_input_config().map_err(map_error)?;
         let format = supported.sample_format();

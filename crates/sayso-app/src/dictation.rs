@@ -227,10 +227,11 @@ impl AppModel {
             Ok(c) => Some(c),
             Err(e) => {
                 log::error!("microphone: {e}");
-                self.notice(NoticeIcon::Microphone, t!("overlay.notice.microphone_failed"), cx);
-                // Leave recording; the audio buffer is empty so it ends as "No speech".
+                // Show why in the overlay. A cancel would show "Cancelled"
+                // and offer an Undo with no audio.
+                let message = t!("overlay.notice.microphone_failed");
                 cx.spawn(async move |this, cx| {
-                    let _ = this.update(cx, |m, cx| m.dispatch(Event::Cancel, cx));
+                    let _ = this.update(cx, |m, cx| m.dispatch(Event::CaptureFailed { session, message }, cx));
                 })
                 .detach();
                 None
