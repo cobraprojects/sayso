@@ -297,10 +297,12 @@ mod tests {
     }
 
     #[test]
-    fn a_solo_modifier_cannot_be_the_toggle() {
+    fn a_solo_modifier_can_be_the_toggle() {
         let hotkeys = WinHotkeys::new();
         let registration = hotkeys.register(&bindings("right_option", None));
-        assert_eq!(registration.failed.len(), 1);
+        assert!(registration.failed.is_empty());
+        assert!(!registration.needs_input_monitoring);
+        assert!(hotkeys.hook.is_installed());
         assert!(hotkeys.registered().is_empty());
     }
 
