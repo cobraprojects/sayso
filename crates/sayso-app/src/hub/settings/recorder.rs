@@ -191,12 +191,11 @@ pub fn start<V: 'static>(
     cx.notify();
 }
 
-/// Why `slot` cannot use `hk`, as a note for the UI. Only push-to-talk can
-/// use a modifier key on its own: the other actions register system hotkeys,
-/// and those need a chord.
+/// Modifier keys work for start/stop and push-to-talk. The other actions
+/// keep their existing chords.
 fn unusable(slot: Slot, hk: &Hotkey) -> Option<Note> {
     match hk {
-        Hotkey::Solo(_) if slot != Slot::PushToTalk => Some(Note::SoloOnlyForPushToTalk(*hk)),
+        Hotkey::Solo(_) | Hotkey::ModifierOnly(_) if !matches!(slot, Slot::Toggle | Slot::PushToTalk) => Some(Note::SoloOnlyForPushToTalk(*hk)),
         _ => None,
     }
 }
@@ -404,10 +403,24 @@ mod tests {
     use sayso_core::hotkey::{Hotkey, SoloModifier};
 
     #[test]
-    fn solo_modifier_is_only_for_push_to_talk() {
+    fn combined_modifiers_work_for_recording_without_changing_other_actions() {
+        for binding in ["left_command+left_option", "left_command+left_control+left_option+left_shift"] {
+            let hotkey = binding.parse::<Hotkey>().unwrap();
+            assert_eq!(unusable(Slot::Toggle, &hotkey), None);
+            assert_eq!(unusable(Slot::PushToTalk, &hotkey), None);
+            for slot in [Slot::PasteLast, Slot::CycleStyle, Slot::Incognito] {
+                assert!(unusable(slot, &hotkey).is_some());
+                assert_eq!(unusable(slot, &Hotkey::paste_last_default()), None);
+            }
+        }
+    }
+
+    #[test]
+    fn solo_modifiers_work_for_both_recording_actions() {
         let solo = Hotkey::Solo(SoloModifier::RightOption);
         assert_eq!(unusable(Slot::PushToTalk, &solo), None);
-        for slot in [Slot::Toggle, Slot::PasteLast, Slot::CycleStyle, Slot::Incognito] {
+        assert_eq!(unusable(Slot::Toggle, &solo), None);
+        for slot in [Slot::PasteLast, Slot::CycleStyle, Slot::Incognito] {
             assert_eq!(unusable(slot, &solo), Some(Note::SoloOnlyForPushToTalk(solo)));
         }
         assert_eq!(unusable(Slot::Toggle, &Hotkey::toggle_default()), None);

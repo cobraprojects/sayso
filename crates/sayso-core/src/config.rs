@@ -118,6 +118,11 @@ mod optional_hotkey {
 }
 
 impl Hotkeys {
+    /// Global keyboard access for push-to-talk and modifier-only toggle keys.
+    pub fn needs_input_monitoring(&self) -> bool {
+        self.push_to_talk.is_some() || self.toggle.and_then(Hotkey::modifier_keys).is_some()
+    }
+
     /// Whether Send with Enter can work: it is on, and the toggle and
     /// push-to-talk hotkeys do not use Return, which it takes while recording.
     pub fn enter_sends_usable(&self) -> bool {

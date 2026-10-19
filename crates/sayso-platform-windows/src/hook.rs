@@ -24,7 +24,7 @@ use crate::input;
 use crate::keymap::{self, ModKeys};
 use crossbeam_channel::{Receiver, Sender};
 use parking_lot::Mutex;
-use sayso_core::hotkey::Hotkey;
+use sayso_core::hotkey::{Hotkey, ModifierSet};
 use sayso_platform::HotkeyEvent;
 use std::cell::RefCell;
 use std::panic::AssertUnwindSafe;
@@ -109,10 +109,11 @@ impl HookController {
         }
     }
 
-    /// Apply the push-to-talk, Esc, and Enter settings. Installs or removes the hook.
+    /// Apply the modifier-only toggle, push-to-talk, Esc, and Enter settings. Installs or removes the hook.
     pub fn configure(
         &self,
         ptt: Option<Hotkey>,
+        toggle_modifiers: Option<ModifierSet>,
         single_esc: bool,
         window: Duration,
         enter_sends: bool,
@@ -121,6 +122,7 @@ impl HookController {
         let released = {
             let mut logic = self.shared.logic.lock();
             logic.configure_esc(single_esc, window);
+            logic.set_toggle_modifiers(toggle_modifiers);
             logic.set_enter_sends(enter_sends);
             logic.set_take_escape(take_escape);
             logic.set_ptt(ptt)
@@ -379,9 +381,9 @@ mod tests {
         assert!(hook.is_installed());
         hook.set_recording(false).unwrap();
         assert!(!hook.is_installed());
-        hook.configure(Some("right_shift".parse().unwrap()), false, Duration::from_millis(400), false, false).unwrap();
+        hook.configure(Some("right_shift".parse().unwrap()), None, false, Duration::from_millis(400), false, false).unwrap();
         assert!(hook.is_installed());
-        hook.configure(None, false, Duration::from_millis(400), false, false).unwrap();
+        hook.configure(None, None, false, Duration::from_millis(400), false, false).unwrap();
         assert!(!hook.is_installed());
     }
 
@@ -389,7 +391,7 @@ mod tests {
     fn a_ptt_with_fn_does_not_install_the_hook() {
         let (tx, _rx) = crossbeam_channel::unbounded();
         let hook = HookController::new(tx, Arc::default());
-        hook.configure(Some("fn".parse().unwrap()), false, Duration::from_millis(400), false, false).unwrap();
+        hook.configure(Some("fn".parse().unwrap()), None, false, Duration::from_millis(400), false, false).unwrap();
         assert!(!hook.is_installed());
     }
 
@@ -401,7 +403,7 @@ mod tests {
         assert!(window.wait_in_front(), "the test window could not come to the front; no keys were sent");
         let (tx, rx) = crossbeam_channel::unbounded();
         let hook = HookController::new(tx, Arc::default());
-        hook.configure(Some("right_option".parse().unwrap()), false, Duration::from_millis(400), false, false).unwrap();
+        hook.configure(Some("right_option".parse().unwrap()), None, false, Duration::from_millis(400), false, false).unwrap();
         let before = INJECTED_SEEN.load(Ordering::SeqCst);
         assert!(window.is_in_front());
         let right_alt = keymap::VK_RMENU;
@@ -410,7 +412,7 @@ mod tests {
         while INJECTED_SEEN.load(Ordering::SeqCst) < before + 2 && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
-        hook.configure(None, false, Duration::from_millis(400), false, false).unwrap();
+        hook.configure(None, None, false, Duration::from_millis(400), false, false).unwrap();
         assert!(INJECTED_SEEN.load(Ordering::SeqCst) >= before + 2, "the hook saw both events");
         assert!(rx.try_recv().is_err(), "Sayso's own keys never trigger push-to-talk");
     }

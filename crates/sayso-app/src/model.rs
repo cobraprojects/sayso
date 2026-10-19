@@ -547,14 +547,23 @@ impl AppModel {
     }
 
     pub fn set_toggle_hotkey(&mut self, hotkey: Option<Hotkey>, cx: &mut Context<Self>) {
+        if hotkey.and_then(Hotkey::modifier_keys).is_some() {
+            self.request_hotkey_access();
+        }
         self.edit_config(cx, |c| c.hotkeys.toggle = hotkey);
     }
 
     pub fn set_push_to_talk(&mut self, hotkey: Option<Hotkey>, cx: &mut Context<Self>) {
-        if hotkey.is_some() && self.permission(Permission::InputMonitoring) != PermissionState::Granted {
-            self.services.platform.permissions.request(Permission::InputMonitoring);
+        if hotkey.is_some() {
+            self.request_hotkey_access();
         }
         self.edit_config(cx, |c| c.hotkeys.push_to_talk = hotkey);
+    }
+
+    fn request_hotkey_access(&self) {
+        if self.permission(Permission::InputMonitoring) != PermissionState::Granted {
+            self.services.platform.permissions.request(Permission::InputMonitoring);
+        }
     }
 
     pub fn hotkey_conflicts(&self, hotkey: &Hotkey) -> Vec<HotkeyConflict> {

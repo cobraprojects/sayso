@@ -1,7 +1,8 @@
 //! Platform-neutral hotkey description.
 //!
 //! A hotkey is either a chord (modifiers plus one key, for example
-//! `opt+space`) or a single modifier held alone (for example `right_option`).
+//! `opt+space`), a single modifier (for example `right_option`), or a combination
+//! of side-specific modifiers (for example `left_command+left_option`).
 //! The platform crate maps these to key codes.
 //!
 //! The modifier names are the Mac ones. On Linux and Windows, `option` is
@@ -32,8 +33,11 @@ pub enum SoloModifier {
     RightOption,
     LeftOption,
     RightCommand,
+    LeftCommand,
     RightControl,
+    LeftControl,
     RightShift,
+    LeftShift,
     Fn,
 }
 
@@ -52,10 +56,71 @@ impl Modifiers {
     }
 }
 
+/// A side-specific set of modifier keys. Its order is independent of press order.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct ModifierSet(u16);
+
+impl ModifierSet {
+    pub fn insert(&mut self, modifier: SoloModifier) -> bool {
+        let bit = 1 << modifier as u16;
+        let fresh = self.0 & bit == 0;
+        self.0 |= bit;
+        fresh
+    }
+
+    pub fn contains(self, modifier: SoloModifier) -> bool {
+        self.0 & (1 << modifier as u16) != 0
+    }
+
+    pub fn len(self) -> usize { self.0.count_ones() as usize }
+    pub fn is_empty(self) -> bool { self.0 == 0 }
+    pub fn is_subset_of(self, other: Self) -> bool { self.0 & other.0 == self.0 }
+
+    pub fn iter(self) -> impl Iterator<Item = SoloModifier> {
+        SoloModifier::ALL.into_iter().filter(move |m| self.contains(*m))
+    }
+}
+
+impl FromIterator<SoloModifier> for ModifierSet {
+    fn from_iter<T: IntoIterator<Item = SoloModifier>>(iter: T) -> Self {
+        let mut set = Self::default();
+        for modifier in iter { set.insert(modifier); }
+        set
+    }
+}
+
+/// The modifier-only part of hotkey recording, shared by the native listeners.
+#[derive(Debug, Default)]
+pub struct ModifierCapture {
+    candidate: Option<ModifierSet>,
+}
+
+impl ModifierCapture {
+    pub fn clear(&mut self) { self.candidate = None; }
+    pub fn is_active(&self) -> bool { self.candidate.is_some() }
+
+    pub fn press(&mut self, held: ModifierSet) {
+        self.candidate = if held.len() == 1 || self.candidate.is_some_and(|keys| keys.is_subset_of(held)) {
+            Some(held)
+        } else {
+            None
+        };
+    }
+
+    pub fn release(&mut self, modifier: SoloModifier) -> Option<Hotkey> {
+        let candidate = self.candidate?;
+        if !candidate.contains(modifier) { return None; }
+        self.clear();
+        Hotkey::modifier_only(candidate)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Hotkey {
     Chord { modifiers: Modifiers, key: Key },
     Solo(SoloModifier),
+    /// Modifier keys held together, used for toggle or push-to-talk.
+    ModifierOnly(ModifierSet),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -69,6 +134,22 @@ pub enum HotkeyParseError {
 }
 
 impl Hotkey {
+    pub fn modifier_keys(self) -> Option<ModifierSet> {
+        match self {
+            Self::Solo(modifier) => Some([modifier].into_iter().collect()),
+            Self::ModifierOnly(keys) => Some(keys),
+            Self::Chord { .. } => None,
+        }
+    }
+
+    pub fn modifier_only(modifiers: ModifierSet) -> Option<Self> {
+        match modifiers.len() {
+            0 => None,
+            1 => modifiers.iter().next().map(Self::Solo),
+            _ => Some(Self::ModifierOnly(modifiers)),
+        }
+    }
+
     /// Option+Space on macOS. Ctrl+Space on Windows, where Alt+Space opens
     /// the window menu and is the default of the common launchers.
     /// Ctrl+Alt+Space on Linux, because Alt+Space opens the window menu there.
@@ -100,6 +181,7 @@ impl Hotkey {
     pub fn keycaps(&self) -> Vec<String> {
         match self {
             Hotkey::Solo(m) => vec![m.label().to_string()],
+            Hotkey::ModifierOnly(modifiers) => modifiers.iter().map(|m| m.label().to_string()).collect(),
             Hotkey::Chord { modifiers, key } => {
                 let names = ModifierNames::SYSTEM;
                 let mut caps = Vec::new();
@@ -173,14 +255,33 @@ const COMMAND_TOKEN: &str = if cfg!(target_os = "macos") {
 };
 
 impl SoloModifier {
+    pub const ALL: [Self; 9] = [
+        Self::Fn,
+        Self::LeftCommand,
+        Self::LeftControl,
+        Self::LeftOption,
+        Self::LeftShift,
+        Self::RightCommand,
+        Self::RightControl,
+        Self::RightOption,
+        Self::RightShift,
+    ];
+
+    fn parse(token: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| token.trim().eq_ignore_ascii_case(m.token()))
+    }
+
     pub fn label(&self) -> &'static str {
         #[cfg(target_os = "macos")]
         return match self {
             SoloModifier::RightOption => "Right ⌥",
             SoloModifier::LeftOption => "Left ⌥",
             SoloModifier::RightCommand => "Right ⌘",
+            SoloModifier::LeftCommand => "Left ⌘",
             SoloModifier::RightControl => "Right ⌃",
+            SoloModifier::LeftControl => "Left ⌃",
             SoloModifier::RightShift => "Right ⇧",
+            SoloModifier::LeftShift => "Left ⇧",
             SoloModifier::Fn => "fn",
         };
         #[cfg(not(target_os = "macos"))]
@@ -188,8 +289,11 @@ impl SoloModifier {
             SoloModifier::RightOption => "Right Alt",
             SoloModifier::LeftOption => "Left Alt",
             SoloModifier::RightCommand => if cfg!(target_os = "windows") { "Right Win" } else { "Right Super" },
+            SoloModifier::LeftCommand => if cfg!(target_os = "windows") { "Left Win" } else { "Left Super" },
             SoloModifier::RightControl => "Right Ctrl",
+            SoloModifier::LeftControl => "Left Ctrl",
             SoloModifier::RightShift => "Right Shift",
+            SoloModifier::LeftShift => "Left Shift",
             SoloModifier::Fn => "fn",
         };
     }
@@ -198,8 +302,11 @@ impl SoloModifier {
             SoloModifier::RightOption => "right_option",
             SoloModifier::LeftOption => "left_option",
             SoloModifier::RightCommand => "right_command",
+            SoloModifier::LeftCommand => "left_command",
             SoloModifier::RightControl => "right_control",
+            SoloModifier::LeftControl => "left_control",
             SoloModifier::RightShift => "right_shift",
+            SoloModifier::LeftShift => "left_shift",
             SoloModifier::Fn => "fn",
         }
     }
@@ -256,23 +363,29 @@ impl FromStr for Hotkey {
     type Err = HotkeyParseError;
 
     /// Parse `"opt+space"`, `"ctrl+cmd+v"`, or a solo modifier such as
-    /// `"right_option"` or `"fn"`.
+    /// `"right_option"` or `"fn"`, or a combination such as `"left_command+left_option"`.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
         if s.is_empty() {
             return Err(HotkeyParseError::Empty);
         }
-        for solo in [
-            SoloModifier::RightOption,
-            SoloModifier::LeftOption,
-            SoloModifier::RightCommand,
-            SoloModifier::RightControl,
-            SoloModifier::RightShift,
-            SoloModifier::Fn,
-        ] {
-            if s.eq_ignore_ascii_case(solo.token()) {
-                return Ok(Hotkey::Solo(solo));
+        if let Some(solo) = SoloModifier::parse(s) {
+            return Ok(Hotkey::Solo(solo));
+        }
+        let mut modifier_keys = ModifierSet::default();
+        let mut modifier_only = true;
+        for part in s.split('+') {
+            if let Some(modifier) = SoloModifier::parse(part) {
+                if !modifier_keys.insert(modifier) {
+                    return Err(HotkeyParseError::WrongKeyCount);
+                }
+            } else {
+                modifier_only = false;
+                break;
             }
+        }
+        if modifier_only {
+            return Self::modifier_only(modifier_keys).ok_or(HotkeyParseError::WrongKeyCount);
         }
         let mut modifiers = Modifiers::default();
         let mut key = None;
@@ -301,6 +414,13 @@ impl fmt::Display for Hotkey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Hotkey::Solo(m) => f.write_str(m.token()),
+            Hotkey::ModifierOnly(modifiers) => {
+                for (i, modifier) in modifiers.iter().enumerate() {
+                    if i > 0 { f.write_str("+")?; }
+                    f.write_str(modifier.token())?;
+                }
+                Ok(())
+            }
             Hotkey::Chord { modifiers, key } => {
                 let mut parts = Vec::new();
                 if modifiers.function {
@@ -354,6 +474,31 @@ mod tests {
         for s in list {
             let hk: Hotkey = s.parse().unwrap();
             assert_eq!(hk.to_string(), *s);
+        }
+    }
+
+    #[test]
+    fn all_modifier_combinations_round_trip_in_any_order() {
+        for mask in 0usize..(1 << SoloModifier::ALL.len()) {
+            let selected: Vec<_> = SoloModifier::ALL.into_iter().enumerate().filter_map(|(i, m)| (mask & (1 << i) != 0).then_some(m)).collect();
+            if selected.len() < 2 { continue; }
+            let text = selected.iter().rev().map(|m| Hotkey::Solo(*m).to_string()).collect::<Vec<_>>().join("+");
+            let hotkey: Hotkey = text.parse().unwrap();
+            assert_eq!(hotkey, Hotkey::modifier_only(selected.into_iter().collect()).unwrap());
+            assert_eq!(hotkey.to_string().parse::<Hotkey>().unwrap(), hotkey);
+        }
+    }
+
+    #[test]
+    fn modifier_pairs_round_trip_independent_of_press_order() {
+        let pair: Hotkey = "left_command+left_option".parse().unwrap();
+        assert_eq!(" LEFT_OPTION + LEFT_COMMAND ".parse::<Hotkey>().unwrap(), pair);
+        assert_eq!(pair.to_string(), "left_command+left_option");
+        assert_eq!(serde_json::from_str::<Hotkey>(&serde_json::to_string(&pair).unwrap()).unwrap(), pair);
+        assert_eq!(pair.keycaps().len(), 2);
+        assert_eq!("left_command".parse::<Hotkey>().unwrap(), Hotkey::Solo(SoloModifier::LeftCommand));
+        for invalid in ["left_command+left_command", "left_command+space"] {
+            assert!(invalid.parse::<Hotkey>().is_err(), "{invalid}");
         }
     }
 

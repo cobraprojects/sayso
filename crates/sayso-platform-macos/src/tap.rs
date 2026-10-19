@@ -1,7 +1,7 @@
 //! The `CGEventTap`s, each on its own thread.
 //!
-//! The listen-only tap serves three jobs: push-to-talk (solo modifiers and
-//! chords), Esc cancel while recording, and the key recorder. It never
+//! The listen-only tap handles modifier-only toggle, push-to-talk, Esc cancel
+//! while recording, and the key recorder. It never
 //! swallows events, so it cannot break system shortcuts such as double-Fn
 //! dictation. It needs Input Monitoring.
 //!
@@ -24,7 +24,7 @@ use crate::keymap::{KC_ESCAPE, KC_KEYPAD_ENTER, KC_RETURN};
 use crate::tap_logic::{RawEvent, TapLogic};
 use crossbeam_channel::{Receiver, Sender};
 use parking_lot::Mutex;
-use sayso_core::hotkey::Hotkey;
+use sayso_core::hotkey::{Hotkey, ModifierSet};
 use sayso_platform::HotkeyEvent;
 use std::ffi::c_void;
 use std::panic::AssertUnwindSafe;
@@ -96,10 +96,11 @@ impl TapController {
         }
     }
 
-    /// Apply the push-to-talk, Esc, and Enter settings. Starts the taps when something needs them.
+    /// Apply the modifier-only toggle, push-to-talk, Esc, and Enter settings. Starts the taps when something needs them.
     pub fn configure(
         &self,
         ptt: Option<Hotkey>,
+        toggle_modifiers: Option<ModifierSet>,
         single_esc: bool,
         window: Duration,
         enter_sends: bool,
@@ -116,6 +117,7 @@ impl TapController {
         let (released, needed) = {
             let mut logic = self.logic.lock();
             logic.configure_esc(single_esc, window);
+            logic.set_toggle_modifiers(toggle_modifiers);
             let released = logic.set_ptt(ptt);
             (released, logic.is_needed())
         };
@@ -361,18 +363,18 @@ mod tests {
         let (tx, _rx) = crossbeam_channel::unbounded();
         let taps = TapController::new(tx, Arc::default());
         let window = Duration::from_millis(400);
-        taps.configure(None, false, window, true, false).unwrap();
+        taps.configure(None, None, false, window, true, false).unwrap();
         assert!(taps.active.lock().is_some(), "the active tap could not start");
         let _ = taps.set_recording(true);
         let _ = taps.set_recording(false);
         assert!(taps.active.lock().is_some(), "it stays for the next recording");
-        taps.configure(None, false, window, false, false).unwrap();
+        taps.configure(None, None, false, window, false, false).unwrap();
         assert!(taps.active.lock().is_none(), "both settings are off");
         let _ = taps.set_recording(true);
         assert!(taps.active.lock().is_none());
         let _ = taps.set_recording(false);
-        taps.configure(None, false, window, false, true).unwrap();
+        taps.configure(None, None, false, window, false, true).unwrap();
         assert!(taps.active.lock().is_some(), "taking Esc needs it too");
-        taps.configure(None, false, window, false, false).unwrap();
+        taps.configure(None, None, false, window, false, false).unwrap();
     }
 }
