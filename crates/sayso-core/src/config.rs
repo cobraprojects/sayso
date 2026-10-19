@@ -673,6 +673,8 @@ pub enum ConfigProblem {
     AiTimeoutTooShort,
     #[error("is the same key as hotkeys.toggle")]
     PushToTalkIsToggle,
+    #[error("{0} conflicts with hotkeys.toggle")]
+    HotkeyConflictsWithToggle(Hotkey),
     #[error("no provider has the id \"{0}\"")]
     UnknownProvider(String),
     #[error("\"{0}\" is not a known model")]
@@ -795,8 +797,22 @@ impl Config {
         if self.ai.http_timeout_ms < 500 || self.ai.cli_timeout_ms < 500 {
             issue("ai", ConfigProblem::AiTimeoutTooShort);
         }
-        if self.hotkeys.toggle.is_some() && self.hotkeys.toggle == self.hotkeys.push_to_talk {
-            issue("hotkeys.push_to_talk", ConfigProblem::PushToTalkIsToggle);
+        if let Some(toggle) = self.hotkeys.toggle {
+            for (field, hotkey) in [
+                ("hotkeys.push_to_talk", self.hotkeys.push_to_talk),
+                ("hotkeys.paste_last", self.hotkeys.paste_last),
+                ("hotkeys.cycle_style", self.hotkeys.cycle_style),
+                ("hotkeys.incognito", self.hotkeys.incognito),
+            ] {
+                if let Some(hotkey) = hotkey && hotkey.conflicts_with_toggle(toggle) {
+                    let problem = if field == "hotkeys.push_to_talk" && hotkey == toggle {
+                        ConfigProblem::PushToTalkIsToggle
+                    } else {
+                        ConfigProblem::HotkeyConflictsWithToggle(hotkey)
+                    };
+                    issue(field, problem);
+                }
+            }
         }
         if let Some(id) = &self.ai.default_provider
             && !self.ai.providers.iter().any(|p| &p.id == id) {
@@ -1194,6 +1210,20 @@ mod tests {
         let loaded = Config::parse("[sounds\nvolume = 1");
         assert_eq!(loaded.config, Config::default());
         assert_eq!(loaded.issues[0].field, "config.toml");
+    }
+
+    #[test]
+    fn validation_catches_modifier_toggle_conflicts() {
+        let mut c = Config::default();
+        c.hotkeys.toggle = Some("left_control+left_option".parse().unwrap());
+        c.hotkeys.push_to_talk = Some("ctrl+opt+d".parse().unwrap());
+        c.hotkeys.paste_last = Some("ctrl+opt+v".parse().unwrap());
+        c.hotkeys.cycle_style = Some("ctrl+opt+s".parse().unwrap());
+        c.hotkeys.incognito = Some("ctrl+opt+i".parse().unwrap());
+        let fields: Vec<_> = c.validate().into_iter().map(|i| i.field).collect();
+        for field in ["hotkeys.push_to_talk", "hotkeys.paste_last", "hotkeys.cycle_style", "hotkeys.incognito"] {
+            assert!(fields.iter().any(|f| f == field), "missing conflict for {field}");
+        }
     }
 
     #[test]

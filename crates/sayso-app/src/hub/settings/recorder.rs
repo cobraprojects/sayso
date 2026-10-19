@@ -46,11 +46,15 @@ impl Slot {
         }
     }
 
-    /// Another Sayso action that already uses `hotkey`.
+    /// Another Sayso action that uses or overlaps `hotkey`.
     pub fn clash(self, c: &Config, hotkey: &Hotkey) -> Option<Slot> {
         [Slot::Toggle, Slot::PushToTalk, Slot::PasteLast, Slot::CycleStyle, Slot::Incognito]
             .into_iter()
-            .find(|s| *s != self && s.get(c).as_ref() == Some(hotkey))
+            .find(|s| *s != self && s.get(c).is_some_and(|other| match (self, *s) {
+                (Slot::Toggle, _) => other.conflicts_with_toggle(*hotkey),
+                (_, Slot::Toggle) => hotkey.conflicts_with_toggle(other),
+                _ => other == *hotkey,
+            }))
     }
 
     /// The name of the action, for sentences.
@@ -401,6 +405,61 @@ mod tests {
     // Not `super::*`: the GPUI glob has its own `test` macro.
     use super::{Note, Slot, unusable};
     use sayso_core::hotkey::{Hotkey, SoloModifier};
+
+    #[test]
+    fn modifier_toggle_conflicts_are_rejected_in_either_assignment_order() {
+        use sayso_core::config::Config;
+
+        for (toggle, other) in [
+            ("left_control+left_option", "ctrl+opt+d"),
+            ("left_control", "ctrl+opt+d"),
+            ("left_control", "left_control+left_option"),
+            ("left_control+left_option", "left_control"),
+        ] {
+            let toggle: Hotkey = toggle.parse().unwrap();
+            let other: Hotkey = other.parse().unwrap();
+            for slot in [Slot::PushToTalk, Slot::PasteLast, Slot::CycleStyle, Slot::Incognito] {
+                let mut config = Config::default();
+                config.hotkeys.toggle = Some(toggle);
+                config.hotkeys.paste_last = None;
+                config.hotkeys.cycle_style = None;
+                assert_eq!(slot.clash(&config, &other), Some(Slot::Toggle), "{toggle}, {other}");
+                config.hotkeys.toggle = None;
+                match slot {
+                    Slot::PushToTalk => config.hotkeys.push_to_talk = Some(other),
+                    Slot::PasteLast => config.hotkeys.paste_last = Some(other),
+                    Slot::CycleStyle => config.hotkeys.cycle_style = Some(other),
+                    Slot::Incognito => config.hotkeys.incognito = Some(other),
+                    Slot::Toggle => unreachable!(),
+                }
+                assert_eq!(Slot::Toggle.clash(&config, &toggle), Some(slot));
+            }
+        }
+    }
+
+    #[test]
+    fn distinct_modifiers_and_existing_chords_remain_available() {
+        use sayso_core::config::Config;
+
+        for (toggle, ptt) in [
+            ("left_control+left_option", "right_control+right_option"),
+            ("left_control", "right_control"),
+            ("left_control+left_option", "shift+d"),
+            ("ctrl+opt+space", "ctrl+opt+d"),
+            ("opt+space", "right_option"),
+        ] {
+            let toggle = toggle.parse().unwrap();
+            let ptt = ptt.parse().unwrap();
+            let mut config = Config::default();
+            config.hotkeys.toggle = Some(toggle);
+            config.hotkeys.push_to_talk = Some(ptt);
+            config.hotkeys.paste_last = None;
+            config.hotkeys.cycle_style = None;
+            assert_eq!(Slot::PushToTalk.clash(&config, &ptt), None);
+            assert_eq!(Slot::Toggle.clash(&config, &toggle), None);
+            assert!(config.validate().is_empty(), "{toggle}, {ptt}");
+        }
+    }
 
     #[test]
     fn combined_modifiers_work_for_recording_without_changing_other_actions() {

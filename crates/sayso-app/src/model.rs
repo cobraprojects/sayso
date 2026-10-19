@@ -529,12 +529,14 @@ impl AppModel {
 
     pub fn register_hotkeys(&mut self) {
         let h = &self.config.hotkeys;
+        // Config files can bypass the recorder's conflict checks.
+        let usable = |hotkey: Option<Hotkey>| hotkey.filter(|key| h.toggle.is_none_or(|toggle| !key.conflicts_with_toggle(toggle)));
         let bindings = sayso_platform::HotkeyBindings {
             toggle: h.toggle,
-            push_to_talk: h.push_to_talk,
-            paste_last: h.paste_last,
-            cycle_style: h.cycle_style,
-            incognito: h.incognito,
+            push_to_talk: usable(h.push_to_talk),
+            paste_last: usable(h.paste_last),
+            cycle_style: usable(h.cycle_style),
+            incognito: usable(h.incognito),
             enter_sends: h.enter_sends_usable(),
             take_escape: h.take_escape_usable(),
             single_escape: h.cancel == sayso_core::config::CancelMode::SingleEscape,
