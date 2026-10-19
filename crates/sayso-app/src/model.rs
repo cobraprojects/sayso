@@ -187,8 +187,6 @@ impl OverlayNotice {
 pub enum NoticeIcon {
     Info,
     Microphone,
-    /// A password field blocks the hotkeys.
-    Lock,
     Style,
     Incognito,
 }

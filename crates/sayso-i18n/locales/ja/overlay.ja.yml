@@ -2,7 +2,6 @@ _version: 1
 
 overlay:
   notice:
-    secure_input: "%{app} でパスワードフィールドが有効になっています"
     allow_microphone: "マイクへのアクセスを許可してから、もう一度お試しください"
     needs_microphone: "Sayso にはマイクへのアクセスが必要です"
     microphone_failed: "マイクを開始できませんでした"
@@ -40,7 +39,6 @@ overlay:
     no_speech: "音声が聞き取れませんでした。"
     not_taken: "アプリがテキストを受け付けませんでした"
     not_trusted: "テキストを挿入するには、Sayso にアクセシビリティのアクセス許可が必要です"
-    secure_input: "パスワードフィールドが有効になっています"
     elevated: "%{app} は管理者として実行されているため、Windows は Sayso からの入力を許可しません。"
     elevated_unknown: "このアプリは管理者として実行されているため、Windows は Sayso からの入力を許可しません。"
     clipboard: "Sayso はクリップボードを使用できません：%{error}"

@@ -114,7 +114,6 @@ pub fn body(n: Notch, s: Scene, c: &Colors, dark: &Colors) -> Option<Div> {
         let ic = match notice.icon {
             NoticeIcon::Info => Icon::Info,
             NoticeIcon::Microphone => Icon::Mic,
-            NoticeIcon::Lock => Icon::Lock,
             NoticeIcon::Style => Icon::Styles,
             NoticeIcon::Incognito => Icon::Wordmark,
         };

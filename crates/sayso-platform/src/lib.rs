@@ -97,7 +97,8 @@ pub trait HotkeySource {
     fn set_recording(&self, recording: bool);
     fn events(&self) -> Receiver<HotkeyEvent>;
     fn conflicts(&self, hotkey: &Hotkey) -> Vec<HotkeyConflict>;
-    /// The app holding Secure Event Input (a password field), if any.
+    /// The app holding Secure Event Input (a password field), if any. For
+    /// diagnostics only: it is system-wide, so it must not block a dictation.
     fn secure_input_holder(&self) -> Option<String>;
     /// Start recording the next key press for a recorder field. The next key
     /// combination (or held modifier) arrives on the returned channel. Main thread.
@@ -139,8 +140,6 @@ pub enum InsertError {
     NotTaken,
     #[error("Sayso needs Accessibility permission to insert text")]
     NotTrusted,
-    #[error("A password field is active")]
-    SecureInput,
     /// The app in front runs as administrator, so Windows does not let Sayso
     /// send keys to it. The name of the app, when Sayso can read it.
     #[error("{} runs as administrator, so Windows does not let Sayso type into it.", .app.as_deref().unwrap_or("This app"))]

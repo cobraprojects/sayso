@@ -2,7 +2,6 @@ _version: 1
 
 overlay:
   notice:
-    secure_input: "A password field is active in %{app}"
     allow_microphone: "Allow microphone access, then try again"
     needs_microphone: "Sayso needs microphone access"
     microphone_failed: "The microphone could not start"
@@ -40,7 +39,6 @@ overlay:
     no_speech: "No speech was heard."
     not_taken: "The app did not take the text"
     not_trusted: "Sayso needs Accessibility permission to insert text"
-    secure_input: "A password field is active"
     elevated: "%{app} runs as administrator, so Windows does not let Sayso type into it."
     elevated_unknown: "This app runs as administrator, so Windows does not let Sayso type into it."
     clipboard: "Sayso cannot use the clipboard: %{error}"

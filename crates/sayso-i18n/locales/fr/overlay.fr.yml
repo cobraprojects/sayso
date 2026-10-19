@@ -2,7 +2,6 @@ _version: 1
 
 overlay:
   notice:
-    secure_input: "Un champ de mot de passe est actif dans %{app}"
     allow_microphone: "Autorisez l’accès au microphone, puis réessayez"
     needs_microphone: "Sayso a besoin d’accéder au microphone"
     microphone_failed: "Le microphone n’a pas pu démarrer"
@@ -40,7 +39,6 @@ overlay:
     no_speech: "Aucune parole n’a été entendue."
     not_taken: "L’app n’a pas pris le texte"
     not_trusted: "Sayso a besoin de l’autorisation Accessibilité pour insérer du texte"
-    secure_input: "Un champ de mot de passe est actif"
     elevated: "%{app} s’exécute en administrateur, donc Windows ne laisse pas Sayso y saisir du texte."
     elevated_unknown: "Cette app s’exécute en administrateur, donc Windows ne laisse pas Sayso y saisir du texte."
     clipboard: "Sayso ne peut pas utiliser le presse-papiers : %{error}"

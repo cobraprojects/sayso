@@ -37,8 +37,8 @@
 //! - The remote desktop portal and uinput cannot type every character: GNOME
 //!   drops keysyms that the active layout does not have, and uinput types
 //!   ASCII under a US layout only. The paste is not affected.
-//! - Sayso cannot see a password field or a missing text field on Linux, so
-//!   it never returns `SecureInput` or `NoFocusedField`.
+//! - Sayso cannot see a missing text field on Linux, so it never returns
+//!   `NoFocusedField`.
 
 mod clipboard_wayland;
 mod clipboard_x11;

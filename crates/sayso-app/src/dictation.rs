@@ -95,10 +95,6 @@ impl AppModel {
 
     /// Check what a dictation needs. Shows a notice and returns false when something is missing.
     fn check_can_start(&mut self, cx: &mut Context<Self>) -> bool {
-        if let Some(holder) = self.services.platform.hotkeys.secure_input_holder() {
-            self.notice(NoticeIcon::Lock, t!("overlay.notice.secure_input", app = holder), cx);
-            return false;
-        }
         match self.permission(Permission::Microphone) {
             _ if crate::dev::fake_mic().is_some() => {}
             PermissionState::Granted => {}
@@ -913,7 +909,6 @@ fn insert_error_text(error: &InsertError) -> String {
         InsertError::NoFocusedField => t!("overlay.error.no_focused_field"),
         InsertError::NotTaken => t!("overlay.error.not_taken"),
         InsertError::NotTrusted => t!("overlay.error.not_trusted"),
-        InsertError::SecureInput => t!("overlay.error.secure_input"),
         InsertError::Elevated { app: Some(app) } => t!("overlay.error.elevated", app = app),
         InsertError::Elevated { app: None } => t!("overlay.error.elevated_unknown"),
         InsertError::Clipboard(error) => t!("overlay.error.clipboard", error = error),

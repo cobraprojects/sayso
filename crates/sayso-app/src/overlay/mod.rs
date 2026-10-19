@@ -530,7 +530,6 @@ impl Render for OverlayView {
             let ic = match notice.icon {
                 NoticeIcon::Info => Icon::Info,
                 NoticeIcon::Microphone => Icon::Mic,
-                NoticeIcon::Lock => Icon::Lock,
                 NoticeIcon::Style => Icon::Styles,
                 NoticeIcon::Incognito => Icon::Wordmark,
             };
