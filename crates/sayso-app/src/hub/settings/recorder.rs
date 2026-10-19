@@ -73,7 +73,7 @@ impl Slot {
 /// so the note changes with the interface language.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Note {
-    /// A modifier key on its own, for an action other than push to talk.
+    /// Modifier-only keys for an action other than toggle or push-to-talk.
     SoloOnlyForPushToTalk(Hotkey),
     /// Another Sayso action uses the key.
     UsedBy(Hotkey, Slot),
