@@ -14,8 +14,9 @@
 //!
 //! Spike result: with Secure Event Input on, the tap still gets
 //! `flagsChanged`, but no `keyDown` or `keyUp`. Solo-modifier push-to-talk
-//! keeps working. Chord push-to-talk, Esc, the key recorder, and the active
-//! tap do not.
+//! keeps working. Modifier-only toggles are disabled because an intervening
+//! regular key cannot be detected. Chord push-to-talk, Esc, the key recorder,
+//! and the active tap do not work.
 
 use crate::enter_send::EnterSend;
 use crate::esc::EscDetector;
@@ -337,7 +338,9 @@ fn listen(logic: &Mutex<TapLogic>, sink: &TapSink, etype: u32, event: *mut c_voi
     } else if etype == kCGEventKeyUp {
         RawEvent::KeyUp { code, flags }
     } else if etype == kCGEventFlagsChanged {
-        RawEvent::FlagsChanged { code, flags }
+        // SAFETY: this Carbon query takes no pointers and reads the current system state.
+        let secure_input = unsafe { IsSecureEventInputEnabled() };
+        RawEvent::FlagsChanged { code, flags, secure_input }
     } else {
         return;
     };

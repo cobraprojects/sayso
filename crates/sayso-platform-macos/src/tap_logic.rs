@@ -20,7 +20,7 @@ use std::time::Instant;
 pub enum RawEvent {
     KeyDown { code: u16, flags: u64, repeat: bool },
     KeyUp { code: u16, flags: u64 },
-    FlagsChanged { code: u16, flags: u64 },
+    FlagsChanged { code: u16, flags: u64, secure_input: bool },
 }
 
 /// What the tap should do for one raw event.
@@ -151,9 +151,12 @@ impl TapLogic {
         }
         let mut out = Outcome::default();
         match event {
-            RawEvent::FlagsChanged { code, flags } => {
+            RawEvent::FlagsChanged { code, flags, secure_input } => {
                 let held = keymap::modifier_keys(flags);
-                if let Some(keys) = self.toggle_modifiers {
+                if secure_input {
+                    // Regular key events are hidden, so the gesture cannot be verified.
+                    self.modifier_capture.clear();
+                } else if let Some(keys) = self.toggle_modifiers {
                     if let Some(modifier) = solo_from_keycode(code) {
                         if solo_is_down(modifier, flags) {
                             self.modifier_capture.press(held);
@@ -242,7 +245,7 @@ impl TapLogic {
                 }
                 done(self, Hotkey::Chord { modifiers, key })
             }
-            RawEvent::FlagsChanged { code, flags } => {
+            RawEvent::FlagsChanged { code, flags, .. } => {
                 let Some(solo) = solo_from_keycode(code) else {
                     // Some other modifier changed: this is a combination in progress.
                     self.modifier_capture.clear();
@@ -296,7 +299,28 @@ mod tests {
     const LEFT_OPT_DOWN: u64 = FLAG_ALT | 0x20;
 
     fn flags(code: u16, flags: u64) -> RawEvent {
-        RawEvent::FlagsChanged { code, flags }
+        RawEvent::FlagsChanged { code, flags, secure_input: false }
+    }
+
+    #[test]
+    fn secure_input_cancels_modifier_toggles_without_stopping_push_to_talk() {
+        let now = Instant::now();
+        for (secure_down, secure_up) in [(true, true), (false, true), (true, false)] {
+            let mut l = logic();
+            l.set_toggle_modifiers("left_shift".parse::<Hotkey>().unwrap().modifier_keys());
+            for (held, secure_input) in [(FLAG_SHIFT | 0x02, secure_down), (0, secure_up)] {
+                let out = l.handle(RawEvent::FlagsChanged { code: 56, flags: held, secure_input }, now);
+                assert!(out.events.is_empty());
+            }
+            assert!(l.handle(flags(56, FLAG_SHIFT | 0x02), now).events.is_empty());
+            assert_eq!(l.handle(flags(56, 0), now).events, vec![HotkeyEvent::Toggle]);
+        }
+
+        let mut l = solo_logic(SoloModifier::RightOption);
+        for (held, expected) in [(RIGHT_OPT_DOWN, HotkeyEvent::PushToTalkDown), (0, HotkeyEvent::PushToTalkUp)] {
+            let out = l.handle(RawEvent::FlagsChanged { code: 61, flags: held, secure_input: true }, now);
+            assert_eq!(out.events, vec![expected]);
+        }
     }
 
     #[test]
@@ -478,18 +502,18 @@ mod tests {
     fn right_option_press_and_release() {
         let mut l = solo_logic(SoloModifier::RightOption);
         let now = Instant::now();
-        let down = l.handle(RawEvent::FlagsChanged { code: 61, flags: RIGHT_OPT_DOWN }, now);
+        let down = l.handle(flags(61, RIGHT_OPT_DOWN), now);
         assert_eq!(down.events, vec![HotkeyEvent::PushToTalkDown]);
         // A repeated flagsChanged with the same state does nothing.
-        assert!(l.handle(RawEvent::FlagsChanged { code: 61, flags: RIGHT_OPT_DOWN }, now).events.is_empty());
-        let up = l.handle(RawEvent::FlagsChanged { code: 61, flags: 0 }, now);
+        assert!(l.handle(flags(61, RIGHT_OPT_DOWN), now).events.is_empty());
+        let up = l.handle(flags(61, 0), now);
         assert_eq!(up.events, vec![HotkeyEvent::PushToTalkUp]);
     }
 
     #[test]
     fn left_option_does_not_trigger_right_option() {
         let mut l = solo_logic(SoloModifier::RightOption);
-        let out = l.handle(RawEvent::FlagsChanged { code: 58, flags: FLAG_ALT | 0x20 }, Instant::now());
+        let out = l.handle(flags(58, FLAG_ALT | 0x20), Instant::now());
         assert!(out.events.is_empty());
     }
 
@@ -497,9 +521,9 @@ mod tests {
     fn right_option_release_while_left_option_held() {
         let mut l = solo_logic(SoloModifier::RightOption);
         let now = Instant::now();
-        l.handle(RawEvent::FlagsChanged { code: 61, flags: RIGHT_OPT_DOWN | 0x20 }, now);
+        l.handle(flags(61, RIGHT_OPT_DOWN | 0x20), now);
         // Right released, left still down: generic Alt flag stays set.
-        let up = l.handle(RawEvent::FlagsChanged { code: 61, flags: FLAG_ALT | 0x20 }, now);
+        let up = l.handle(flags(61, FLAG_ALT | 0x20), now);
         assert_eq!(up.events, vec![HotkeyEvent::PushToTalkUp]);
     }
 
@@ -508,11 +532,11 @@ mod tests {
         let mut l = solo_logic(SoloModifier::Fn);
         let now = Instant::now();
         assert_eq!(
-            l.handle(RawEvent::FlagsChanged { code: 63, flags: FLAG_SECONDARY_FN }, now).events,
+            l.handle(flags(63, FLAG_SECONDARY_FN), now).events,
             vec![HotkeyEvent::PushToTalkDown]
         );
         assert_eq!(
-            l.handle(RawEvent::FlagsChanged { code: 63, flags: 0 }, now).events,
+            l.handle(flags(63, 0), now).events,
             vec![HotkeyEvent::PushToTalkUp]
         );
     }
@@ -544,7 +568,7 @@ mod tests {
         l.set_ptt(Some("ctrl+shift+d".parse().unwrap()));
         let now = Instant::now();
         l.handle(key_down(2, FLAG_CONTROL | FLAG_SHIFT), now);
-        let out = l.handle(RawEvent::FlagsChanged { code: 56, flags: FLAG_CONTROL }, now);
+        let out = l.handle(flags(56, FLAG_CONTROL), now);
         assert_eq!(out.events, vec![HotkeyEvent::PushToTalkUp]);
         // The later key-up must not release twice.
         assert!(l.handle(RawEvent::KeyUp { code: 2, flags: 0 }, now).events.is_empty());
@@ -640,7 +664,7 @@ mod tests {
     #[test]
     fn release_held_reports_a_pending_release_once() {
         let mut l = solo_logic(SoloModifier::RightOption);
-        l.handle(RawEvent::FlagsChanged { code: 61, flags: RIGHT_OPT_DOWN }, Instant::now());
+        l.handle(flags(61, RIGHT_OPT_DOWN), Instant::now());
         assert_eq!(l.release_held(), Some(HotkeyEvent::PushToTalkUp));
         assert_eq!(l.release_held(), None);
     }
@@ -648,7 +672,7 @@ mod tests {
     #[test]
     fn changing_the_binding_releases_a_held_ptt() {
         let mut l = solo_logic(SoloModifier::RightOption);
-        l.handle(RawEvent::FlagsChanged { code: 61, flags: RIGHT_OPT_DOWN }, Instant::now());
+        l.handle(flags(61, RIGHT_OPT_DOWN), Instant::now());
         assert_eq!(l.set_ptt(None), Some(HotkeyEvent::PushToTalkUp));
         assert!(!l.is_needed());
     }
@@ -679,8 +703,8 @@ mod tests {
         let mut l = logic();
         l.set_capturing(true);
         let now = Instant::now();
-        assert_eq!(l.handle(RawEvent::FlagsChanged { code: 61, flags: RIGHT_OPT_DOWN }, now).captured, None);
-        let out = l.handle(RawEvent::FlagsChanged { code: 61, flags: 0 }, now);
+        assert_eq!(l.handle(flags(61, RIGHT_OPT_DOWN), now).captured, None);
+        let out = l.handle(flags(61, 0), now);
         assert_eq!(out.captured, Some(Hotkey::Solo(SoloModifier::RightOption)));
     }
 
@@ -689,12 +713,12 @@ mod tests {
         let mut l = logic();
         l.set_capturing(true);
         let now = Instant::now();
-        l.handle(RawEvent::FlagsChanged { code: 61, flags: RIGHT_OPT_DOWN }, now);
+        l.handle(flags(61, RIGHT_OPT_DOWN), now);
         // Option+Space completes the chord, so the later release must not also fire.
         let chord = l.handle(key_down(49, RIGHT_OPT_DOWN), now);
         assert!(matches!(chord.captured, Some(Hotkey::Chord { .. })));
         l.set_capturing(true);
-        assert_eq!(l.handle(RawEvent::FlagsChanged { code: 61, flags: 0 }, now).captured, None);
+        assert_eq!(l.handle(flags(61, 0), now).captured, None);
     }
 
     #[test]
@@ -714,7 +738,7 @@ mod tests {
         l.set_recording(true);
         l.set_capturing(true);
         let now = Instant::now();
-        let out = l.handle(RawEvent::FlagsChanged { code: 61, flags: RIGHT_OPT_DOWN }, now);
+        let out = l.handle(flags(61, RIGHT_OPT_DOWN), now);
         assert!(out.events.is_empty());
     }
 }
