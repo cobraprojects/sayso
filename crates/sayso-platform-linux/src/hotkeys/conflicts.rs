@@ -58,6 +58,7 @@ const GNOME: &[GnomeKey] = &[
 ];
 
 const KDE: &[(&str, &str)] = &[
+    ("Super_L", "KDE application launcher"),
     ("<Alt>space", "KRunner"),
     ("<Alt>F2", "KRunner"),
     ("<Alt>Tab", "Walk through windows"),
@@ -341,6 +342,16 @@ mod tests {
                 assert!(parse_accelerator(accel).is_some(), "{accel}");
             }
         }
+    }
+
+    #[test]
+    fn kde_reports_its_solo_meta_launcher() {
+        let kde = Conflicts::new(Desktop::Kde);
+        let conflicts = kde.conflicts(&hk("left_command"));
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].source, ConflictSource::System { name: "KDE application launcher".into(), enabled: true });
+        assert!(kde.conflicts(&hk("right_command")).is_empty());
+        assert!(kde.conflicts(&hk("left_command+left_shift")).is_empty());
     }
 
     #[test]

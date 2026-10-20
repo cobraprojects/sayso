@@ -162,7 +162,9 @@ impl KeyLogic {
             let modifier_keys = self.modifier_keys();
             if let Some(keys) = self.toggle_modifiers {
                 if action == KeyAction::Down {
-                    self.modifier_capture.press(modifier_keys);
+                    if self.pressed.iter().all(|code| keymap::is_modifier(*code)) {
+                        self.modifier_capture.press(modifier_keys);
+                    }
                 } else if keymap::solo_from_code(code).and_then(|m| self.modifier_capture.release(m)).and_then(Hotkey::modifier_keys) == Some(keys) {
                     out.events.push(HotkeyEvent::Toggle);
                 }
@@ -313,6 +315,20 @@ mod tests {
                         assert_eq!(out.events, vec![if toggle { HotkeyEvent::Toggle } else { HotkeyEvent::PushToTalkUp }]);
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn modifier_toggle_rejects_both_key_orders() {
+        for first in 0..2 {
+            for last in 0..2 {
+                let mut l = logic();
+                l.set_toggle_modifiers("left_shift".parse::<Hotkey>().unwrap().modifier_keys());
+                let press = [(KEY_A, Down), (KEY_LEFTSHIFT, Down)];
+                let release = [(KEY_A, Up), (KEY_LEFTSHIFT, Up)];
+                assert!(feed(&mut l, &[press[first], press[1 - first], release[last], release[1 - last]]).is_empty());
+                assert_eq!(feed(&mut l, &[(KEY_LEFTSHIFT, Down), (KEY_LEFTSHIFT, Up)]), vec![HotkeyEvent::Toggle]);
             }
         }
     }

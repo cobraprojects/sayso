@@ -79,6 +79,18 @@ impl KeySet {
         self.0[(vk as usize >> 6) & 3] & (1u64 << (vk & 63)) != 0
     }
 
+    fn has_regular_key(&self) -> bool {
+        self.0.iter().enumerate().any(|(word, bits)| {
+            let mut bits = *bits;
+            while bits != 0 {
+                let vk = (word * 64) as u16 + bits.trailing_zeros() as u16;
+                if !keymap::is_modifier(vk) { return true; }
+                bits &= bits - 1;
+            }
+            false
+        })
+    }
+
     fn release(&mut self, vk: u16) {
         self.0[(vk as usize >> 6) & 3] &= !(1u64 << (vk & 63));
     }
@@ -241,7 +253,9 @@ impl HookLogic {
             let modifier_keys = keymap::modifier_keys(held);
             if let Some(keys) = self.toggle_modifiers {
                 if event.down && !repeat {
-                    self.modifier_capture.press(modifier_keys);
+                    if !self.pressed.has_regular_key() {
+                        self.modifier_capture.press(modifier_keys);
+                    }
                     out.mask = modifier_keys == keys && self.modifier_capture.is_active()
                         && keys.iter().filter_map(keymap::solo_vk).any(keymap::release_has_meaning);
                 } else if !event.down
@@ -387,6 +401,24 @@ mod tests {
     }
 
     #[test]
+    fn modifier_toggle_rejects_both_key_orders() {
+        let now = Instant::now();
+        for first in 0..2 {
+            for last in 0..2 {
+                let mut l = logic();
+                l.set_toggle_modifiers("left_shift".parse::<Hotkey>().unwrap().modifier_keys());
+                let press = [down(KEY_D, if first == 1 { &[VK_LSHIFT] } else { &[] }), down(VK_LSHIFT, &[])];
+                let release = [up(KEY_D, if last == 0 { &[VK_LSHIFT] } else { &[] }), up(VK_LSHIFT, &[VK_LSHIFT])];
+                for event in [press[first], press[1 - first], release[last], release[1 - last]] {
+                    assert!(l.handle(event, now).events.is_empty());
+                }
+                assert!(l.handle(down(VK_LSHIFT, &[]), now).events.is_empty());
+                assert_eq!(l.handle(up(VK_LSHIFT, &[VK_LSHIFT]), now).events, vec![HotkeyEvent::Toggle]);
+            }
+        }
+    }
+
+    #[test]
     fn modifier_toggle_ignores_normal_shortcuts() {
         let now = Instant::now();
         for binding in ["left_command", "left_shift", "left_control+left_option"] {
@@ -458,6 +490,10 @@ mod tests {
                                 vec![HotkeyEvent::PushToTalkDown]
                             } else { Vec::new() };
                             assert_eq!(out.events, expected, "{binding}, reverse={reverse}, toggle={toggle}");
+                            if toggle {
+                                let masks_release = selected.iter().filter_map(|m| keymap::solo_vk(*m)).any(keymap::release_has_meaning);
+                                assert_eq!(out.mask, i + 1 == order.len() && masks_release, "{binding}");
+                            }
                         }
                         let event = up(keymap::solo_vk(released).unwrap(), &held);
                         let out = active.handle(event, now);

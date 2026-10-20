@@ -55,6 +55,7 @@ pub struct TapLogic {
     capturing: bool,
     /// Modifiers pressed without a regular key in between.
     modifier_capture: ModifierCapture,
+    pressed_keys: Vec<u16>,
 }
 
 impl TapLogic {
@@ -69,6 +70,7 @@ impl TapLogic {
             active_tap: false,
             capturing: false,
             modifier_capture: ModifierCapture::default(),
+            pressed_keys: Vec::new(),
         }
     }
 
@@ -141,11 +143,19 @@ impl TapLogic {
 
     /// The system disabled the tap, so key-up events may have been missed.
     pub fn release_held(&mut self) -> Option<HotkeyEvent> {
+        self.pressed_keys.clear();
         self.modifier_capture.clear();
         std::mem::take(&mut self.ptt_down).then_some(HotkeyEvent::PushToTalkUp)
     }
 
     pub fn handle(&mut self, event: RawEvent, now: Instant) -> Outcome {
+        match event {
+            RawEvent::KeyDown { code, .. } if !self.pressed_keys.contains(&code) => self.pressed_keys.push(code),
+            RawEvent::KeyUp { code, .. } => self.pressed_keys.retain(|held| *held != code),
+            // Key releases may have been hidden while secure input was active.
+            RawEvent::FlagsChanged { secure_input: true, .. } => self.pressed_keys.clear(),
+            _ => {}
+        }
         if self.capturing {
             return Outcome { events: Vec::new(), captured: self.capture(event) };
         }
@@ -153,8 +163,8 @@ impl TapLogic {
         match event {
             RawEvent::FlagsChanged { code, flags, secure_input } => {
                 let held = keymap::modifier_keys(flags);
-                if secure_input {
-                    // Regular key events are hidden, so the gesture cannot be verified.
+                if secure_input || !self.pressed_keys.is_empty() {
+                    // The gesture must contain only modifiers, with no hidden keys.
                     self.modifier_capture.clear();
                 } else if let Some(keys) = self.toggle_modifiers {
                     if let Some(modifier) = solo_from_keycode(code) {
@@ -320,6 +330,24 @@ mod tests {
         for (held, expected) in [(RIGHT_OPT_DOWN, HotkeyEvent::PushToTalkDown), (0, HotkeyEvent::PushToTalkUp)] {
             let out = l.handle(RawEvent::FlagsChanged { code: 61, flags: held, secure_input: true }, now);
             assert_eq!(out.events, vec![expected]);
+        }
+    }
+
+    #[test]
+    fn modifier_toggle_rejects_both_key_orders() {
+        let now = Instant::now();
+        for first in 0..2 {
+            for last in 0..2 {
+                let mut l = logic();
+                l.set_toggle_modifiers("left_shift".parse::<Hotkey>().unwrap().modifier_keys());
+                let press = [key_down(0, if first == 1 { FLAG_SHIFT | 0x02 } else { 0 }), flags(56, FLAG_SHIFT | 0x02)];
+                let release = [RawEvent::KeyUp { code: 0, flags: if last == 0 { FLAG_SHIFT | 0x02 } else { 0 } }, flags(56, 0)];
+                for event in [press[first], press[1 - first], release[last], release[1 - last]] {
+                    assert!(l.handle(event, now).events.is_empty());
+                }
+                assert!(l.handle(flags(56, FLAG_SHIFT | 0x02), now).events.is_empty());
+                assert_eq!(l.handle(flags(56, 0), now).events, vec![HotkeyEvent::Toggle]);
+            }
         }
     }
 
