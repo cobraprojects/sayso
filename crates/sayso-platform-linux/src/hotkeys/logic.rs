@@ -8,7 +8,7 @@
 
 use super::keymap::{self, Chord, KEY_ESC};
 use crate::esc::EscDetector;
-use sayso_core::hotkey::{Hotkey, Key, ModifierCapture, ModifierSet, Modifiers, SoloModifier};
+use sayso_core::hotkey::{Hotkey, Key, ModifierCapture, ModifierSet, Modifiers};
 use sayso_platform::HotkeyEvent;
 use std::time::{Duration, Instant};
 
@@ -42,7 +42,6 @@ pub struct KeyLogic {
     pressed: Vec<u16>,
     ptt: Option<Ptt>,
     toggle_modifiers: Option<ModifierSet>,
-    toggle_down: bool,
     ptt_down: bool,
     /// Chords that this stream detects, for sessions without a chord backend.
     chords: Vec<(Chord, HotkeyEvent)>,
@@ -66,7 +65,6 @@ impl KeyLogic {
             pressed: Vec::new(),
             ptt: None,
             toggle_modifiers: None,
-            toggle_down: false,
             ptt_down: false,
             chords: Vec::new(),
             recording: false,
@@ -96,7 +94,7 @@ impl KeyLogic {
 
     pub fn set_toggle_modifiers(&mut self, keys: Option<ModifierSet>) {
         self.toggle_modifiers = keys.filter(|keys| keymap::can_detect_modifiers(*keys));
-        self.toggle_down = false;
+        self.modifier_capture.clear();
     }
 
     fn modifier_keys(&self) -> ModifierSet {
@@ -129,7 +127,7 @@ impl KeyLogic {
 
     /// Release a held push-to-talk, for example when the stream stops.
     pub fn release_held(&mut self) -> Option<HotkeyEvent> {
-        self.toggle_down = false;
+        self.modifier_capture.clear();
         std::mem::take(&mut self.ptt_down).then_some(HotkeyEvent::PushToTalkUp)
     }
 
@@ -157,13 +155,15 @@ impl KeyLogic {
         }
         let mut out = Outcome::default();
         let mods = self.modifiers();
+        if !keymap::is_modifier(code) && action != KeyAction::Up {
+            self.modifier_capture.clear();
+        }
         if keymap::is_modifier(code) && action != KeyAction::Repeat {
             let modifier_keys = self.modifier_keys();
             if let Some(keys) = self.toggle_modifiers {
-                if !keys.is_subset_of(modifier_keys) {
-                    self.toggle_down = false;
-                } else if action == KeyAction::Down && !self.toggle_down && modifier_keys == keys {
-                    self.toggle_down = true;
+                if action == KeyAction::Down {
+                    self.modifier_capture.press(modifier_keys);
+                } else if keymap::solo_from_code(code).and_then(|m| self.modifier_capture.release(m)).and_then(Hotkey::modifier_keys) == Some(keys) {
                     out.events.push(HotkeyEvent::Toggle);
                 }
             }
@@ -255,6 +255,7 @@ impl KeyLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sayso_core::hotkey::SoloModifier;
     use crate::hotkeys::keymap::*;
     use KeyAction::{Down, Repeat, Up};
 
@@ -301,19 +302,37 @@ mod tests {
                             let code = keymap::solo_code(*modifier).unwrap();
                             let out = active.handle(code, Down, now);
                             assert_eq!(capture.handle(code, Down, now).captured, None);
-                            let expected = if i + 1 == order.len() {
-                                vec![if toggle { HotkeyEvent::Toggle } else { HotkeyEvent::PushToTalkDown }]
+                            let expected = if !toggle && i + 1 == order.len() {
+                                vec![HotkeyEvent::PushToTalkDown]
                             } else { Vec::new() };
                             assert_eq!(out.events, expected, "{binding}, reverse={reverse}, toggle={toggle}");
                         }
                         let code = keymap::solo_code(released).unwrap();
                         let out = active.handle(code, Up, now);
                         assert_eq!(capture.handle(code, Up, now).captured, Some(binding));
-                        assert_eq!(out.events, if toggle { Vec::new() } else { vec![HotkeyEvent::PushToTalkUp] });
+                        assert_eq!(out.events, vec![if toggle { HotkeyEvent::Toggle } else { HotkeyEvent::PushToTalkUp }]);
                     }
                 }
             }
         }
+    }
+
+    #[test]
+    fn modifier_toggle_ignores_normal_shortcuts() {
+        for binding in ["left_command", "left_shift", "left_control+left_option"] {
+            let keys = binding.parse::<Hotkey>().unwrap().modifier_keys().unwrap();
+            let mut l = logic();
+            l.set_toggle_modifiers(Some(keys));
+            let mut events: Vec<_> = keys.iter().map(|m| (keymap::solo_code(m).unwrap(), Down)).collect();
+            events.extend([(KEY_A, Down), (KEY_A, Up)]);
+            events.extend(keys.iter().map(|m| (keymap::solo_code(m).unwrap(), Up)));
+            assert!(feed(&mut l, &events).is_empty(), "{binding} fired for a normal shortcut");
+        }
+        let mut l = logic();
+        l.set_toggle_modifiers(Some("left_shift".parse::<Hotkey>().unwrap().modifier_keys().unwrap()));
+        assert!(feed(&mut l, &[
+            (KEY_A, Down), (KEY_LEFTSHIFT, Down), (KEY_A, Repeat), (KEY_A, Up), (KEY_LEFTSHIFT, Up),
+        ]).is_empty(), "a repeated letter must also cancel the toggle");
     }
 
     #[test]
@@ -330,7 +349,6 @@ mod tests {
             assert!(l.handle(KEY_LEFTALT, Up, now).events.is_empty());
             let required = keymap::solo_code(keys.iter().next().unwrap()).unwrap();
             assert!(l.handle(required, Up, now).events.is_empty());
-            assert_eq!(l.handle(required, Down, now).events, vec![HotkeyEvent::Toggle]);
         }
     }
 

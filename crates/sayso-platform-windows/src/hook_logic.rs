@@ -16,7 +16,7 @@
 use crate::enter_send::EnterSend;
 use crate::esc::{EscDetector, EscTake};
 use crate::keymap::{self, ModKeys, VK_ESCAPE, VK_LCONTROL, VK_RETURN};
-use sayso_core::hotkey::{Hotkey, Key, ModifierCapture, ModifierSet, Modifiers, SoloModifier};
+use sayso_core::hotkey::{Hotkey, Key, ModifierCapture, ModifierSet, Modifiers};
 use sayso_platform::HotkeyEvent;
 use std::time::Instant;
 
@@ -88,7 +88,6 @@ impl KeySet {
 pub struct HookLogic {
     ptt: Option<Ptt>,
     toggle_modifiers: Option<ModifierSet>,
-    toggle_down: bool,
     ptt_down: bool,
     recording: bool,
     esc: EscDetector,
@@ -119,7 +118,6 @@ impl HookLogic {
         Self {
             ptt: None,
             toggle_modifiers: None,
-            toggle_down: false,
             ptt_down: false,
             recording: false,
             esc,
@@ -154,7 +152,7 @@ impl HookLogic {
 
     pub fn set_toggle_modifiers(&mut self, keys: Option<ModifierSet>) {
         self.toggle_modifiers = keys.filter(|keys| keymap::can_detect_modifiers(*keys));
-        self.toggle_down = false;
+        self.modifier_capture.clear();
     }
 
 
@@ -184,8 +182,15 @@ impl HookLogic {
 
     /// Forget a held push-to-talk, for example when the hook stops.
     pub fn release_held(&mut self) -> Option<HotkeyEvent> {
-        self.toggle_down = false;
+        self.modifier_capture.clear();
         std::mem::take(&mut self.ptt_down).then_some(HotkeyEvent::PushToTalkUp)
+    }
+
+    /// A restarted hook cannot receive releases missed by the previous hook.
+    pub fn reset_keys(&mut self) -> Option<HotkeyEvent> {
+        self.pressed = KeySet::default();
+        self.altgr_ctrl = false;
+        self.release_held()
     }
 
     /// The modifier keys after this event, without the fake Ctrl of AltGr.
@@ -235,12 +240,14 @@ impl HookLogic {
         if keymap::is_modifier(event.vk) {
             let modifier_keys = keymap::modifier_keys(held);
             if let Some(keys) = self.toggle_modifiers {
-                if !keys.is_subset_of(modifier_keys) {
-                    self.toggle_down = false;
-                } else if event.down && !repeat && !self.toggle_down && modifier_keys == keys {
-                    self.toggle_down = true;
+                if event.down && !repeat {
+                    self.modifier_capture.press(modifier_keys);
+                    out.mask = modifier_keys == keys && self.modifier_capture.is_active()
+                        && keys.iter().filter_map(keymap::solo_vk).any(keymap::release_has_meaning);
+                } else if !event.down
+                    && keymap::solo_from_vk(event.vk).and_then(|m| self.modifier_capture.release(m)).and_then(Hotkey::modifier_keys) == Some(keys)
+                {
                     out.events.push(HotkeyEvent::Toggle);
-                    out.mask = keys.iter().filter_map(keymap::solo_vk).any(keymap::release_has_meaning);
                 }
             }
             match self.ptt {
@@ -266,6 +273,7 @@ impl HookLogic {
                 _ => {}
             }
         } else if event.down {
+            self.modifier_capture.clear();
             if repeat {
                 return out;
             }
@@ -343,6 +351,7 @@ impl HookLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sayso_core::hotkey::SoloModifier;
     use crate::keymap::*;
     use std::time::Duration;
 
@@ -378,6 +387,48 @@ mod tests {
     }
 
     #[test]
+    fn modifier_toggle_ignores_normal_shortcuts() {
+        let now = Instant::now();
+        for binding in ["left_command", "left_shift", "left_control+left_option"] {
+            let keys = binding.parse::<Hotkey>().unwrap().modifier_keys().unwrap();
+            let mut l = logic();
+            l.set_toggle_modifiers(Some(keys));
+            let mut held = Vec::new();
+            let mut events = Vec::new();
+            for modifier in keys.iter() {
+                let vk = keymap::solo_vk(modifier).unwrap();
+                events.extend(l.handle(down(vk, &held), now).events);
+                held.push(vk);
+            }
+            events.extend(l.handle(down(KEY_D, &held), now).events);
+            events.extend(l.handle(up(KEY_D, &held), now).events);
+            for modifier in keys.iter() {
+                let vk = keymap::solo_vk(modifier).unwrap();
+                events.extend(l.handle(up(vk, &held), now).events);
+                held.retain(|key| *key != vk);
+            }
+            assert!(events.is_empty(), "{binding} fired for a normal shortcut");
+        }
+    }
+
+    #[test]
+    fn restarted_hook_forgets_ctrl_after_capture() {
+        let now = Instant::now();
+        let mut l = logic();
+        l.set_capturing(true);
+        l.handle(down(VK_LCONTROL, &[]), now);
+        assert_eq!(l.handle(down(KEY_D, &[VK_LCONTROL]), now).captured, Some("ctrl+d".parse().unwrap()));
+        // The hook stopped before Ctrl was released. Its replacement starts fresh.
+        l.set_capturing(true);
+        l.reset_keys();
+        assert!(l.handle(down(VK_RSHIFT, &[]), now).captured.is_none());
+        assert_eq!(l.handle(up(VK_RSHIFT, &[VK_RSHIFT]), now).captured, Some("right_shift".parse().unwrap()));
+        l.set_toggle_modifiers(Some("right_shift".parse::<Hotkey>().unwrap().modifier_keys().unwrap()));
+        assert!(l.handle(down(VK_RSHIFT, &[]), now).events.is_empty());
+        assert_eq!(l.handle(up(VK_RSHIFT, &[VK_RSHIFT]), now).events, vec![HotkeyEvent::Toggle]);
+    }
+
+    #[test]
     fn every_detectable_modifier_combination_records_and_triggers() {
         let available = SoloModifier::ALL.into_iter().filter(|m| keymap::solo_vk(*m).is_some()).collect::<Vec<_>>();
         let now = Instant::now();
@@ -403,15 +454,15 @@ mod tests {
                             let out = active.handle(event, now);
                             assert_eq!(capture.handle(event, now).captured, None);
                             held.push(vk);
-                            let expected = if i + 1 == order.len() {
-                                vec![if toggle { HotkeyEvent::Toggle } else { HotkeyEvent::PushToTalkDown }]
+                            let expected = if !toggle && i + 1 == order.len() {
+                                vec![HotkeyEvent::PushToTalkDown]
                             } else { Vec::new() };
                             assert_eq!(out.events, expected, "{binding}, reverse={reverse}, toggle={toggle}");
                         }
                         let event = up(keymap::solo_vk(released).unwrap(), &held);
                         let out = active.handle(event, now);
                         assert_eq!(capture.handle(event, now).captured, Some(binding));
-                        assert_eq!(out.events, if toggle { Vec::new() } else { vec![HotkeyEvent::PushToTalkUp] });
+                        assert_eq!(out.events, vec![if toggle { HotkeyEvent::Toggle } else { HotkeyEvent::PushToTalkUp }]);
                     }
                 }
             }
@@ -436,8 +487,6 @@ mod tests {
             held.retain(|vk| *vk != VK_LMENU);
             let required = keymap::solo_vk(keys.iter().next().unwrap()).unwrap();
             assert!(l.handle(up(required, &held), now).events.is_empty());
-            held.retain(|vk| *vk != required);
-            assert_eq!(l.handle(down(required, &held), now).events, vec![HotkeyEvent::Toggle]);
         }
     }
 

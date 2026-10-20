@@ -112,7 +112,7 @@ impl DictationSettings {
         let config = m.config.clone();
         let toggle = config.hotkeys.toggle;
         let ptt = config.hotkeys.push_to_talk;
-        let im_missing = config.hotkeys.needs_input_monitoring() && m.permission(Permission::InputMonitoring) != PermissionState::Granted;
+        let im_missing = (config.hotkeys.needs_input_monitoring() || self.recorder.window_only) && m.permission(Permission::InputMonitoring) != PermissionState::Granted;
         let mut conflicts = self.recorder.conflicts(m, toggle);
         conflicts.extend(self.recorder.conflicts(m, ptt));
         let start = |this: &mut Self, slot: Slot, window: &mut Window, cx: &mut Context<Self>| this.start(slot, window, cx);

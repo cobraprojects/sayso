@@ -151,6 +151,7 @@ pub fn start<V: 'static>(
 ) {
     let r = get(this);
     r.slot = Some(slot);
+    r.window_only = false;
     r.note = None;
     r.generation += 1;
     let generation = r.generation;
@@ -411,8 +412,7 @@ mod tests {
         use sayso_core::config::Config;
 
         for (toggle, other) in [
-            ("left_control+left_option", "ctrl+opt+d"),
-            ("left_control", "ctrl+opt+d"),
+            ("left_control", "left_control"),
             ("left_control", "left_control+left_option"),
             ("left_control+left_option", "left_control"),
         ] {
@@ -445,6 +445,8 @@ mod tests {
             ("left_control+left_option", "right_control+right_option"),
             ("left_control", "right_control"),
             ("left_control+left_option", "shift+d"),
+            ("left_control+left_option", "ctrl+opt+d"),
+            ("left_control", "ctrl+opt+d"),
             ("ctrl+opt+space", "ctrl+opt+d"),
             ("opt+space", "right_option"),
         ] {

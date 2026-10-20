@@ -1257,14 +1257,24 @@ mod tests {
     fn validation_catches_modifier_toggle_conflicts() {
         let mut c = Config::default();
         c.hotkeys.toggle = Some("left_control+left_option".parse().unwrap());
-        c.hotkeys.push_to_talk = Some("ctrl+opt+d".parse().unwrap());
-        c.hotkeys.paste_last = Some("ctrl+opt+v".parse().unwrap());
-        c.hotkeys.cycle_style = Some("ctrl+opt+s".parse().unwrap());
-        c.hotkeys.incognito = Some("ctrl+opt+i".parse().unwrap());
+        c.hotkeys.push_to_talk = Some("left_control".parse().unwrap());
+        c.hotkeys.paste_last = c.hotkeys.toggle;
+        c.hotkeys.cycle_style = c.hotkeys.toggle;
+        c.hotkeys.incognito = c.hotkeys.toggle;
         let fields: Vec<_> = c.validate().into_iter().map(|i| i.field).collect();
         for field in ["hotkeys.push_to_talk", "hotkeys.paste_last", "hotkeys.cycle_style", "hotkeys.incognito"] {
             assert!(fields.iter().any(|f| f == field), "missing conflict for {field}");
         }
+    }
+
+    #[test]
+    fn modifier_toggle_allows_chords_and_reports_conflicts_loaded_from_file() {
+        let valid = Config::parse("[hotkeys]\ntoggle = 'left_control'\npush_to_talk = 'ctrl+opt+d'\n");
+        assert!(valid.issues.is_empty());
+        let invalid = Config::parse("[hotkeys]\ntoggle = 'left_control'\npush_to_talk = 'left_control+left_option'\n");
+        assert_eq!(invalid.issues.len(), 1);
+        assert_eq!(invalid.issues[0].field, "hotkeys.push_to_talk");
+        assert!(matches!(invalid.issues[0].problem, ConfigProblem::HotkeyConflictsWithToggle(_)));
     }
 
     #[test]

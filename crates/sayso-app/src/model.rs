@@ -560,7 +560,7 @@ impl AppModel {
         self.edit_config(cx, |c| c.hotkeys.push_to_talk = hotkey);
     }
 
-    fn request_hotkey_access(&self) {
+    pub(crate) fn request_hotkey_access(&self) {
         if self.permission(Permission::InputMonitoring) != PermissionState::Granted {
             self.services.platform.permissions.request(Permission::InputMonitoring);
         }

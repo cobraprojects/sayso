@@ -225,6 +225,12 @@ fn spawn_hook(shared: Arc<Shared>) -> Result<HookThread, String> {
 
 fn run_hook_thread(shared: Arc<Shared>, ready: Sender<Result<u32, String>>) {
     let mut msg = MSG::default();
+    // The previous hook may have stopped before receiving key-up events.
+    if let Some(up) = shared.logic.lock().reset_keys() {
+        let _ = shared.sink.events.send(up);
+    }
+    // SAFETY: plain query for this thread.
+    let me = unsafe { GetCurrentThreadId() };
     // SAFETY: all calls run on this thread with valid out-pointers. The
     // callback reads CONTEXT, which is set before the hook and cleared after it.
     unsafe {
@@ -240,7 +246,6 @@ fn run_hook_thread(shared: Arc<Shared>, ready: Sender<Result<u32, String>>) {
                 return;
             }
         };
-        let me = GetCurrentThreadId();
         let _ = ready.send(Ok(me));
 
         loop {
@@ -269,8 +274,11 @@ fn run_hook_thread(shared: Arc<Shared>, ready: Sender<Result<u32, String>>) {
         let _ = UnhookWindowsHookEx(hook);
         CONTEXT.with(|c| c.borrow_mut().take());
     }
-    // Key-up events are lost once the hook is gone.
-    if let Some(up) = shared.logic.lock().release_held() {
+    // Do not clear a replacement hook's gesture after stop_if_idle removed us.
+    let slot = shared.thread.lock();
+    if slot.as_ref().is_none_or(|thread| thread.thread_id == me)
+        && let Some(up) = shared.logic.lock().release_held()
+    {
         let _ = shared.sink.events.send(up);
     }
 }

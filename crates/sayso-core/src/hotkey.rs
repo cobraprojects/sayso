@@ -134,22 +134,15 @@ pub enum HotkeyParseError {
 }
 
 impl Hotkey {
-    /// Modifier-only toggles fire before a longer shortcut can complete.
-    /// Keep the existing solo push-to-talk behavior when toggle is a chord.
+    /// Modifier-only actions cannot share a gesture. Chords can share the
+    /// toggle's modifiers because a regular key cancels a modifier-only toggle.
     pub fn conflicts_with_toggle(self, toggle: Self) -> bool {
         if self == toggle { return true; }
         let Some(toggle_keys) = toggle.modifier_keys() else { return false };
         if let Some(keys) = self.modifier_keys() {
             return keys.is_subset_of(toggle_keys) || toggle_keys.is_subset_of(keys);
         }
-        let Self::Chord { modifiers, .. } = self else { return false };
-        toggle_keys.iter().all(|key| match key {
-            SoloModifier::LeftCommand | SoloModifier::RightCommand => modifiers.command,
-            SoloModifier::LeftControl | SoloModifier::RightControl => modifiers.control,
-            SoloModifier::LeftOption | SoloModifier::RightOption => modifiers.option,
-            SoloModifier::LeftShift | SoloModifier::RightShift => modifiers.shift,
-            SoloModifier::Fn => modifiers.function,
-        })
+        false
     }
 
     pub fn modifier_keys(self) -> Option<ModifierSet> {
