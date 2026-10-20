@@ -2,7 +2,6 @@ _version: 1
 
 overlay:
   notice:
-    secure_input: "%{app} 中的密码栏处于活跃状态"
     allow_microphone: "请允许麦克风访问，然后重试"
     needs_microphone: "Sayso 需要麦克风访问权限"
     microphone_failed: "麦克风无法启动"
@@ -40,7 +39,6 @@ overlay:
     no_speech: "未听到语音。"
     not_taken: "该 App 未接收文本"
     not_trusted: "Sayso 需要辅助功能权限才能插入文本"
-    secure_input: "密码栏处于活跃状态"
     elevated: "%{app} 以管理员身份运行，因此 Windows 不允许 Sayso 在其中输入文字。"
     elevated_unknown: "此应用以管理员身份运行，因此 Windows 不允许 Sayso 在其中输入文字。"
     clipboard: "Sayso 无法使用剪贴板：%{error}"

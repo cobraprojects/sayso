@@ -20,6 +20,36 @@
 #   url = "https://…"
 
 [[release]]
+version = "0.10.0"
+title = "A notch for your dictation"
+
+[[release.item]]
+icon = "overlay"
+title = "The notch overlay"
+text = "A black notch opens from the top of the display while you dictate, with the live preview below it. On a Mac with a camera notch, it fits that notch. Choose it in Settings › Overlay."
+
+[[release.item]]
+icon = "globe"
+title = "Five more languages"
+text = "Sayso now speaks German, French, Italian, Korean, and Russian. Numbers use the separators of your interface language."
+
+[[release.item]]
+icon = "keyboard"
+title = "Esc stays with Sayso"
+text = "The Esc that cancels a dictation no longer reaches the app you are in. Turn it off in Settings › Dictation."
+systems = ["macos", "windows"]
+
+[[release.item]]
+icon = "sparkle"
+title = "Works with screen readers"
+text = "Every window now has names and roles for VoiceOver, Narrator, Orca, and other assistive tools. The overlay announces each change of the dictation state."
+
+[[release.item]]
+icon = "mic"
+title = "Clear microphone errors"
+text = "When the microphone does not start or disconnects, the overlay tells you why, instead of \"No speech\"."
+
+[[release]]
 version = "0.9.0"
 title = "Pick the right model"
 

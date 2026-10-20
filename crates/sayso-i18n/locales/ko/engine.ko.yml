@@ -1,0 +1,15 @@
+_version: 1
+
+engine:
+  incomplete_download: "다운로드는 끝났지만 일부 모델 파일이 없어요. 다시 다운로드하세요."
+  download_failed: "다운로드가 끝나지 않았어요: %{detail}."
+  load_failed: "Sayso에서 모델을 로드하지 못했어요: %{detail}."
+  device_not_eligible: "이 Mac은 Apple Intelligence를 지원하지 않아요."
+  intelligence_off: "Apple Intelligence가 꺼져 있어요. 시스템 설정에서 켜세요."
+  model_not_ready: "macOS에서 아직 Apple Intelligence 모델을 다운로드하고 있어요. 몇 분 뒤에 다시 시도하세요."
+  needs_macos_26: "Apple Intelligence에는 macOS 26 이상이 필요해요."
+  unavailable: "이 Mac에서는 Apple Intelligence를 사용할 수 없어요."
+  timeout: "언어 모델이 제때 응답하지 않았어요."
+  refused: "언어 모델이 이 텍스트를 거부했어요."
+  failed: "언어 모델 오류: %{detail}."
+  general: "문제가 발생했어요: %{detail}."

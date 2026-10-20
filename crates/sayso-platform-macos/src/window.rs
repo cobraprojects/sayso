@@ -17,7 +17,7 @@ use core_foundation::dictionary::CFDictionary;
 use core_foundation::number::CFNumber;
 use core_foundation::string::CFString;
 use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
+use objc2::runtime::{AnyClass, AnyObject, Bool, Imp, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
 use objc2_foundation::NSObjectProtocol;
 use objc2_app_kit::NSAccessibility as _;
@@ -29,6 +29,7 @@ use objc2_app_kit::{
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::sync::OnceLock;
 
 /// Window level of the menu bar's status items. Above normal and full-screen
 /// app windows, below pop-up menus.
@@ -63,8 +64,9 @@ pub struct ScreenInfo {
     pub visible_frame: Rect,
     /// Backing scale (2.0 on Retina displays).
     pub scale: f64,
-    /// True for displays with a camera housing (notch).
-    pub has_notch: bool,
+    /// The camera housing (notch) in Cocoa screen coordinates, on a display
+    /// that has one.
+    pub notch: Option<Rect>,
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +114,7 @@ fn resolve(ptr: *mut c_void) -> Option<Retained<NSWindow>> {
     }
 }
 
-/// Make a window behave as a non-activating overlay: no shadow, clear
+/// Make a window behave as a non-activating overlay: no frame, no shadow, clear
 /// background, status-bar level, on every Space, over full-screen apps, out of
 /// Cmd+Tab and window cycling.
 ///
@@ -122,10 +124,13 @@ fn resolve(ptr: *mut c_void) -> Option<Retained<NSWindow>> {
 /// [`order_front_without_activating`].
 pub fn configure_overlay(window: *mut c_void) {
     let Some(win) = resolve(window) else { return };
+    // GPUI makes a window without a title bar a titled window with a
+    // transparent title bar. macOS 26 draws a light line along the top edge
+    // of a titled window, even a clear one, so the overlay must be borderless.
+    win.setStyleMask(win.styleMask() & !NSWindowStyleMask::Titled);
     win.setHasShadow(false);
     win.setOpaque(false);
     win.setBackgroundColor(Some(&NSColor::clearColor()));
-    win.setLevel(OVERLAY_LEVEL);
     win.setHidesOnDeactivate(false);
     win.setCollectionBehavior(
         NSWindowCollectionBehavior::CanJoinAllSpaces
@@ -139,6 +144,9 @@ pub fn configure_overlay(window: *mut c_void) {
         panel.setFloatingPanel(true);
         win.setStyleMask(win.styleMask() | NSWindowStyleMask::NonactivatingPanel);
     }
+    // After `setFloatingPanel`, which sets the floating level. The notch must
+    // be above the menu bar.
+    win.setLevel(OVERLAY_LEVEL);
 }
 
 /// Let mouse events pass through the window to what is behind it.
@@ -235,10 +243,26 @@ pub fn screens() -> Vec<ScreenInfo> {
                 frame: screen.frame().into(),
                 visible_frame: screen.visibleFrame().into(),
                 scale: screen.backingScaleFactor(),
-                has_notch: screen.safeAreaInsets().top > 0.0,
+                notch: notch_of(&screen),
             }
         })
         .collect()
+}
+
+/// The camera housing of a display, from the unobscured areas of the menu bar
+/// on each side of it. None on a display without a notch.
+fn notch_of(screen: &NSScreen) -> Option<Rect> {
+    let height = screen.safeAreaInsets().top;
+    if height <= 0.0 {
+        return None;
+    }
+    let frame = screen.frame();
+    let (left, right) = (screen.auxiliaryTopLeftArea().size.width, screen.auxiliaryTopRightArea().size.width);
+    let width = frame.size.width - left - right;
+    if width <= 0.0 {
+        return None;
+    }
+    Some(Rect { x: frame.origin.x + left, y: frame.origin.y + frame.size.height - height, width, height })
 }
 
 /// The mouse position in Cocoa screen coordinates.
@@ -468,51 +492,135 @@ pub fn frame(window: *mut c_void) -> Option<Rect> {
 /// Make one window unable to become key or main, so it can never take
 /// keyboard focus from the app the user types in.
 ///
-/// GPUI's panel class answers yes to `canBecomeKeyWindow`. This gives the
-/// window its own subclass (created once) that answers no, and swaps the
-/// window's class at runtime. Other GPUI windows keep the normal behavior.
+/// GPUI's panel class answers yes to `canBecomeKeyWindow`. The class gets a
+/// hook that answers no for a window with the flag. Other GPUI windows keep
+/// the normal behavior.
 pub fn make_never_key(window: *mut c_void) {
-    use objc2::runtime::{AnyClass, Bool, ClassBuilder, Sel};
     use objc2::sel;
-    use std::sync::OnceLock;
 
     let Some(win) = resolve(window) else { return };
-    extern "C-unwind" fn no(_: &AnyObject, _: Sel) -> Bool {
-        Bool::NO
-    }
-    static CLASSES: OnceLock<std::sync::Mutex<std::collections::HashMap<String, usize>>> = OnceLock::new();
-    let current: &AnyClass = win.class();
-    let base_name = current.name().to_string_lossy().into_owned();
-    if base_name.starts_with("SaysoNeverKey") {
-        win.resignKeyWindow();
-        return;
-    }
-    let map = CLASSES.get_or_init(Default::default);
-    let mut map = map.lock().unwrap();
-    let class_ptr = *map.entry(base_name.clone()).or_insert_with(|| {
-        let name = format!("SaysoNeverKey{base_name}");
-        let Ok(cname) = std::ffi::CString::new(name) else { return 0 };
-        match ClassBuilder::new(&cname, current) {
-            Some(mut builder) => {
-                // SAFETY: the signatures match `- (BOOL)canBecomeKeyWindow` and `canBecomeMainWindow`.
-                unsafe {
-                    builder.add_method(sel!(canBecomeKeyWindow), no as extern "C-unwind" fn(_, _) -> _);
-                    builder.add_method(sel!(canBecomeMainWindow), no as extern "C-unwind" fn(_, _) -> _);
-                }
-                builder.register() as *const AnyClass as usize
-            }
-            None => 0,
+    extern "C-unwind" fn can_become_key(this: *mut AnyObject, cmd: Sel) -> Bool {
+        if has_flag(this, &NEVER_KEY) {
+            return Bool::NO;
         }
-    });
-    if class_ptr == 0 {
-        log::warn!("could not create the never-key window class");
-        return;
+        // SAFETY: the original has the signature of `- (BOOL)canBecomeKeyWindow`.
+        unsafe { original::<extern "C-unwind" fn(*mut AnyObject, Sel) -> Bool>(&KEY_ORIGINAL)(this, cmd) }
     }
-    // SAFETY: the new class is a subclass of the window's class and adds no ivars.
-    unsafe {
-        objc2::ffi::object_setClass((&*win as *const NSWindow as *mut NSWindow).cast(), class_ptr as *const AnyClass);
+    extern "C-unwind" fn can_become_main(this: *mut AnyObject, cmd: Sel) -> Bool {
+        if has_flag(this, &NEVER_KEY) {
+            return Bool::NO;
+        }
+        // SAFETY: the original has the signature of `- (BOOL)canBecomeMainWindow`.
+        unsafe { original::<extern "C-unwind" fn(*mut AnyObject, Sel) -> Bool>(&MAIN_ORIGINAL)(this, cmd) }
+    }
+    // SAFETY: the hooks have the signatures of the methods they replace.
+    let hooked = unsafe {
+        hook(&win, sel!(canBecomeKeyWindow), std::mem::transmute::<extern "C-unwind" fn(*mut AnyObject, Sel) -> Bool, Imp>(can_become_key), &KEY_ORIGINAL)
+            && hook(&win, sel!(canBecomeMainWindow), std::mem::transmute::<extern "C-unwind" fn(*mut AnyObject, Sel) -> Bool, Imp>(can_become_main), &MAIN_ORIGINAL)
+    };
+    if hooked {
+        set_flag(&win, &NEVER_KEY);
     }
     win.resignKeyWindow();
+}
+
+/// Let one window go over the menu bar, for the notch at the top edge of
+/// the display. AppKit moves a window down out of the menu bar each time its
+/// frame changes, also a borderless window at the status level. The class
+/// gets a hook that keeps the frame as it is for a window with the flag.
+pub fn allow_over_menu_bar(window: *mut c_void) {
+    use objc2::sel;
+
+    let Some(win) = resolve(window) else { return };
+    type Constrain = extern "C-unwind" fn(*mut AnyObject, Sel, NSRect, *mut AnyObject) -> NSRect;
+    extern "C-unwind" fn constrain(this: *mut AnyObject, cmd: Sel, frame: NSRect, screen: *mut AnyObject) -> NSRect {
+        if has_flag(this, &OVER_MENU_BAR) {
+            return frame;
+        }
+        // SAFETY: the original has the signature of
+        // `- (NSRect)constrainFrameRect:(NSRect)frameRect toScreen:(NSScreen *)screen`.
+        unsafe { original::<Constrain>(&CONSTRAIN_ORIGINAL)(this, cmd, frame, screen) }
+    }
+    // SAFETY: the hook has the signature of the method it replaces.
+    let hooked = unsafe { hook(&win, sel!(constrainFrameRect:toScreen:), std::mem::transmute::<Constrain, Imp>(constrain), &CONSTRAIN_ORIGINAL) };
+    if hooked {
+        set_flag(&win, &OVER_MENU_BAR);
+    }
+}
+
+// The window hooks.
+//
+// Do not change the class of a live window to change its behavior. AppKit
+// observes windows with key-value observing, which gives the window a hidden
+// subclass. A new class drops that subclass, and the window throws an
+// exception when AppKit removes its observer at dealloc. A hook on the class
+// stays in place under the hidden subclass.
+
+/// A hooked method of one class: the class and the implementation it had.
+type Original = OnceLock<(usize, Imp)>;
+
+static KEY_ORIGINAL: Original = OnceLock::new();
+static MAIN_ORIGINAL: Original = OnceLock::new();
+static CONSTRAIN_ORIGINAL: Original = OnceLock::new();
+
+/// Keys of the per-window flags. Only their addresses count.
+static NEVER_KEY: u8 = 0;
+static OVER_MENU_BAR: u8 = 1;
+
+/// Replace the method `sel` of the window's class with `imp`, one time. The
+/// hook calls the method it replaced through `slot`. False when the hook is
+/// on a different class already, which Sayso does not need.
+///
+/// # Safety
+///
+/// `imp` must have the signature of the method `sel`.
+unsafe fn hook(win: &NSWindow, sel: Sel, imp: Imp, slot: &'static Original) -> bool {
+    // `-class`, not the real class: under key-value observing the real class
+    // is the hidden subclass, and that subclass inherits the hook.
+    let class: &AnyClass = win.class();
+    let class_ptr = class as *const AnyClass;
+    let (hooked_class, _) = *slot.get_or_init(|| {
+        // SAFETY: the class and the selector are valid. The method may come
+        // from a superclass. `class_addMethod` then overrides it in this class
+        // only; otherwise the class has its own method, which gets the hook.
+        unsafe {
+            let method = objc2::ffi::class_getInstanceMethod(class_ptr, sel);
+            let types = objc2::ffi::method_getTypeEncoding(method);
+            let before = objc2::ffi::method_getImplementation(method).expect("a method has an implementation");
+            if !objc2::ffi::class_addMethod(class_ptr as *mut AnyClass, sel, imp, types).as_bool() {
+                objc2::ffi::method_setImplementation(method, imp);
+            }
+            (class_ptr as usize, before)
+        }
+    });
+    if hooked_class != class_ptr as usize {
+        log::warn!("the window hook for {sel:?} is on another class");
+        return false;
+    }
+    true
+}
+
+/// The implementation that a hook replaced.
+///
+/// # Safety
+///
+/// `F` must be the signature of the hooked method.
+unsafe fn original<F: Copy>(slot: &'static Original) -> F {
+    let (_, imp) = *slot.get().expect("a hook runs only after it is installed");
+    // SAFETY: the caller gives the signature of the hooked method.
+    unsafe { std::mem::transmute_copy::<Imp, F>(&imp) }
+}
+
+fn set_flag(win: &NSWindow, key: &'static u8) {
+    let object = win as *const NSWindow as *mut AnyObject;
+    // SAFETY: the window is live. The value is only compared with null and
+    // never retained (ASSIGN), so any pointer that is not null works.
+    unsafe { objc2::ffi::objc_setAssociatedObject(object, (key as *const u8).cast(), object, objc2::ffi::OBJC_ASSOCIATION_ASSIGN) };
+}
+
+fn has_flag(this: *mut AnyObject, key: &'static u8) -> bool {
+    // SAFETY: AppKit calls the hook with a live window.
+    unsafe { !objc2::ffi::objc_getAssociatedObject(this, (key as *const u8).cast()).is_null() }
 }
 
 

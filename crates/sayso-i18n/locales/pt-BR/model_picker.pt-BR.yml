@@ -14,4 +14,5 @@ model_picker:
   refresh: "Atualizar"
   count:
     one: "%{count} modelo"
+    many: "%{count} de modelos"
     other: "%{count} modelos"

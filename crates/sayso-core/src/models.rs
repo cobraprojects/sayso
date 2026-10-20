@@ -759,7 +759,7 @@ pub fn preview_language_mismatch(active: &ModelInfo, choice: &PreviewChoice, lan
 /// Human-readable size: "626 MB", "1.3 GB".
 pub fn format_size(bytes: u64) -> String {
     if bytes >= 1_000_000_000 {
-        format!("{:.1} GB", bytes as f64 / 1e9)
+        format!("{} GB", sayso_i18n::numbers::decimal(bytes as f64 / 1e9, 1))
     } else if bytes >= 1_000_000 {
         format!("{} MB", (bytes as f64 / 1e6).round() as u64)
     } else {

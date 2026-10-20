@@ -99,9 +99,14 @@ pub fn show_and_focus(window: NativeWindow) {
 
 // Overlay -------------------------------------------------------------------
 
-/// The window kind of the overlay.
-pub fn overlay_kind() -> WindowKind {
+/// The window kind of the overlay. The app places it, at the top or not.
+pub fn overlay_kind(_at_top: bool) -> WindowKind {
     WindowKind::PopUp
+}
+
+/// Let the overlay go over the menu bar, for the notch at the top edge.
+pub fn allow_over_menu_bar(window: NativeWindow) {
+    mac::allow_over_menu_bar(window);
 }
 
 /// The window kind of the menu bar popover.

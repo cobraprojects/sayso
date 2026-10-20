@@ -4,15 +4,21 @@
 //! the cursor is over the visible card, so the empty area never blocks the
 //! app underneath. The pill can be dragged anywhere and snaps softly to the
 //! screen edges and to the top and bottom centers.
+//!
+//! With the notch style ([`notch`]), the same panel sits at the top center of
+//! the display and shows only while a dictation runs.
 
+mod notch;
 mod placement;
 
 use crate::model::{AppModel, NoticeIcon};
 use gpui_kit::*;
+use notch::Notch;
 use placement::{Anchor, Follow, Placement};
+use sayso_core::config::{self, OverlaySize, OverlayStyle};
 use sayso_core::dictation::{Notice, Stage, State};
+use sayso_core::ink::Appearance;
 use sayso_core::stt::ModelStatus;
-use sayso_core::config::OverlaySize;
 use sayso_ui::ActivePaper;
 use sayso_ui::a11y::{A11yExt as _, Pressable, Role};
 use sayso_ui::assets::Icon;
@@ -33,7 +39,13 @@ const MARGIN: f32 = 16.;
 
 pub fn open(model: &Entity<AppModel>, cx: &mut App) {
     let placement = Placement::load(&model.read(cx).paths);
-    let (origin, anchor) = placement.window_origin(cx);
+    let screens = crate::shell::screens();
+    // The overlay opens on the primary display, and then follows the display in use.
+    let notch = Notch::for_display(&model.read(cx).config.overlay, screens.first());
+    let (origin, anchor) = match notch {
+        Some(_) => (placement::notch_origin(screens.first()), Anchor::Top),
+        None => placement.window_origin(cx),
+    };
     let model2 = model.clone();
     let opened = cx.open_window(
         WindowOptions {
@@ -41,7 +53,7 @@ pub fn open(model: &Entity<AppModel>, cx: &mut App) {
             titlebar: None,
             focus: false,
             show: true,
-            kind: crate::shell::overlay_kind(),
+            kind: crate::shell::overlay_kind(notch.is_some()),
             is_movable: false,
             is_resizable: false,
             is_minimizable: false,
@@ -50,7 +62,7 @@ pub fn open(model: &Entity<AppModel>, cx: &mut App) {
             window_background: WindowBackgroundAppearance::Transparent,
             ..Default::default()
         },
-        move |window, cx| cx.new(|cx| OverlayView::new(model2, placement, anchor, window, cx)),
+        move |window, cx| cx.new(|cx| OverlayView::new(model2, placement, origin, anchor, notch, window, cx)),
     );
     if let Err(e) = opened {
         log::error!("could not open the overlay: {e:#}");
@@ -64,6 +76,14 @@ pub struct OverlayView {
     card: Rc<Cell<Bounds<Pixels>>>,
     /// The window edge that holds the card. The live preview is on the other side of the pill.
     anchor: Anchor,
+    /// The window origin in GPUI coordinates, where the overlay was put last.
+    origin: Point<Pixels>,
+    /// The notch of the display, with the notch style. None: the pill.
+    notch: Option<Notch>,
+    /// The content widths of the notch wings, from the last frame.
+    wings: notch::Wings,
+    /// The style settings that the window was opened with. A change opens a new window.
+    style: (OverlayStyle, bool),
     hovered: bool,
     drag: Option<Drag>,
     start: Instant,
@@ -103,17 +123,31 @@ fn global_bounds(window: &Window, ns: crate::shell::NativeWindow) -> Bounds<Pixe
 const FOLLOW_EVERY: Duration = Duration::from_millis(250);
 
 impl OverlayView {
-    fn new(model: Entity<AppModel>, placement: Placement, anchor: Anchor, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(
+        model: Entity<AppModel>,
+        placement: Placement,
+        origin: Point<Pixels>,
+        anchor: Anchor,
+        notch: Option<Notch>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let observe = cx.observe_in(&model, window, |view, _, window, cx| {
+            view.reopen_when_style_changes(window, cx);
             view.reopen_when_recording_starts(window, cx);
             cx.notify();
         });
         let recording = matches!(model.read(cx).state(), State::Recording { .. });
+        let style = style_key(&model.read(cx).config.overlay);
         let this = Self {
             model,
             placement,
             card: Rc::new(Cell::new(Bounds::default())),
             anchor,
+            origin,
+            notch,
+            wings: Rc::new(Cell::new([0.; 2])),
+            style,
             hovered: false,
             drag: None,
             start: Instant::now(),
@@ -141,6 +175,21 @@ impl OverlayView {
         if !started || crate::shell::can_place_windows() || !m.config.overlay.follow_display {
             return;
         }
+        self.reopen(window, cx);
+    }
+
+    /// Open a new overlay when the user picks another style: the window kind
+    /// and the place depend on it.
+    fn reopen_when_style_changes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let style = style_key(&self.model.read(cx).config.overlay);
+        if style != self.style {
+            self.style = style;
+            self.reopen(window, cx);
+        }
+    }
+
+    /// Replace this overlay with a new one.
+    fn reopen(&self, window: &mut Window, cx: &mut Context<Self>) {
         let model = self.model.clone();
         let old = window.window_handle();
         // The new overlay opens first, so that the pill does not flash on the same display.
@@ -148,6 +197,20 @@ impl OverlayView {
             open(&model, cx);
             let _ = old.update(cx, |_, window, _| window.remove_window());
         });
+    }
+
+    /// The window origin, the anchor, and the notch for a display.
+    fn place_on(&self, screens: &[crate::shell::ScreenInfo], display: u32, cx: &App) -> Option<(Point<Pixels>, Anchor, Option<Notch>)> {
+        let screen = screens.iter().find(|s| s.id == display)?;
+        match Notch::for_display(&self.model.read(cx).config.overlay, Some(screen)) {
+            Some(n) => Some((placement::notch_origin(Some(screen)), Anchor::Top, Some(n))),
+            None => self.placement.origin_on(screens, display).map(|(origin, anchor)| (origin, anchor, None)),
+        }
+    }
+
+    /// True when the overlay hides while no dictation runs. The notch always does.
+    fn hides_when_idle(&self, o: &config::Overlay) -> bool {
+        self.notch.is_some() || !o.idle_pill || (o.hide_in_fullscreen && crate::shell::frontmost_app_is_fullscreen())
     }
 
     /// Move the overlay to the display of the mouse or of the focused window,
@@ -163,12 +226,20 @@ impl OverlayView {
         if self.placement.display_of(&screens, global_bounds(window, ns), self.anchor) == Some(target) {
             return;
         }
-        let Some((origin, anchor)) = self.placement.origin_on(&screens, target) else { return };
+        let Some((origin, anchor, notch)) = self.place_on(&screens, target, cx) else { return };
+        if notch != self.notch {
+            if notch.is_some() {
+                crate::shell::allow_over_menu_bar(ns);
+            }
+            self.notch = notch;
+            cx.notify();
+        }
         self.move_to(ns, origin, anchor, cx);
     }
 
     /// Move the window, and draw the card at the edge of the window that goes with the new place.
     fn move_to(&mut self, ns: crate::shell::NativeWindow, origin: Point<Pixels>, anchor: Anchor, cx: &mut Context<Self>) {
+        self.origin = origin;
         if anchor != self.anchor {
             self.anchor = anchor;
             cx.notify();
@@ -211,6 +282,12 @@ impl OverlayView {
             crate::shell::configure_overlay(ns);
             crate::shell::make_never_key(ns);
             self.configured = true;
+            if self.notch.is_some() && crate::shell::can_place_windows() {
+                // macOS keeps a window out of the menu bar. Turn that off,
+                // then put the notch at the top edge again.
+                crate::shell::allow_over_menu_bar(ns);
+                self.move_to(ns, self.origin, self.anchor, cx);
+            }
         }
         if !crate::shell::can_place_windows() {
             return self.track_in_place(window, ns, check_fullscreen, cx);
@@ -253,9 +330,7 @@ impl OverlayView {
         if check_fullscreen {
             let m = self.model.read(cx);
             let idle = matches!(m.state(), State::Idle) && m.blocked_notice.is_none();
-            let hide = idle
-                && (!m.config.overlay.idle_pill
-                    || (m.config.overlay.hide_in_fullscreen && crate::shell::frontmost_app_is_fullscreen()));
+            let hide = idle && self.hides_when_idle(&m.config.overlay);
             if hide != self.hidden {
                 self.hidden = hide;
                 if hide {
@@ -287,9 +362,7 @@ impl OverlayView {
         if check_fullscreen || self.hidden {
             let m = self.model.read(cx);
             let idle = matches!(m.state(), State::Idle) && m.blocked_notice.is_none();
-            let hide = idle
-                && (!m.config.overlay.idle_pill
-                    || (m.config.overlay.hide_in_fullscreen && crate::shell::frontmost_app_is_fullscreen()));
+            let hide = idle && self.hides_when_idle(&m.config.overlay);
             if hide != self.hidden {
                 self.hidden = hide;
                 cx.notify();
@@ -307,8 +380,8 @@ impl OverlayView {
         if !is_pill(self.model.read(cx).state()) {
             return;
         }
-        if !crate::shell::can_place_windows() {
-            // The pill cannot be dragged here, so a press is a click.
+        if !crate::shell::can_place_windows() || self.notch.is_some() {
+            // The pill cannot be dragged here, and the notch never moves, so a press is a click.
             self.click(cx);
             return;
         }
@@ -337,6 +410,26 @@ impl OverlayView {
 /// a dictation, and a drag moves it.
 fn is_pill(state: &State) -> bool {
     matches!(state, State::Idle | State::Recording { .. })
+}
+
+/// The style settings that need a new overlay window when they change.
+fn style_key(o: &config::Overlay) -> (OverlayStyle, bool) {
+    (o.style, o.notch_on_other_displays)
+}
+
+/// The name of the processing stage. The final pass waits for a model that is not in memory yet.
+fn stage_label(stage: &Stage, model_status: &ModelStatus) -> String {
+    match (stage, model_status) {
+        (_, ModelStatus::Optimizing | ModelStatus::Downloaded) => sayso_i18n::t!("overlay.stage.loading_model"),
+        (Stage::Enhancing, _) => sayso_i18n::t!("overlay.stage.applying_style"),
+        (Stage::Inserting, _) => sayso_i18n::t!("overlay.stage.inserting"),
+        _ => sayso_i18n::t!("overlay.stage.transcribing"),
+    }
+}
+
+/// How far the ink line of the processing stage has drawn.
+fn processing_progress(since: Duration, reduce: bool) -> f32 {
+    if reduce { 0.6 } else { ((since.as_secs_f32() * 0.55).fract() * 0.9 + 0.08).min(0.98) }
 }
 
 /// The time label "0:07".
@@ -393,15 +486,7 @@ impl Render for OverlayView {
             (Some(n), State::Idle) => Some((n.detail.as_ref().map_or(n.title.clone(), |d| format!("{}. {d}", n.title)), true)),
             (_, State::Idle) => None,
             (_, State::Recording { .. }) => Some((sayso_i18n::t!("overlay.a11y.recording"), false)),
-            (_, State::Processing { stage, .. }) => Some((
-                match (stage, &model_status) {
-                    (_, ModelStatus::Optimizing | ModelStatus::Downloaded) => sayso_i18n::t!("overlay.stage.loading_model"),
-                    (Stage::Enhancing, _) => sayso_i18n::t!("overlay.stage.applying_style"),
-                    (Stage::Inserting, _) => sayso_i18n::t!("overlay.stage.inserting"),
-                    _ => sayso_i18n::t!("overlay.stage.transcribing"),
-                },
-                false,
-            )),
+            (_, State::Processing { stage, .. }) => Some((stage_label(stage, &model_status), false)),
             (_, State::Showing { notice, .. }) => match notice {
                 Notice::Inserted { .. } => Some((sayso_i18n::t!("overlay.inserted"), false)),
                 Notice::InsertedRaw { reason } => Some((format!("{}. {reason}", sayso_i18n::t!("overlay.inserted_raw")), false)),
@@ -415,11 +500,36 @@ impl Render for OverlayView {
         let pill = is_pill(&state);
         let recording = matches!(state, State::Recording { .. });
 
-        let body: AnyElement = if let Some(notice) = blocked.filter(|_| matches!(state, State::Idle)) {
+        let body: AnyElement = if let Some(n) = self.notch {
+            let scene = notch::Scene {
+                state: &state,
+                blocked: blocked.as_ref(),
+                hovered: self.hovered,
+                levels,
+                t,
+                now_ms,
+                incognito,
+                preview: (show_preview && !(preview.0.is_empty() && preview.1.is_empty())).then_some((preview.0.as_str(), preview.1.as_str())),
+                stage: match &state {
+                    State::Processing { stage, .. } => stage_label(stage, &model_status),
+                    _ => String::new(),
+                },
+                progress: processing_progress(self.phase_start.elapsed(), reduce),
+                model: self.model.clone(),
+                wings: self.wings.clone(),
+            };
+            match notch::body(n, scene, &c, &cx.paper().colors_for(Appearance::Dark)) {
+                Some(card) => card.child(capture()).into_any_element(),
+                None => {
+                    // Nothing shows, so nothing takes the mouse.
+                    self.card.set(Bounds::default());
+                    div().into_any_element()
+                }
+            }
+        } else if let Some(notice) = blocked.clone().filter(|_| matches!(state, State::Idle)) {
             let ic = match notice.icon {
                 NoticeIcon::Info => Icon::Info,
                 NoticeIcon::Microphone => Icon::Mic,
-                NoticeIcon::Lock => Icon::Lock,
                 NoticeIcon::Style => Icon::Styles,
                 NoticeIcon::Incognito => Icon::Wordmark,
             };
@@ -488,14 +598,8 @@ impl Render for OverlayView {
                     .into_any_element()
                 }
                 State::Processing { stage, .. } => {
-                    let label = match (stage, &model_status) {
-                        // The final pass waits for a model that is not in memory yet.
-                        (_, ModelStatus::Optimizing | ModelStatus::Downloaded) => sayso_i18n::t!("overlay.stage.loading_model"),
-                        (Stage::Enhancing, _) => sayso_i18n::t!("overlay.stage.applying_style"),
-                        (Stage::Inserting, _) => sayso_i18n::t!("overlay.stage.inserting"),
-                        _ => sayso_i18n::t!("overlay.stage.transcribing"),
-                    };
-                    let p = if reduce { 0.6 } else { ((self.phase_start.elapsed().as_secs_f32() * 0.55).fract() * 0.9 + 0.08).min(0.98) };
+                    let label = stage_label(stage, &model_status);
+                    let p = processing_progress(self.phase_start.elapsed(), reduce);
                     div()
                         .relative()
                         .flex()
@@ -616,7 +720,8 @@ impl Render for OverlayView {
             .items_center()
             .map(|d| match anchor {
                 Anchor::Bottom => d.justify_end().pb(px(MARGIN)),
-                Anchor::Top => d.justify_start().pt(px(MARGIN)),
+                // The notch sits on the top edge of the display.
+                Anchor::Top => d.justify_start().pt(px(if self.notch.is_some() { 0. } else { MARGIN })),
             })
             .font_family(UI)
             .locale_fonts(Face::Sans)
@@ -731,9 +836,28 @@ fn notice_pill(ic: Icon, title: &str, detail: Option<&str>, size: OverlaySize, c
 /// italic, and the caret. One styled text run, so it wraps like a paragraph.
 fn preview_slip(committed: &str, tentative: &str, size: OverlaySize, c: &sayso_ui::Colors) -> Div {
     let (k, tk) = (size.scale(), size.text_scale());
-    // Show only the end of long previews so the slip stays at three lines or
-    // less. A smaller slip holds fewer characters per line.
-    let committed = tail(committed, (150. * k) as usize);
+    // A smaller slip holds fewer characters per line.
+    let (text, highlights) = preview_text(committed, tentative, (150. * k) as usize, c);
+    div()
+        .w(px(420. * k))
+        .px(px(18. * k))
+        .py(px(14. * k))
+        .rounded(px(12. * k))
+        .bg(c.sheet)
+        .shadow(paper::raised(c))
+        .font_family(SERIF).locale_fonts(Face::Serif)
+        .text_size(px(17. * tk))
+        .line_height(px(24. * tk))
+        .text_color(c.ink)
+        .child(StyledText::new(text).with_highlights(highlights))
+}
+
+/// The text of the live preview with its colors: committed words in ink, the
+/// tentative tail in pencil italic, and the caret. It shows only the last
+/// `max` characters of the committed words, so the slip stays at three lines
+/// or less.
+fn preview_text(committed: &str, tentative: &str, max: usize, c: &sayso_ui::Colors) -> (String, Vec<(std::ops::Range<usize>, HighlightStyle)>) {
+    let committed = tail(committed, max);
     let mut text = committed.clone();
     let mut highlights = Vec::new();
     if !tentative.is_empty() {
@@ -752,18 +876,7 @@ fn preview_slip(committed: &str, tentative: &str, size: OverlaySize, c: &sayso_u
     let caret_start = text.len();
     text.push_str(" \u{2502}");
     highlights.push((caret_start..text.len(), HighlightStyle { color: Some(c.accent.opacity(0.7)), ..Default::default() }));
-    div()
-        .w(px(420. * k))
-        .px(px(18. * k))
-        .py(px(14. * k))
-        .rounded(px(12. * k))
-        .bg(c.sheet)
-        .shadow(paper::raised(c))
-        .font_family(SERIF).locale_fonts(Face::Serif)
-        .text_size(px(17. * tk))
-        .line_height(px(24. * tk))
-        .text_color(c.ink)
-        .child(StyledText::new(text).with_highlights(highlights))
+    (text, highlights)
 }
 
 fn tail(s: &str, max: usize) -> String {

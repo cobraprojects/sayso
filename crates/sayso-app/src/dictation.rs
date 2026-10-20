@@ -95,10 +95,6 @@ impl AppModel {
 
     /// Check what a dictation needs. Shows a notice and returns false when something is missing.
     fn check_can_start(&mut self, cx: &mut Context<Self>) -> bool {
-        if let Some(holder) = self.services.platform.hotkeys.secure_input_holder() {
-            self.notice(NoticeIcon::Lock, t!("overlay.notice.secure_input", app = holder), cx);
-            return false;
-        }
         match self.permission(Permission::Microphone) {
             _ if crate::dev::fake_mic().is_some() => {}
             PermissionState::Granted => {}
@@ -227,10 +223,11 @@ impl AppModel {
             Ok(c) => Some(c),
             Err(e) => {
                 log::error!("microphone: {e}");
-                self.notice(NoticeIcon::Microphone, t!("overlay.notice.microphone_failed"), cx);
-                // Leave recording; the audio buffer is empty so it ends as "No speech".
+                // Show why in the overlay. A cancel would show "Cancelled"
+                // and offer an Undo with no audio.
+                let message = t!("overlay.notice.microphone_failed");
                 cx.spawn(async move |this, cx| {
-                    let _ = this.update(cx, |m, cx| m.dispatch(Event::Cancel, cx));
+                    let _ = this.update(cx, |m, cx| m.dispatch(Event::CaptureFailed { session, message }, cx));
                 })
                 .detach();
                 None
@@ -912,7 +909,6 @@ fn insert_error_text(error: &InsertError) -> String {
         InsertError::NoFocusedField => t!("overlay.error.no_focused_field"),
         InsertError::NotTaken => t!("overlay.error.not_taken"),
         InsertError::NotTrusted => t!("overlay.error.not_trusted"),
-        InsertError::SecureInput => t!("overlay.error.secure_input"),
         InsertError::Elevated { app: Some(app) } => t!("overlay.error.elevated", app = app),
         InsertError::Elevated { app: None } => t!("overlay.error.elevated_unknown"),
         InsertError::Clipboard(error) => t!("overlay.error.clipboard", error = error),

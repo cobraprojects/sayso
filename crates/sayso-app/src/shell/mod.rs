@@ -8,7 +8,7 @@
 //! - App: `become_accessory`, `set_dock_icon_visible`, `show_app_and_activate`, `deactivate_app`.
 //! - Windows: `configure_overlay`, `make_never_key`, `set_frame_origin`, `set_frame`, `frame`,
 //!   `make_clear`, `add_child_window`, `order_front_without_activating`, `order_out`, `show_and_focus`.
-//! - Overlay: `overlay_kind`, `set_click_region`, `can_place_windows`.
+//! - Overlay: `overlay_kind`, `allow_over_menu_bar`, `set_click_region`, `can_place_windows`.
 //! - Popover: `popover_kind`, `popover_covers_screen`.
 //! - Screens and mouse: `screens`, `primary_screen_height`, `mouse_location`, `mouse_button_down`,
 //!   `frontmost_app_is_fullscreen`, `focused_window_frame`, `install_global_click_monitor`, `MonitorToken`.

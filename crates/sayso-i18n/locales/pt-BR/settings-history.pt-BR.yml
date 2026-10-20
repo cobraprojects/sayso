@@ -19,6 +19,7 @@ settings:
     forever: "Para sempre"
     days:
       one: "%{count} dia"
+      many: "%{count} de dias"
       other: "%{count} dias"
     site_icons: "Mostrar ícones de sites"
     site_icons_detail: "Para um ditado em uma página da web. O Sayso pega o ícone do próprio site. Se o site não der nenhum, o Sayso pergunta ao DuckDuckGo, que vê o nome do site."
@@ -64,6 +65,7 @@ settings:
     models_none: "Nenhum modelo local baixado."
     models:
       one: "%{count} modelo local. Exclua um modelo na página Modelos."
+      many: "%{count} de modelos locais. Exclua um modelo na página Modelos."
       other: "%{count} modelos locais. Exclua um modelo na página Modelos."
     open_models: "Abrir Modelos"
     show_mac: "Mostrar no Finder"

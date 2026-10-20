@@ -152,19 +152,26 @@ pub fn show_and_focus(window: NativeWindow) {
 
 // Overlay -------------------------------------------------------------------
 
-/// The overlay: an X11 pop-up, or a layer surface at the bottom center.
-pub fn overlay_kind() -> WindowKind {
+/// The overlay: an X11 pop-up, or a layer surface at the bottom center. With
+/// `at_top` (the notch), the layer surface is at the top center, on the edge
+/// of the display over the panels.
+pub fn overlay_kind(at_top: bool) -> WindowKind {
     if on_x11() {
         return WindowKind::PopUp;
     }
     WindowKind::LayerShell(LayerShellOptions {
         namespace: "sayso-overlay".into(),
         layer: Layer::Overlay,
-        anchor: Anchor::BOTTOM,
+        anchor: if at_top { Anchor::TOP } else { Anchor::BOTTOM },
+        // -1: do not move away from the exclusive zone of a top panel.
+        exclusive_zone: at_top.then_some(px(-1.)),
         keyboard_interactivity: KeyboardInteractivity::None,
         ..Default::default()
     })
 }
+
+/// The system does not keep windows out of a top bar, so there is nothing to do.
+pub fn allow_over_menu_bar(_window: NativeWindow) {}
 
 /// The popover: an X11 pop-up, or a layer surface over the whole screen with
 /// the sheet at the top right.

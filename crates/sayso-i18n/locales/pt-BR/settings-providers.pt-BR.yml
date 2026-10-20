@@ -58,6 +58,7 @@ settings:
     suggest_ollama_empty: "Rodando neste %{computer} · nenhum modelo baixado ainda"
     suggest_ollama:
       one: "Rodando neste %{computer} · %{count} modelo"
+      many: "Rodando neste %{computer} · %{count} de modelos"
       other: "Rodando neste %{computer} · %{count} modelos"
     suggest_claude: "Encontrado neste %{computer} · Nuvem"
     suggest_codex: "Encontrado neste %{computer} · Nuvem · cerca de 5 s"

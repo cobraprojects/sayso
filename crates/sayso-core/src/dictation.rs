@@ -56,6 +56,9 @@ pub enum Event {
     PushToTalkDown,
     PushToTalkUp,
     Cancel,
+    /// The microphone did not start. Nothing was recorded, so there is
+    /// nothing to undo or to save.
+    CaptureFailed { session: SessionId, message: String },
     Undo,
     Dismiss,
     /// The final transcript after replacements. Empty text means silence.
@@ -176,6 +179,15 @@ impl Machine {
                 self.cancel(session, now_ms, &mut fx);
             }
             (State::Processing { session, .. }, Event::Cancel) => self.cancel(session, now_ms, &mut fx),
+
+            (State::Recording { session, .. }, Event::CaptureFailed { session: s, message }) if s == session => {
+                self.state = State::Showing {
+                    session,
+                    notice: Notice::Error { message },
+                    until_ms: Some(now_ms + self.timing.error_ms),
+                };
+                fx.push(Effect::Discard { session });
+            }
 
             (State::Showing { session, notice: Notice::Cancelled, .. }, Event::Undo) => {
                 if self.undo_session.is_some_and(|(s, _)| s == session) {
@@ -313,6 +325,30 @@ mod tests {
         let s = machine.current_session().unwrap();
         machine.handle(Event::Transcribed { session: s, text: text.into() }, 2100);
         s
+    }
+
+    #[test]
+    fn a_microphone_that_does_not_start_shows_an_error_and_not_a_cancel() {
+        let mut machine = m();
+        machine.handle(Event::Toggle, 0);
+        let fx = machine.handle(Event::CaptureFailed { session: 1, message: "no microphone".into() }, 50);
+        assert_eq!(fx, vec![Effect::Discard { session: 1 }], "no cancel sound and no history");
+        assert_eq!(
+            machine.state,
+            State::Showing { session: 1, notice: Notice::Error { message: "no microphone".into() }, until_ms: Some(4050) }
+        );
+        assert!(machine.handle(Event::Undo, 100).is_empty(), "nothing to undo");
+    }
+
+    #[test]
+    fn a_late_capture_failure_of_an_old_session_is_ignored() {
+        let mut machine = m();
+        machine.handle(Event::Toggle, 0);
+        machine.handle(Event::Cancel, 1000);
+        machine.handle(Event::Toggle, 2000);
+        assert_eq!(machine.current_session(), Some(2));
+        assert!(machine.handle(Event::CaptureFailed { session: 1, message: "late".into() }, 2100).is_empty());
+        assert!(machine.is_recording());
     }
 
     #[test]

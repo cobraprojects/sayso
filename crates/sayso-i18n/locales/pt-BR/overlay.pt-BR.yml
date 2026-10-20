@@ -2,7 +2,6 @@ _version: 1
 
 overlay:
   notice:
-    secure_input: "Um campo de senha está ativo em %{app}"
     allow_microphone: "Permita o acesso ao microfone e tente de novo"
     needs_microphone: "O Sayso precisa de acesso ao microfone"
     microphone_failed: "O microfone não pôde iniciar"
@@ -40,7 +39,6 @@ overlay:
     no_speech: "Nenhuma fala foi ouvida."
     not_taken: "O app não aceitou o texto"
     not_trusted: "O Sayso precisa da permissão de Acessibilidade para inserir texto"
-    secure_input: "Um campo de senha está ativo"
     elevated: "%{app} roda como administrador, então o Windows não deixa o Sayso digitar nele."
     elevated_unknown: "Este app roda como administrador, então o Windows não deixa o Sayso digitar nele."
     clipboard: "O Sayso não consegue usar a área de transferência: %{error}"

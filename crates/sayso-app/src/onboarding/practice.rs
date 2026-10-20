@@ -126,7 +126,7 @@ impl OnboardingView {
         let result: AnyElement = match &latest {
             Some(e) if !matches!(e.insert, InsertOutcome::Failed { .. }) => {
                 let (ok, total) = words_correct(&e.final_text);
-                let inserted = t!("onboarding.practice.inserted_after", seconds = format!("{:.1}", delay_ms(e) as f64 / 1000.0));
+                let inserted = t!("onboarding.practice.inserted_after", seconds = sayso_i18n::numbers::decimal(delay_ms(e) as f64 / 1000.0, 1));
                 let correct = t!("onboarding.practice.words_correct", correct = ok, total = total);
                 div()
                     .id("practice-result")

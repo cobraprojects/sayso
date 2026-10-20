@@ -17,7 +17,6 @@
 use crate::ffi::*;
 use crate::keymap::KC_RETURN;
 use crate::paste_receipt::{Receipts, Verdict};
-use crate::secure_input;
 use core_foundation::base::TCFType;
 use core_foundation::string::CFString;
 use objc2::rc::Retained;
@@ -68,14 +67,14 @@ pub fn utf16_chunks(text: &str, max_units: usize) -> Vec<Vec<u16>> {
 // Preconditions
 // ---------------------------------------------------------------------------
 
-/// Check Accessibility, Secure Input, and focus, in that order.
+/// Check Accessibility and focus, in that order.
+///
+/// Secure Event Input does not block the insertion: it is system-wide, so the
+/// app that holds it is often not the app in front.
 fn preflight() -> Result<(), InsertError> {
     // SAFETY: plain query.
     if !unsafe { AXIsProcessTrusted() } {
         return Err(InsertError::NotTrusted);
-    }
-    if secure_input::is_enabled() {
-        return Err(InsertError::SecureInput);
     }
     if !can_receive_text() {
         return Err(InsertError::NoFocusedField);

@@ -12,8 +12,8 @@ macOS implementations of the `sayso-platform` traits. Build all of them with
 | `esc` | Double-Esc and single-Esc state machine (it takes the time of each press as an argument), and `EscTake`, which decides when Sayso takes Esc from the app. |
 | `keymap` | `Hotkey` to key code, `CGEventFlags`, Carbon mask, and `global-hotkey` types. Solo modifiers use device bits (Right Option is `0x40`). |
 | `conflicts` | System shortcuts from `CopySymbolicHotKeys` (Carbon mask), a name table, and a table of apps (ChatGPT, Raycast, Alfred) checked against running apps. |
-| `secure_input` | `IsSecureEventInputEnabled` plus the PID from `CGSessionCopyCurrentDictionary`, turned into an app name. |
-| `inserter` | Paste (save and restore every pasteboard item, Cmd+V) and Type (Unicode strings in chunks of 20 UTF-16 units). Checks Accessibility, Secure Input, and focus first. |
+| `secure_input` | `IsSecureEventInputEnabled` plus the PID from `CGSessionCopyCurrentDictionary`, turned into an app name. For diagnostics only. |
+| `inserter` | Paste (save and restore every pasteboard item, Cmd+V) and Type (Unicode strings in chunks of 20 UTF-16 units). Checks Accessibility and focus first. Secure Input does not block it: it is system-wide, and the app that holds it is often not the app in front. |
 | `context` | Frontmost app, running apps (regular and accessory), app icon as PNG at a given size. Installed apps: `*.app` in `/Applications`, the system folders, and `~/Applications`, plus one level of sub-folders in the two user-visible roots, plus running apps. Page URL: `AXDocument` of the focused window. |
 | `permissions` | Microphone (AVFoundation), Accessibility, Input Monitoring, and System Settings deep links. |
 | `audio`, `resample` | `cpal` input, mono mix, own streaming windowed-sinc resampler to 16 kHz, 20 ms frames, display level. |

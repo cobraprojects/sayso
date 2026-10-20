@@ -43,8 +43,8 @@ pub struct ScreenInfo {
     /// The frame minus panels and docks (`_NET_WORKAREA`).
     pub visible_frame: Rect,
     pub scale: f64,
-    /// Always false on Linux.
-    pub has_notch: bool,
+    /// Always None: Linux displays have no notch.
+    pub notch: Option<Rect>,
 }
 
 /// Keeps a click monitor alive. Linux has none: the popover closes when it
@@ -133,13 +133,13 @@ pub fn screens() -> Vec<ScreenInfo> {
             .map(|m| {
                 let frame = to_points(i32::from(m.x), i32::from(m.y), u32::from(m.width), u32::from(m.height), x.height);
                 let visible_frame = work.map_or(frame, |w| intersect(frame, w));
-                (m.primary, ScreenInfo { id: m.name, frame, visible_frame, scale: scale(), has_notch: false })
+                (m.primary, ScreenInfo { id: m.name, frame, visible_frame, scale: scale(), notch: None })
             })
             .collect();
         if list.is_empty() {
             let frame = to_points(0, 0, u32::from(x.width), u32::from(x.height), x.height);
             let visible_frame = work.map_or(frame, |w| intersect(frame, w));
-            list.push((true, ScreenInfo { id: 0, frame, visible_frame, scale: scale(), has_notch: false }));
+            list.push((true, ScreenInfo { id: 0, frame, visible_frame, scale: scale(), notch: None }));
         }
         list.sort_by_key(|(primary, _)| !*primary);
         Some(list.into_iter().map(|(_, s)| s).collect())

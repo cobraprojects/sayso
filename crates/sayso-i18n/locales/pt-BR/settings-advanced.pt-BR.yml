@@ -15,6 +15,7 @@ settings:
     keep_always: "Sempre"
     keep_minutes:
       one: "%{count} minuto"
+      many: "%{count} de minutos"
       other: "%{count} minutos"
     keep_hour: "1 hora"
     keep_detail: "Com um tempo definido, o Sayso descarrega o modelo de voz depois desse tempo sem ditados. O primeiro ditado depois disso demora mais para começar a escrever."

@@ -63,8 +63,8 @@ pub struct ScreenInfo {
     pub visible_frame: Rect,
     /// Display scale (1.5 at 144 DPI).
     pub scale: f64,
-    /// Always false: Windows displays have no notch.
-    pub has_notch: bool,
+    /// Always None: Windows displays have no notch.
+    pub notch: Option<Rect>,
 }
 
 /// One display in physical pixels, with its scale.
@@ -397,7 +397,7 @@ pub fn screens() -> Vec<ScreenInfo> {
             frame: cocoa(h, m.logical(m.frame)),
             visible_frame: cocoa(h, m.logical(m.work)),
             scale: m.scale,
-            has_notch: false,
+            notch: None,
         })
         .collect()
 }

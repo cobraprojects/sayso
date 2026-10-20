@@ -121,10 +121,16 @@ The collapsed Hub sidebar: a column of icons with no labels. Each label shows as
 The smallest size at which a window draws its content. A tiling window manager can make a window smaller than its minimum size. Below the floor the content keeps its size and the window scrolls.
 
 **Overlay**
-The floating window that shows a dictation in progress (ink waveform, timer, live preview, errors).
+The floating window that shows a dictation in progress (ink waveform, timer, live preview, errors). Its overlay style is the pill or the notch.
+
+**Overlay style**
+How the overlay shows a dictation (`overlay.style`): the pill or the notch. The user picks it in Settings › Overlay. A change of style opens the overlay window again.
+
+**Notch**
+The overlay style that opens from the top center of the display only while the user dictates, and is gone when no dictation runs. It is always black, the size of the MacBook camera notch. Its two wings show the state to the left and the right of the camera, and a slip of paper under it shows the live preview and the notices. On a Mac display with a camera notch it takes the size of that notch. On a display without one, Sayso draws a notch of the same size, or uses the pill when `overlay.notch_on_other_displays` is off (macOS only). It covers the menu bar while it shows. The user cannot drag it.
 
 **Pill**
-The small, calm overlay state when no dictation runs. The user can drag it, and it snaps softly to edges and centers. In the bottom half of a display the overlay grows up from the pill, and the live preview shows above it. In the top half the overlay grows down, and the live preview shows below it.
+The overlay style that the user can drag, and its small, calm state when no dictation runs. The user can drag it, and it snaps softly to edges and centers. In the bottom half of a display the overlay grows up from the pill, and the live preview shows above it. In the top half the overlay grows down, and the live preview shows below it.
 
 **Hub**
 The main window. Its sections are Home, History, Dictionary, Styles, Models, and Settings.

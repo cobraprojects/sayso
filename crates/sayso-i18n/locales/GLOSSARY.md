@@ -81,3 +81,73 @@ file names, Hub.
 | Dock | Dock | Dock | 程序坞 | Dock |
 | Keychain | llavero | Chaves | 钥匙串 | キーチェーン |
 | Applications folder | carpeta Aplicaciones | pasta Aplicativos | “应用程序”文件夹 | アプリケーションフォルダ |
+
+## de, fr, it, ko, ru
+
+These columns came with the first translations on 2026-10-17.
+
+### Voice and form
+
+| | de | fr | it | ko | ru |
+|---|---|---|---|---|---|
+| Address the user | du | vous | tu | No pronoun. 해요체 | вы (lowercase) |
+| Buttons and menu items | Infinitive: "Speichern" | Infinitive: "Enregistrer" | As macOS: "Salva" | Short noun or verb: "저장" | As macOS: "Сохранить" |
+| Titles | Sentence case | Sentence case | Sentence case | No end mark | Sentence case, no end mark |
+| Ellipsis | … | … | … | … | … |
+| Quotes | „“ | « » with no-break spaces | « » | “” | «» |
+| Spaces | | No-break space (U+00A0) before ; : ! ? and inside « ». The bundled fonts have no U+202F. | | Space between Latin and Hangul ("Sayso 시작") | |
+
+### Terms
+
+| English | de | fr | it | ko | ru |
+|---|---|---|---|---|---|
+| dictation (one recording) | Diktat | dictée | dettatura | 받아쓰기 | диктовка |
+| dictate | diktieren | dicter | dettare | 받아쓰기 | диктовать |
+| transcript | Transkript | transcription | trascrizione | 전사 텍스트 | расшифровка |
+| hotkey | Tastenkürzel | raccourci | scorciatoia | 단축키 | сочетание клавиш |
+| push to talk | Gedrückt halten zum Sprechen | Maintenir pour parler | tieni premuto per parlare | 누르고 말하기 | Нажать и говорить |
+| model | Modell | modèle | modello | 모델 | модель |
+| local model | lokales Modell | modèle local | modello locale | 로컬 모델 | локальная модель |
+| cloud model | Cloud-Modell | modèle cloud | modello cloud | 클라우드 모델 | облачная модель |
+| speech provider | Anbieter | fournisseur | provider | 음성 제공업체 | провайдер |
+| AI provider | KI-Anbieter | fournisseur d'IA | provider IA | AI 제공업체 | ИИ-провайдер |
+| engine | Engine | moteur vocal | motore vocale | 음성 엔진 | движок |
+| live preview | Live-Vorschau | aperçu en direct | anteprima in tempo reale | 실시간 미리보기 | живой предпросмотр |
+| dictation language | Diktiersprache | langue de dictée | lingua della dettatura | 받아쓰기 언어 | язык диктовки |
+| interface language | Sprache der Oberfläche | langue de l'interface | lingua dell'interfaccia | 인터페이스 언어 | язык интерфейса |
+| dictionary | Wörterbuch | dictionnaire | dizionario | 사전 | словарь |
+| word (in the dictionary) | Wort | mot | parola | 단어 | слово |
+| replacement | Ersetzung | remplacement | sostituzione | 치환 | замена |
+| style | Stil | style | stile | 스타일 | стиль |
+| default style | Standardstil | style par défaut | stile predefinito | 기본 스타일 | стиль по умолчанию |
+| style rule | Stilregel | règle de style | regola di stile | 스타일 규칙 | правило стиля |
+| spoken punctuation | Gesprochene Satzzeichen | ponctuation dictée | punteggiatura parlata | 음성 문장 부호 | голосовая пунктуация |
+| thinking level | Denkaufwand | niveau de réflexion | ragionamento | 사고 수준 | уровень рассуждения |
+| overlay | Overlay | indicateur | indicatore | 오버레이 | индикатор |
+| history | Verlauf | historique | cronologia | 기록 | история |
+| history entry | Eintrag | entrée | voce | 기록 항목 | запись |
+| incognito | Inkognito | mode privé | Incognito | 시크릿 모드 | режим инкогнито |
+| insert (text into an app) | einfügen | insérer | inserire | 삽입 | вставить |
+| paste | einfügen | coller | incollare | 붙여넣기 | вставить |
+| microphone | Mikrofon | microphone | microfono | 마이크 | микрофон |
+| permission | Berechtigung | autorisation | permesso | 권한 | разрешение |
+| update (noun) | Update | mise à jour | aggiornamento | 업데이트 | обновление |
+| What is new (window) | Neuerungen | Nouveautés | Novità | 새로운 기능 | Что нового |
+| ink (color of the theme) | Tinte | encre | inchiostro | 잉크 | чернила |
+| paper texture | Papierstruktur | texture de papier | texture della carta | 종이 질감 | текстура бумаги |
+| Settings (Sayso's) | Einstellungen | Réglages | Impostazioni | 설정 | Настройки |
+| download | laden | télécharger | scaricare | 다운로드 | скачать |
+| API key | API-Schlüssel | clé API | chiave API | API 키 | ключ API |
+
+### System words (macOS)
+
+| English | de | fr | it | ko | ru |
+|---|---|---|---|---|---|
+| System Settings | Systemeinstellungen | Réglages Système | Impostazioni di Sistema | 시스템 설정 | Системные настройки |
+| Privacy & Security | Datenschutz & Sicherheit | Confidentialité et sécurité | Privacy e sicurezza | 개인정보 보호 및 보안 | Конфиденциальность и безопасность |
+| Accessibility | Bedienungshilfen | Accessibilité | Accessibilità | 손쉬운 사용 | Универсальный доступ |
+| Input Monitoring | Eingabeüberwachung | Surveillance de l'entrée | Monitoraggio input | 입력 모니터링 | Мониторинг ввода |
+| Login Items | Anmeldeobjekte | Éléments de connexion | Elementi login | 로그인 항목 | Объекты входа |
+| menu bar | Menüleiste | barre des menus | barra dei menu | 메뉴 막대 | строка меню |
+| Keychain | Schlüsselbund | trousseau | Portachiavi | 키체인 | связка ключей |
+| Applications folder | Ordner „Programme“ | dossier Applications | cartella Applicazioni | 응용 프로그램 폴더 | папка «Программы» |
