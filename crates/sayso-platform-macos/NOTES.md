@@ -7,7 +7,7 @@ macOS implementations of the `sayso-platform` traits. Build all of them with
 
 | Module | What it does |
 |---|---|
-| `hotkeys` | `HotkeySource`. Chords go through Carbon with `global-hotkey`. Push-to-talk, Esc, and the key recorder go through the tap. |
+| `hotkeys` | `HotkeySource`. Chords go through Carbon with `global-hotkey`. Modifier-only toggles, push-to-talk, Esc, and the key recorder go through the tap. |
 | `tap`, `tap_logic` | A listen-only `CGEventTap` on its own thread with its own run loop. `tap_logic` holds the decisions (no FFI). `tap` holds the thread, the C callback, and re-enable after a timeout. |
 | `esc` | Double-Esc and single-Esc state machine (it takes the time of each press as an argument), and `EscTake`, which decides when Sayso takes Esc from the app. |
 | `keymap` | `Hotkey` to key code, `CGEventFlags`, Carbon mask, and `global-hotkey` types. Solo modifiers use device bits (Right Option is `0x40`). |
@@ -47,7 +47,7 @@ macOS implementations of the `sayso-platform` traits. Build all of them with
 
 ## Known gaps and decisions
 
-- A modifier key on its own works only for push-to-talk. A solo binding for toggle, paste-last, or cycle-style is reported in `failed`.
+- Single modifiers and modifier combinations work for toggle and push-to-talk, including left and right Command, Control, Option, Shift, and Fn. They use the event tap and need Input Monitoring. Paste-last, cycle-style, and incognito still require a chord.
 - Chords that include `fn` work for push-to-talk only. Arrow keys and F keys set the Fn flag on their own, so the key recorder ignores it.
 - Secure Event Input hides key events from the tap. Solo-modifier push-to-talk still works. Chord push-to-talk, Esc, and the key recorder do not (spike result). The Carbon chords still work.
 - `Accessibility` and `InputMonitoring` report `Denied`, never `NotDetermined`. macOS gives no way to tell them apart.

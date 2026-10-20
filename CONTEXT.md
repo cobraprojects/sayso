@@ -13,6 +13,8 @@ A key that starts a dictation on the first press and stops it on the second pres
 **Push-to-talk hotkey**
 A key that records while you hold it and stops when you release it. It has no default.
 
+Both dictation hotkeys accept a chord, a single modifier, or a combination of modifiers. Modifier-only bindings distinguish left and right keys. macOS supports Command, Control, Option, Shift, and Fn; modifier-only toggles and push-to-talk need Input Monitoring. Windows and Linux do not support Fn. Bindings that overlap a modifier-only toggle are rejected so forming another Sayso shortcut does not start dictation.
+
 **Send with Enter**
 A setting on macOS and Windows, off by default (`hotkeys.enter_sends`). While a dictation records, Enter stops it, and Sayso presses Enter after the insert, so a chat sends the message. Sayso takes that first Enter from the app. Apart from the hotkeys of Sayso, Enter and Esc (see Block Esc) are the only keys that Sayso takes. It does not work when the toggle or push-to-talk hotkey uses Return. On Linux the command `sayso --push-to-talk-up-submit` does the same for push-to-talk.
 
