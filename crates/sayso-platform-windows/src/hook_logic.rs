@@ -181,7 +181,6 @@ impl HookLogic {
         self.pointer_available = available;
     }
 
-    #[cfg(test)]
     pub fn pointer_available(&self) -> bool {
         self.pointer_available
     }

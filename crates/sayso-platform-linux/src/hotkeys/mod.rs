@@ -5,7 +5,7 @@
 //! | Job | X11 session | Wayland session | No display |
 //! |---|---|---|---|
 //! | Chords (toggle, paste last, cycle style, chord push-to-talk) | `XGrabKey` | GlobalShortcuts portal, else evdev, else GNOME custom shortcuts | evdev |
-//! | Listen-only stream (solo push-to-talk, Esc while recording, key recorder) | evdev, else XInput2 raw keys | evdev | evdev |
+//! | Listen-only stream (solo push-to-talk, Esc while recording, key recorder) | XInput2 raw keys, else evdev | evdev | evdev |
 //!
 //! - A chord backend takes the key, so the focused app does not get it. When
 //!   chords fall back to the evdev stream, the key also reaches the focused app.
@@ -108,6 +108,20 @@ impl LinuxHotkeys {
         if let Some(running) = b.listening {
             return Ok(running);
         }
+        // XInput2 observes every master keyboard and pointer without input-group
+        // access. Prefer it even when evdev opens a subset: that subset cannot
+        // tell us whether an unreadable device is the user's keyboard or mouse.
+        if self.session.kind == SessionKind::X11 {
+            match self.x11(b).and_then(|x11| x11.listen_raw(true)) {
+                Ok(()) => {
+                    self.listen.logic.lock().set_pointer_available(true);
+                    b.listening = Some(ListenBackend::Xi2);
+                    log::info!("the listen-only key stream uses XInput2");
+                    return Ok(ListenBackend::Xi2);
+                }
+                Err(e) => log::warn!("XInput2 unavailable: {e}; trying evdev"),
+            }
+        }
         let evdev_error = match evdev::EvdevReader::start(self.listen.clone()) {
             Ok(reader) => {
                 b.evdev = Some(reader);
@@ -117,14 +131,7 @@ impl LinuxHotkeys {
             }
             Err(e) => e,
         };
-        if self.session.kind != SessionKind::X11 {
-            return Err(evdev_error);
-        }
-        let x11 = self.x11(b)?;
-        x11.listen_raw(true).map_err(|e| format!("{evdev_error}; {e}"))?;
-        b.listening = Some(ListenBackend::Xi2);
-        log::info!("the listen-only key stream uses XInput2 ({evdev_error})");
-        Ok(ListenBackend::Xi2)
+        Err(evdev_error)
     }
 
     /// The X11 connection, made on first use.

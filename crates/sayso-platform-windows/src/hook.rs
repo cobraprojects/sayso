@@ -89,6 +89,10 @@ struct Shared {
     logic: Mutex<HookLogic>,
     sink: HookSink,
     thread: Mutex<Option<HookThread>>,
+    #[cfg(test)]
+    fail_mouse_install: AtomicBool,
+    #[cfg(test)]
+    fail_mouse_post: AtomicBool,
 }
 
 thread_local! {
@@ -110,6 +114,10 @@ impl HookController {
                 logic: Mutex::new(HookLogic::new(esc)),
                 sink: HookSink { events, capture: Mutex::new(None), capturing },
                 thread: Mutex::new(None),
+                #[cfg(test)]
+                fail_mouse_install: AtomicBool::new(false),
+                #[cfg(test)]
+                fail_mouse_post: AtomicBool::new(false),
             }),
         }
     }
@@ -177,6 +185,16 @@ impl HookController {
     pub fn is_installed(&self) -> bool {
         self.shared.thread.lock().as_ref().is_some_and(|t| t.join.as_ref().is_some_and(|j| !j.is_finished()))
     }
+
+    /// Modifier taps require pointer visibility; other keyboard jobs do not.
+    pub(crate) fn modifier_toggle_available(&self) -> bool {
+        self.shared.logic.lock().pointer_available()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_mouse_install(&self) {
+        self.shared.fail_mouse_install.store(true, Ordering::SeqCst);
+    }
 }
 
 impl Drop for HookController {
@@ -207,13 +225,28 @@ fn refresh(shared: &Arc<Shared>) -> Result<(), String> {
         let thread = slot.as_ref().expect("hook just installed");
         let (tx, rx) = crossbeam_channel::bounded(1);
         thread.mouse_refresh.send(tx).map_err(|_| "keyboard hook stopped".to_string())?;
+        let thread_id = thread.thread_id;
+        // Force the real PostThreadMessageW API to reject a single request.
+        #[cfg(test)]
+        let thread_id = if shared.fail_mouse_post.swap(false, Ordering::SeqCst) { 0 } else { thread_id };
         // SAFETY: plain message to the hook thread's queue.
-        unsafe { PostThreadMessageW(thread.thread_id, WM_APP_MOUSE, WPARAM(0), LPARAM(0)) }
-            .map_err(|e| format!("cannot refresh mouse hook: {e}"))?;
+        if let Err(err) = unsafe { PostThreadMessageW(thread_id, WM_APP_MOUSE, WPARAM(0), LPARAM(0)) } {
+            // The keyboard listener is already installed. A failed pointer
+            // refresh cannot safely enable taps, but must not disable the
+            // unrelated keyboard jobs or close a recorder.
+            shared.logic.lock().set_pointer_available(false);
+            log::warn!("modifier toggle unavailable: cannot refresh mouse hook: {err}");
+            return Ok(());
+        }
         // An earlier queued idle message may need the slot lock. Never wait
         // for the hook thread while owning it.
         drop(slot);
-        rx.recv().map_err(|_| "keyboard hook stopped".to_string())?
+        if let Err(reason) = rx.recv().map_err(|_| "keyboard hook stopped".to_string())? {
+            // sync_mouse_hook already disabled modifier taps. Do not turn a
+            // pointer-only failure into a keyboard/recording/capture failure.
+            log::warn!("modifier toggle unavailable: {reason}");
+        }
+        Ok(())
     } else {
         let thread = slot.take();
         // Join outside the lock: the hook thread may want it to stop itself.
@@ -262,6 +295,10 @@ fn sync_mouse_hook(shared: &Shared, slot: &mut Option<HHOOK>) -> Result<(), Stri
     // Serialize the binding and availability with callbacks/configuration.
     let mut logic = shared.logic.lock();
     let result = update_mouse_hook(slot, logic.needs_mouse(), || {
+        #[cfg(test)]
+        if shared.fail_mouse_install.load(Ordering::SeqCst) {
+            return Err("injected mouse installation failure".into());
+        }
         // SAFETY: installed on this hook thread, which pumps its message loop.
         unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), None, 0) }
             .map_err(|e| format!("mouse SetWindowsHookExW failed: {e}"))
@@ -307,7 +344,10 @@ fn run_hook_thread(shared: Arc<Shared>, ready: Sender<Result<u32, String>>, requ
             }
             match msg.message {
                 WM_APP_MOUSE => {
-                    if let Ok(reply) = requests.try_recv() {
+                    // A failed post can leave an abandoned request queued.
+                    // A wakeup drains all requests, so that stale reply cannot
+                    // consume the only message belonging to the next caller.
+                    while let Ok(reply) = requests.try_recv() {
                         let result = sync_mouse_hook(&shared, &mut mouse_hook);
                         let _ = reply.send(result);
                     }
@@ -577,6 +617,83 @@ mod tests {
         drop(logic);
         callback(&hook.shared, VK_ESCAPE, true);
         assert_eq!(rx.try_recv(), Ok(HotkeyEvent::Cancel));
+    }
+
+    #[test]
+    fn regression_mouse_install_failure_through_configuration_keeps_keyboard_jobs() {
+        use crate::keymap::{VK_LSHIFT, VK_RSHIFT, VK_ESCAPE};
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let hook = HookController::new(tx, Arc::default());
+        hook.fail_mouse_install();
+        assert!(hook.configure(Some("right_shift".parse().unwrap()),
+            "left_shift".parse::<Hotkey>().unwrap().modifier_keys(), true,
+            Duration::from_millis(400), false, false).is_ok(), "mouse failure must not fail keyboard configuration");
+        assert!(hook.is_installed());
+        assert!(!hook.shared.logic.lock().pointer_available());
+        for down in [true, false] { callback(&hook.shared, VK_LSHIFT, down); }
+        assert!(rx.try_recv().is_err(), "toggle must fail closed");
+        callback(&hook.shared, VK_RSHIFT, true);
+        assert_eq!(rx.try_recv(), Ok(HotkeyEvent::PushToTalkDown));
+        callback(&hook.shared, VK_RSHIFT, false);
+        assert_eq!(rx.try_recv(), Ok(HotkeyEvent::PushToTalkUp));
+        assert!(hook.set_recording(true).is_ok(), "ordinary recording must not depend on mouse refresh");
+        callback(&hook.shared, VK_ESCAPE, true);
+        assert_eq!(rx.try_recv(), Ok(HotkeyEvent::Cancel));
+        callback(&hook.shared, VK_ESCAPE, false);
+    }
+
+    #[test]
+    fn regression_mouse_install_failure_through_capture_keeps_recorder_open() {
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let capturing = Arc::new(AtomicBool::new(false));
+        let hook = HookController::new(tx, capturing.clone());
+        // Set up the binding before capture starts the real keyboard thread.
+        hook.shared.logic.lock().set_toggle_modifiers("left_shift".parse::<Hotkey>().unwrap().modifier_keys());
+        hook.fail_mouse_install();
+        let captured = hook.capture();
+        assert!(capturing.load(Ordering::SeqCst), "mouse failure ended the recorder");
+        assert!(hook.is_installed());
+        callback(&hook.shared, crate::keymap::VK_F1 + 5, true);
+        assert_eq!(captured.recv_timeout(Duration::from_secs(2)), Ok("f6".parse().unwrap()));
+        assert!(!capturing.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn regression_mouse_install_failure_through_recording_keeps_escape_active() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let hook = HookController::new(tx, Arc::default());
+        {
+            let mut logic = hook.shared.logic.lock();
+            logic.configure_esc(true, Duration::from_millis(400));
+            logic.set_toggle_modifiers("left_shift".parse::<Hotkey>().unwrap().modifier_keys());
+        }
+        hook.fail_mouse_install();
+        assert!(hook.set_recording(true).is_ok(), "mouse refresh must not fail ordinary recording");
+        assert!(hook.is_installed());
+        callback(&hook.shared, crate::keymap::VK_ESCAPE, true);
+        assert_eq!(rx.try_recv(), Ok(HotkeyEvent::Cancel));
+        callback(&hook.shared, crate::keymap::VK_ESCAPE, false);
+    }
+
+    #[test]
+    fn regression_failed_mouse_post_does_not_strand_next_refresh() {
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let hook = HookController::new(tx, Arc::default());
+        hook.configure(Some("right_shift".parse().unwrap()),
+            "left_shift".parse::<Hotkey>().unwrap().modifier_keys(), false,
+            Duration::from_millis(400), false, false).unwrap();
+        assert!(hook.modifier_toggle_available());
+        hook.shared.fail_mouse_post.store(true, Ordering::SeqCst);
+        assert!(hook.set_recording(true).is_ok(), "a mouse refresh post must not fail the keyboard jobs");
+        assert!(!hook.modifier_toggle_available(), "a failed refresh must fail closed");
+        let (done_tx, done_rx) = crossbeam_channel::bounded(1);
+        // A detached test worker lets a broken implementation report a failure
+        // instead of hanging the entire test runner on an unbounded recv.
+        std::thread::spawn(move || {
+            let _ = done_tx.send(hook.set_recording(true));
+        });
+        assert_eq!(done_rx.recv_timeout(Duration::from_secs(3)), Ok(Ok(())),
+            "a stale request from the failed post consumed the next wakeup");
     }
 
     #[test]

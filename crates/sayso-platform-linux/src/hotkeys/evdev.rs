@@ -82,7 +82,7 @@ fn rescan_devices<T>(
     devices: &mut BTreeMap<PathBuf, T>,
     paths: Vec<PathBuf>,
     mut open: impl FnMut(&Path) -> std::io::Result<Option<T>>,
-) {
+) -> bool {
     let mut available = true;
     for path in paths {
         if devices.contains_key(&path) {
@@ -104,6 +104,7 @@ fn rescan_devices<T>(
     // Keep keyboard features running, but no modifier toggle is safe while
     // an unopened device could be an unseen mouse.
     listen.logic.lock().set_pointer_available(available);
+    available
 }
 
 fn initial_devices<T>(
@@ -115,7 +116,10 @@ fn initial_devices<T>(
         return Err(format!("{INPUT_DIR} has no event devices"));
     }
     let mut devices = BTreeMap::new();
-    rescan_devices(listen, &mut devices, paths, open);
+    let complete = rescan_devices(listen, &mut devices, paths, open);
+    if devices.is_empty() && !complete {
+        return Err(format!("cannot read input devices in {INPUT_DIR}; input monitoring access is required"));
+    }
     Ok(devices)
 }
 
@@ -128,7 +132,7 @@ pub struct EvdevReader {
 impl EvdevReader {
     /// Open accessible input devices and start the reader thread. Unreadable
     /// devices pause only modifier-only toggles until a rescan succeeds.
-    /// Fails when the input directory has no event devices.
+    /// Fails when the directory is empty, or no device opens and any open failed.
     pub fn start(listen: Arc<Listen>) -> Result<Self, String> {
         let devices = initial_devices(&listen, event_paths(), open_input)?;
         // SAFETY: plain syscalls; the results are checked before use.
@@ -369,20 +373,15 @@ mod tests {
     }
 
     #[test]
-    fn startup_all_unreadable_waits_for_rescan_but_empty_directory_errors() {
-        let (tx, rx) = crossbeam_channel::unbounded();
+    fn startup_without_access_reports_failure_instead_of_an_empty_listener() {
+        let (tx, _rx) = crossbeam_channel::unbounded();
         let listen = Listen::new(tx);
-        configure_toggle(&listen);
-        let mut devices = initial_devices::<()>(&listen, paths(), |_| {
-            Err(std::io::Error::from_raw_os_error(libc::EACCES))
-        }).expect("keep the reader alive for permission-change notifications");
-        assert!(devices.is_empty());
-        tap(&listen, KeyCode::KEY_LEFTCTRL);
-        assert!(rx.try_recv().is_err());
-        rescan_devices(&listen, &mut devices, paths(), |_| Ok(Some(())));
-        assert_eq!(devices.len(), 2);
-        tap(&listen, KeyCode::KEY_LEFTCTRL);
-        assert_eq!(rx.try_recv(), Ok(sayso_platform::HotkeyEvent::Toggle));
+        for errno in [libc::EACCES, libc::EPERM, libc::ENOENT, libc::ENODEV, libc::EIO] {
+            let result = initial_devices::<()>(&listen, paths(), |_| {
+                Err(std::io::Error::from_raw_os_error(errno))
+            });
+            assert!(result.is_err(), "no input stream after open error {errno}");
+        }
         assert!(initial_devices::<()>(&listen, vec![], |_| panic!("no paths to open")).is_err());
     }
 

@@ -160,6 +160,8 @@ impl HotkeySource for WinHotkeys {
             for hotkey in [ptt, modifier_toggle].into_iter().flatten() {
                 failed.push((hotkey, reason.clone()));
             }
+        } else if let Some(toggle) = modifier_toggle.filter(|_| !self.hook.modifier_toggle_available()) {
+            failed.push((toggle, "mouse monitoring is unavailable; modifier toggle is paused".into()));
         }
 
         // Windows needs no grant for the keyboard hook.
@@ -304,6 +306,17 @@ mod tests {
         assert!(!registration.needs_input_monitoring);
         assert!(hotkeys.hook.is_installed());
         assert!(hotkeys.registered().is_empty());
+    }
+
+    #[test]
+    fn regression_mouse_install_failure_reports_only_toggle_registration() {
+        let hotkeys = WinHotkeys::new();
+        hotkeys.hook.fail_mouse_install();
+        let registration = hotkeys.register(&bindings("left_shift", Some("right_control")));
+        assert_eq!(registration.failed.len(), 1, "only the modifier toggle fails: {registration:?}");
+        assert_eq!(registration.failed[0].0, "left_shift".parse().unwrap());
+        assert!(hotkeys.hook.is_installed());
+        assert!(!registration.needs_input_monitoring);
     }
 
     #[test]
