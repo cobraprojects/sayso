@@ -113,7 +113,8 @@ Sayso runs on X11 and on Wayland. The parts that touch other apps (hotkeys, inse
 | UI windows | X11 | XWayland | Wayland | Wayland |
 | Overlay and pill | Over all windows, can be dragged | Over all windows, can be dragged | Layer surface at the bottom center | Layer surface at the bottom center |
 | Toggle and other chords | Key grab | Shortcuts portal (GNOME 48 or later), else keyboard access, else GNOME custom shortcuts | Shortcuts portal | Shortcuts portal (Hyprland), else keyboard access, else `sayso --toggle` |
-| Modifier-only toggle or push-to-talk, double Esc | XInput2, or keyboard and pointer access | Keyboard and pointer access | Keyboard and pointer access | Keyboard and pointer access |
+| Modifier-only toggle | XInput2, or keyboard and pointer access | Keyboard and pointer access | Keyboard and pointer access | Keyboard and pointer access |
+| Push-to-talk, double Esc, key recorder | XInput2 or keyboard access | Keyboard access | Keyboard access | Keyboard access |
 | Paste key | XTest | Remote desktop portal, else `/dev/uinput` | Remote desktop portal, else `/dev/uinput` | Virtual keyboard protocol |
 | Clipboard | X11 selections | X11 selections, through XWayland | Data-control protocol | Data-control protocol |
 | Tray icon | Most panels | With the AppIndicator extension | Yes | With a tray in the bar (for example Waybar) |
@@ -181,7 +182,7 @@ To turn it on, add your user to the `input` group, then log out and log in again
 sudo usermod -aG input "$USER"
 ```
 
-The evdev listener reads keyboards and pointer devices. Mouse buttons, touch contact, and scrolling cancel modifier-only toggle candidates. All input event devices must be readable at startup; Sayso refuses a partially accessible stream rather than enabling a toggle that cannot see mouse gestures. On X11, XInput2 is the fallback without device access; pointer motion also cancels taps there to cover smooth scrolling.
+The evdev listener reads keyboards and pointer devices. Mouse buttons, touch contact, and scrolling cancel modifier-only toggle candidates. If an input event device cannot be opened, Sayso pauses modifier-only toggles because it cannot rule out an unseen mouse. Accessible keyboards still provide push-to-talk, Esc, chord detection, and the key recorder. Startup and hotplug use the same rule; a successful rescan restores modifier-only toggles. On X11, XInput2 is the fallback when the evdev listener cannot start; pointer motion also cancels taps there to cover smooth scrolling.
 
 Every app that runs as your user can then read keyboard and pointer input. If you do not want that, use a chord for toggle or push-to-talk through the shortcuts portal, or a desktop command below. The shortcuts portal does not provide modifier-only gestures. Sayso never masks desktop actions on Linux: Super taps or layout-switch combinations may also run a desktop shortcut. Choose another binding or disable the conflicting desktop shortcut yourself.
 

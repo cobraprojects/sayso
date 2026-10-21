@@ -75,6 +75,50 @@ fn open_input(path: &Path) -> std::io::Result<Option<RawDevice>> {
     Ok(is_input_device(device.supported_keys(), scroll).then_some(device))
 }
 
+/// Shared device-opening seam for startup and hotplug. An open failure leaves
+/// the device's capabilities unknown, including whether it is a pointer.
+fn rescan_devices<T>(
+    listen: &Listen,
+    devices: &mut BTreeMap<PathBuf, T>,
+    paths: Vec<PathBuf>,
+    mut open: impl FnMut(&Path) -> std::io::Result<Option<T>>,
+) {
+    let mut available = true;
+    for path in paths {
+        if devices.contains_key(&path) {
+            continue;
+        }
+        match open(&path) {
+            Ok(Some(device)) => {
+                log::info!("listening to input device {}", path.display());
+                devices.insert(path, device);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                available = false;
+                log::warn!("modifier toggles paused: cannot open {} yet: {e}", path.display());
+            }
+        }
+    }
+    // udev may not have set permissions yet; IN_ATTRIB retries the scan.
+    // Keep keyboard features running, but no modifier toggle is safe while
+    // an unopened device could be an unseen mouse.
+    listen.logic.lock().set_pointer_available(available);
+}
+
+fn initial_devices<T>(
+    listen: &Listen,
+    paths: Vec<PathBuf>,
+    open: impl FnMut(&Path) -> std::io::Result<Option<T>>,
+) -> Result<BTreeMap<PathBuf, T>, String> {
+    if paths.is_empty() {
+        return Err(format!("{INPUT_DIR} has no event devices"));
+    }
+    let mut devices = BTreeMap::new();
+    rescan_devices(listen, &mut devices, paths, open);
+    Ok(devices)
+}
+
 /// The running reader thread. Dropping it stops the thread.
 pub struct EvdevReader {
     wake: OwnedFd,
@@ -82,32 +126,11 @@ pub struct EvdevReader {
 }
 
 impl EvdevReader {
-    /// Open the keyboards and start the reader thread. Fails when no event
-    /// device can be read.
+    /// Open accessible input devices and start the reader thread. Unreadable
+    /// devices pause only modifier-only toggles until a rescan succeeds.
+    /// Fails when the input directory has no event devices.
     pub fn start(listen: Arc<Listen>) -> Result<Self, String> {
-        let mut devices = BTreeMap::new();
-        let mut denied = 0;
-        for path in event_paths() {
-            match open_input(&path) {
-                Ok(Some(device)) => {
-                    log::info!("listening to keyboard {} ({})", device.name().unwrap_or("?"), path.display());
-                    devices.insert(path, device);
-                }
-                Ok(None) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => denied += 1,
-                Err(e) => log::debug!("cannot open {}: {e}", path.display()),
-            }
-        }
-        // An unreadable device could be a pointer: fail closed rather than run
-        // a keyboard-only stream that cannot cancel modifier+mouse gestures.
-        if denied > 0 {
-            return Err(format!(
-                "no access to {INPUT_DIR}. Add the user to the input group and log in again"
-            ));
-        }
-        if devices.is_empty() && event_paths().is_empty() {
-            return Err(format!("{INPUT_DIR} has no event devices"));
-        }
+        let devices = initial_devices(&listen, event_paths(), open_input)?;
         // SAFETY: plain syscalls; the results are checked before use.
         let wake = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
         if wake < 0 {
@@ -229,26 +252,7 @@ impl Reader {
 
     /// Open keyboards and pointers that appeared since the last scan.
     fn rescan(&mut self) {
-        let mut available = true;
-        for path in event_paths() {
-            if self.devices.contains_key(&path) {
-                continue;
-            }
-            match open_input(&path) {
-                Ok(Some(device)) => {
-                    log::info!("listening to new keyboard {} ({})", device.name().unwrap_or("?"), path.display());
-                    self.devices.insert(path, device);
-                }
-                Ok(None) => {}
-                // udev may not have set permissions yet; IN_ATTRIB brings us
-                // back. No toggle is safe while this could be an unseen mouse.
-                Err(e) => {
-                    available = false;
-                    log::warn!("modifier toggles paused: cannot open {} yet: {e}", path.display());
-                }
-            }
-        }
-        self.listen.logic.lock().set_pointer_available(available);
+        rescan_devices(&self.listen, &mut self.devices, event_paths(), open_input);
     }
 }
 
@@ -278,6 +282,109 @@ fn pollfd(fd: RawFd) -> libc::pollfd {
 mod tests {
     use super::*;
     use evdev::{InputEvent, RelativeAxisCode};
+
+    fn paths() -> Vec<PathBuf> {
+        vec![PathBuf::from("event-keyboard"), PathBuf::from("event-unknown")]
+    }
+
+    fn tap(listen: &Listen, code: KeyCode) {
+        dispatch_batch(listen, vec![
+            InputEvent::new(EventType::KEY.0, code.0, 1),
+            InputEvent::new(EventType::KEY.0, code.0, 0),
+        ]);
+    }
+
+    fn configure_toggle(listen: &Listen) {
+        listen.logic.lock().set_toggle_modifiers("left_control".parse::<sayso_core::hotkey::Hotkey>().unwrap().modifier_keys());
+    }
+
+    #[test]
+    fn startup_open_failures_pause_only_modifier_toggles() {
+        use sayso_platform::HotkeyEvent;
+        for errno in [libc::EACCES, libc::EPERM, libc::ENOENT, libc::ENODEV, libc::EIO] {
+            let (tx, rx) = crossbeam_channel::unbounded();
+            let listen = Arc::new(Listen::new(tx));
+            configure_toggle(&listen);
+            let devices = initial_devices(&listen, paths(), |path| {
+                if path == Path::new("event-keyboard") { Ok(Some(())) }
+                else { Err(std::io::Error::from_raw_os_error(errno)) }
+            }).expect("an unreadable possible pointer must not stop the keyboard stream");
+            assert_eq!(devices.len(), 1);
+            tap(&listen, KeyCode::KEY_LEFTCTRL);
+            assert!(rx.try_recv().is_err(), "unsafe toggle after open error {errno}");
+            configure_toggle(&listen);
+            tap(&listen, KeyCode::KEY_LEFTCTRL);
+            assert!(rx.try_recv().is_err(), "rebinding must not bypass degradation");
+
+            listen.logic.lock().set_ptt(Some("right_control".parse().unwrap()));
+            tap(&listen, KeyCode::KEY_RIGHTCTRL);
+            assert_eq!(rx.try_recv(), Ok(HotkeyEvent::PushToTalkDown));
+            assert_eq!(rx.try_recv(), Ok(HotkeyEvent::PushToTalkUp));
+            listen.logic.lock().set_chords(vec![(
+                super::super::keymap::chord(&"f5".parse().unwrap()).unwrap(), HotkeyEvent::Toggle,
+            )]);
+            tap(&listen, KeyCode::KEY_F5);
+            assert_eq!(rx.try_recv(), Ok(HotkeyEvent::Toggle));
+            listen.logic.lock().configure_esc(true, std::time::Duration::from_millis(400));
+            listen.logic.lock().set_recording(true);
+            tap(&listen, KeyCode::KEY_ESC);
+            assert_eq!(rx.try_recv(), Ok(HotkeyEvent::Cancel));
+            let captured = listen.open_capture();
+            tap(&listen, KeyCode::KEY_F6);
+            assert_eq!(captured.try_recv(), Ok("f6".parse().unwrap()));
+            assert!(rx.try_recv().is_err());
+        }
+    }
+
+    #[test]
+    fn rescan_open_failures_pause_and_recovery_restores_modifier_toggles() {
+        for errno in [libc::EACCES, libc::EPERM, libc::ENOENT, libc::ENODEV, libc::EIO] {
+            for recovered_device in [Some(()), None] {
+                let (tx, rx) = crossbeam_channel::unbounded();
+                let listen = Listen::new(tx);
+                configure_toggle(&listen);
+                let mut devices = initial_devices(&listen, vec![paths()[0].clone()], |_| Ok(Some(()))).unwrap();
+                tap(&listen, KeyCode::KEY_LEFTCTRL);
+                assert_eq!(rx.try_recv(), Ok(sayso_platform::HotkeyEvent::Toggle));
+                listen.key(KeyCode::KEY_LEFTCTRL.0, KeyAction::Down);
+                rescan_devices(&listen, &mut devices, paths(), |path| {
+                    assert_eq!(path, Path::new("event-unknown"), "existing keyboard must remain open");
+                    Err(std::io::Error::from_raw_os_error(errno))
+                });
+                listen.key(KeyCode::KEY_LEFTCTRL.0, KeyAction::Up);
+                assert!(rx.try_recv().is_err(), "rescan must clear an in-flight tap");
+                configure_toggle(&listen);
+                tap(&listen, KeyCode::KEY_LEFTCTRL);
+                assert!(rx.try_recv().is_err());
+                // Recovery cannot complete a tap begun while degraded.
+                listen.key(KeyCode::KEY_LEFTCTRL.0, KeyAction::Down);
+                rescan_devices(&listen, &mut devices, paths(), |_| Ok(recovered_device));
+                listen.key(KeyCode::KEY_LEFTCTRL.0, KeyAction::Up);
+                assert!(rx.try_recv().is_err());
+                tap(&listen, KeyCode::KEY_LEFTCTRL);
+                assert_eq!(rx.try_recv(), Ok(sayso_platform::HotkeyEvent::Toggle));
+                assert_eq!(devices.len(), 1 + usize::from(recovered_device.is_some()));
+            }
+        }
+    }
+
+    #[test]
+    fn startup_all_unreadable_waits_for_rescan_but_empty_directory_errors() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let listen = Listen::new(tx);
+        configure_toggle(&listen);
+        let mut devices = initial_devices::<()>(&listen, paths(), |_| {
+            Err(std::io::Error::from_raw_os_error(libc::EACCES))
+        }).expect("keep the reader alive for permission-change notifications");
+        assert!(devices.is_empty());
+        tap(&listen, KeyCode::KEY_LEFTCTRL);
+        assert!(rx.try_recv().is_err());
+        rescan_devices(&listen, &mut devices, paths(), |_| Ok(Some(())));
+        assert_eq!(devices.len(), 2);
+        tap(&listen, KeyCode::KEY_LEFTCTRL);
+        assert_eq!(rx.try_recv(), Ok(sayso_platform::HotkeyEvent::Toggle));
+        assert!(initial_devices::<()>(&listen, vec![], |_| panic!("no paths to open")).is_err());
+    }
 
     #[test]
     fn batches_merge_pointer_and_keyboard_events_by_kernel_time() {

@@ -36,6 +36,7 @@ use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+use windows::Win32::UI::WindowsAndMessaging::HHOOK;
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE, PeekMessageW,
     PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP,
@@ -47,6 +48,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 const WM_APP_MASK: u32 = WM_APP + 1;
 /// Thread message: check whether the hook is still needed, and stop if not.
 const WM_APP_IDLE: u32 = WM_APP + 2;
+/// Reconfigure the optional mouse hook on its owning thread.
+const WM_APP_MOUSE: u32 = WM_APP + 3;
 
 /// How long an abandoned key recorder keeps listening.
 const CAPTURE_EXPIRY: Duration = Duration::from_secs(15);
@@ -63,6 +66,7 @@ pub struct HookSink {
 struct HookThread {
     thread_id: u32,
     join: Option<JoinHandle<()>>,
+    mouse_refresh: Sender<Sender<Result<(), String>>>,
 }
 
 impl Drop for HookThread {
@@ -124,6 +128,8 @@ impl HookController {
             let mut logic = self.shared.logic.lock();
             logic.configure_esc(single_esc, window);
             logic.set_toggle_modifiers(toggle_modifiers);
+            // No tap can fire before the owning thread confirms visibility.
+            logic.set_pointer_available(false);
             logic.set_enter_sends(enter_sends);
             logic.set_take_escape(take_escape);
             logic.set_ptt(ptt)
@@ -198,7 +204,16 @@ fn refresh(shared: &Arc<Shared>) -> Result<(), String> {
         if slot.is_none() {
             *slot = Some(spawn_hook(shared.clone())?);
         }
-        Ok(())
+        let thread = slot.as_ref().expect("hook just installed");
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        thread.mouse_refresh.send(tx).map_err(|_| "keyboard hook stopped".to_string())?;
+        // SAFETY: plain message to the hook thread's queue.
+        unsafe { PostThreadMessageW(thread.thread_id, WM_APP_MOUSE, WPARAM(0), LPARAM(0)) }
+            .map_err(|e| format!("cannot refresh mouse hook: {e}"))?;
+        // An earlier queued idle message may need the slot lock. Never wait
+        // for the hook thread while owning it.
+        drop(slot);
+        rx.recv().map_err(|_| "keyboard hook stopped".to_string())?
     } else {
         let thread = slot.take();
         // Join outside the lock: the hook thread may want it to stop itself.
@@ -210,12 +225,13 @@ fn refresh(shared: &Arc<Shared>) -> Result<(), String> {
 
 fn spawn_hook(shared: Arc<Shared>) -> Result<HookThread, String> {
     let (ready_tx, ready_rx) = crossbeam_channel::bounded::<Result<u32, String>>(1);
+    let (mouse_refresh, requests) = crossbeam_channel::unbounded();
     let join = std::thread::Builder::new()
         .name("sayso-keyboard-hook".into())
-        .spawn(move || run_hook_thread(shared, ready_tx))
+        .spawn(move || run_hook_thread(shared, ready_tx, requests))
         .map_err(|e| format!("cannot start the keyboard hook thread: {e}"))?;
     match ready_rx.recv() {
-        Ok(Ok(thread_id)) => Ok(HookThread { thread_id, join: Some(join) }),
+        Ok(Ok(thread_id)) => Ok(HookThread { thread_id, join: Some(join), mouse_refresh }),
         Ok(Err(err)) => {
             let _ = join.join();
             Err(err)
@@ -224,24 +240,40 @@ fn spawn_hook(shared: Arc<Shared>) -> Result<HookThread, String> {
     }
 }
 
-/// Both listeners are required: never run a toggle without mouse cancellation.
-/// Roll back the keyboard hook if the second installation fails.
-fn install_hook_pair<T, E>(
-    keyboard: impl FnOnce() -> Result<T, E>,
-    mouse: impl FnOnce() -> Result<T, E>,
-    unhook: impl FnOnce(T),
-) -> Result<(T, T), E> {
-    let keyboard = keyboard()?;
-    match mouse() {
-        Ok(mouse) => Ok((keyboard, mouse)),
-        Err(err) => {
-            unhook(keyboard);
-            Err(err)
+/// Keep mouse-hook failure isolated from the keyboard hook. Only a modifier
+/// toggle needs it; recording, PTT and capture keep their existing listener.
+fn update_mouse_hook<T, E>(
+    slot: &mut Option<T>,
+    needed: bool,
+    install: impl FnOnce() -> Result<T, E>,
+    remove: impl FnOnce(T),
+) -> Result<(), E> {
+    if needed {
+        if slot.is_none() {
+            *slot = Some(install()?);
         }
+    } else if let Some(hook) = slot.take() {
+        remove(hook);
     }
+    Ok(())
 }
 
-fn run_hook_thread(shared: Arc<Shared>, ready: Sender<Result<u32, String>>) {
+fn sync_mouse_hook(shared: &Shared, slot: &mut Option<HHOOK>) -> Result<(), String> {
+    // Serialize the binding and availability with callbacks/configuration.
+    let mut logic = shared.logic.lock();
+    let result = update_mouse_hook(slot, logic.needs_mouse(), || {
+        // SAFETY: installed on this hook thread, which pumps its message loop.
+        unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), None, 0) }
+            .map_err(|e| format!("mouse SetWindowsHookExW failed: {e}"))
+    }, |hook| {
+        // SAFETY: our own installed mouse hook, on its owner thread.
+        let _ = unsafe { UnhookWindowsHookEx(hook) };
+    });
+    logic.set_pointer_available(slot.is_some());
+    result
+}
+
+fn run_hook_thread(shared: Arc<Shared>, ready: Sender<Result<u32, String>>, requests: Receiver<Sender<Result<(), String>>>) {
     let mut msg = MSG::default();
     // The previous hook may have stopped before receiving key-up events.
     if let Some(up) = shared.logic.lock().reset_keys() {
@@ -256,20 +288,16 @@ fn run_hook_thread(shared: Arc<Shared>, ready: Sender<Result<u32, String>>) {
         let _ = PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE);
         CONTEXT.with(|c| *c.borrow_mut() = Some(shared.clone()));
         let module = GetModuleHandleW(None).ok().map(|m| m.into());
-        let (hook, mouse_hook) = match install_hook_pair(
-            || SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), module, 0)
-                .map_err(|err| format!("keyboard SetWindowsHookExW failed: {err}")),
-            || SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0)
-                .map_err(|err| format!("mouse SetWindowsHookExW failed: {err}")),
-            |hook| { let _ = UnhookWindowsHookEx(hook); },
-        ) {
-            Ok(hooks) => hooks,
+        let hook = match SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), module, 0) {
+            Ok(hook) => hook,
             Err(err) => {
                 CONTEXT.with(|c| c.borrow_mut().take());
-                let _ = ready.send(Err(err));
+                let _ = ready.send(Err(format!("keyboard SetWindowsHookExW failed: {err}")));
                 return;
             }
         };
+        let mut mouse_hook = None;
+        shared.logic.lock().set_pointer_available(false);
         let _ = ready.send(Ok(me));
 
         loop {
@@ -278,6 +306,12 @@ fn run_hook_thread(shared: Arc<Shared>, ready: Sender<Result<u32, String>>) {
                 break;
             }
             match msg.message {
+                WM_APP_MOUSE => {
+                    if let Ok(reply) = requests.try_recv() {
+                        let result = sync_mouse_hook(&shared, &mut mouse_hook);
+                        let _ = reply.send(result);
+                    }
+                }
                 WM_APP_MASK => {
                     if let Err(err) = input::send(&input::mask_strokes()) {
                         log::debug!("mask key: {err}");
@@ -295,7 +329,9 @@ fn run_hook_thread(shared: Arc<Shared>, ready: Sender<Result<u32, String>>) {
             }
         }
 
-        let _ = UnhookWindowsHookEx(mouse_hook);
+        if let Some(mouse_hook) = mouse_hook {
+            let _ = UnhookWindowsHookEx(mouse_hook);
+        }
         let _ = UnhookWindowsHookEx(hook);
         CONTEXT.with(|c| c.borrow_mut().take());
     }
@@ -397,7 +433,8 @@ fn handle(shared: &Shared, info: &KBDLLHOOKSTRUCT, message: u32) -> bool {
     let outcome = {
         let mut logic = shared.logic.lock();
         logic.prune_pressed(vk, |key| {
-            // SAFETY: plain state query, excluding the current pre-event key.
+            // SAFETY: plain pre-event state query. Logic preserves swallowed
+            // keys and the current regular key; modifiers can recover here.
             (unsafe { GetAsyncKeyState(i32::from(key)) }) < 0
         });
         logic.handle(event, Instant::now())
@@ -428,8 +465,67 @@ fn handle(shared: &Shared, info: &KBDLLHOOKSTRUCT, message: u32) -> bool {
 }
 
 #[cfg(test)]
+#[path = "hook_native_tests.rs"]
+mod native_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Exercise the production callback, including GetAsyncKeyState pruning.
+    /// No OS input is emitted; all payloads live for the callback's duration.
+    fn callback(shared: &Arc<Shared>, vk: u16, down: bool) -> bool {
+        use windows::Win32::UI::WindowsAndMessaging::WM_KEYUP;
+        CONTEXT.with(|c| *c.borrow_mut() = Some(shared.clone()));
+        let info = KBDLLHOOKSTRUCT { vkCode: u32::from(vk), ..Default::default() };
+        // SAFETY: valid keyboard payload, no input or focus changes.
+        let result = unsafe { hook_proc(HC_ACTION as i32, WPARAM(if down { WM_KEYDOWN } else { WM_KEYUP } as usize), LPARAM(&info as *const _ as isize)) };
+        CONTEXT.with(|c| c.borrow_mut().take());
+        result == LRESULT(1)
+    }
+
+    #[test]
+    fn regression_callback_taken_enter_survives_intervening_key_and_stop() {
+        use crate::keymap::{VK_RETURN, VK_LSHIFT};
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let hook = HookController::new(tx, Arc::default());
+        let mut logic = hook.shared.logic.lock();
+        logic.set_enter_sends(true);
+        logic.set_recording(true);
+        drop(logic);
+        assert!(callback(&hook.shared, VK_RETURN, true));
+        assert_eq!(rx.try_recv(), Ok(HotkeyEvent::Submit));
+        hook.shared.logic.lock().set_recording(false);
+        callback(&hook.shared, VK_LSHIFT, true);
+        callback(&hook.shared, VK_LSHIFT, false);
+        assert!(callback(&hook.shared, VK_RETURN, true), "held Enter must not leak after pruning");
+        assert!(rx.try_recv().is_err(), "a repeat must not submit twice");
+        assert!(callback(&hook.shared, VK_RETURN, false));
+        assert!(!hook.shared.logic.lock().is_needed());
+    }
+
+    #[test]
+    fn regression_callback_taken_esc_repeat_is_not_a_second_press() {
+        use crate::keymap::{VK_ESCAPE, VK_LSHIFT};
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let hook = HookController::new(tx, Arc::default());
+        let mut logic = hook.shared.logic.lock();
+        logic.set_take_escape(true);
+        logic.set_recording(true);
+        drop(logic);
+        assert!(callback(&hook.shared, VK_ESCAPE, true));
+        callback(&hook.shared, VK_LSHIFT, true);
+        callback(&hook.shared, VK_LSHIFT, false);
+        assert!(callback(&hook.shared, VK_ESCAPE, true));
+        assert!(rx.try_recv().is_err(), "held Esc is not a double press");
+        assert!(callback(&hook.shared, VK_ESCAPE, false));
+        assert!(callback(&hook.shared, VK_ESCAPE, true));
+        assert_eq!(rx.try_recv(), Ok(HotkeyEvent::Cancel));
+        hook.shared.logic.lock().set_recording(false);
+        callback(&hook.shared, VK_LSHIFT, true);
+        assert!(callback(&hook.shared, VK_ESCAPE, true), "repeat after cancel stays swallowed");
+        assert!(callback(&hook.shared, VK_ESCAPE, false));
+    }
 
     #[test]
     fn regression_mouse_callback_cancels_buttons_and_both_wheels_only() {
@@ -463,14 +559,55 @@ mod tests {
     }
 
     #[test]
-    fn regression_mouse_hook_failure_unhooks_keyboard_and_returns_error() {
-        let cleaned = std::cell::Cell::new(None);
-        let result = install_hook_pair(|| Ok(1), || Err("mouse unavailable"), |hook| cleaned.set(Some(hook)));
-        assert_eq!(result, Err("mouse unavailable"));
-        assert_eq!(cleaned.get(), Some(1));
-        let result = install_hook_pair(|| Err("keyboard unavailable"), || -> Result<i32, _> { panic!("must not install mouse") }, |_| panic!("nothing to unhook"));
-        assert_eq!(result, Err("keyboard unavailable"));
-        assert_eq!(install_hook_pair(|| Ok::<_, &str>(1), || Ok(2), |_| panic!("keep both installed")), Ok((1, 2)));
+    fn regression_mouse_hook_failure_pauses_only_modifier_toggle() {
+        use crate::keymap::{VK_LSHIFT, VK_ESCAPE};
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let hook = HookController::new(tx, Arc::default());
+        let mut logic = hook.shared.logic.lock();
+        logic.set_toggle_modifiers("left_shift".parse::<Hotkey>().unwrap().modifier_keys());
+        logic.set_ptt(Some("right_shift".parse().unwrap()));
+        logic.set_recording(true);
+        logic.configure_esc(true, Duration::from_millis(400));
+        logic.set_pointer_available(false);
+        let now = Instant::now();
+        for down in [true, false] {
+            assert!(logic.handle(RawEvent { vk: VK_LSHIFT, scan: 0, flags: 0, down, held: ModKeys::of(&[]) }, now).events.is_empty());
+        }
+        assert!(logic.is_needed(), "keyboard jobs remain active");
+        drop(logic);
+        callback(&hook.shared, VK_ESCAPE, true);
+        assert_eq!(rx.try_recv(), Ok(HotkeyEvent::Cancel));
+    }
+
+    #[test]
+    fn regression_optional_mouse_hook_failure_keeps_keyboard_features() {
+        let mut mouse = None;
+        update_mouse_hook(&mut mouse, false, || -> Result<i32, &str> { panic!("PTT/recording/recorder must not install mouse") }, |_| panic!("nothing to remove")).unwrap();
+        assert_eq!(mouse, None);
+        assert_eq!(update_mouse_hook(&mut mouse, true, || Err("mouse unavailable"), |_| panic!("nothing installed")), Err("mouse unavailable"));
+        assert_eq!(mouse, None);
+        update_mouse_hook(&mut mouse, true, || Ok::<_, &str>(2), |_| panic!("keep new hook")).unwrap();
+        assert_eq!(mouse, Some(2));
+        update_mouse_hook(&mut mouse, true, || -> Result<i32, &str> { panic!("already installed") }, |_| panic!("keep hook")).unwrap();
+        let removed = std::cell::Cell::new(None);
+        update_mouse_hook(&mut mouse, false, || -> Result<i32, &str> { panic!("no toggle") }, |hook| removed.set(Some(hook))).unwrap();
+        assert_eq!(removed.get(), Some(2));
+        assert_eq!(mouse, None);
+    }
+
+    #[test]
+    fn regression_mouse_hook_tracks_toggle_binding_on_existing_keyboard_thread() {
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let hook = HookController::new(tx, Arc::default());
+        hook.set_recording(true).unwrap();
+        let thread_id = hook.shared.thread.lock().as_ref().unwrap().thread_id;
+        assert!(!hook.shared.logic.lock().pointer_available());
+        hook.configure(None, "left_shift".parse::<Hotkey>().unwrap().modifier_keys(), false, Duration::from_millis(400), false, false).unwrap();
+        assert_eq!(hook.shared.thread.lock().as_ref().unwrap().thread_id, thread_id);
+        assert!(hook.shared.logic.lock().pointer_available());
+        hook.configure(Some("right_shift".parse().unwrap()), None, false, Duration::from_millis(400), false, false).unwrap();
+        assert_eq!(hook.shared.thread.lock().as_ref().unwrap().thread_id, thread_id);
+        assert!(!hook.shared.logic.lock().pointer_available());
     }
 
     #[test]

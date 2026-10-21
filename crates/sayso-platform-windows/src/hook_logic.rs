@@ -101,6 +101,7 @@ pub struct HookLogic {
     ptt: Option<Ptt>,
     toggle_modifiers: Option<ModifierSet>,
     ptt_down: bool,
+    pointer_available: bool,
     recording: bool,
     esc: EscDetector,
     /// The key recorder is open.
@@ -131,6 +132,7 @@ impl HookLogic {
             ptt: None,
             toggle_modifiers: None,
             ptt_down: false,
+            pointer_available: true,
             recording: false,
             esc,
             capturing: false,
@@ -167,6 +169,22 @@ impl HookLogic {
         self.modifier_capture.clear();
     }
 
+
+    pub fn needs_mouse(&self) -> bool {
+        self.toggle_modifiers.is_some()
+    }
+
+    pub fn set_pointer_available(&mut self, available: bool) {
+        if self.pointer_available != available {
+            self.modifier_capture.clear();
+        }
+        self.pointer_available = available;
+    }
+
+    #[cfg(test)]
+    pub fn pointer_available(&self) -> bool {
+        self.pointer_available
+    }
 
     pub fn configure_esc(&mut self, single: bool, window: std::time::Duration) {
         self.esc.configure(single, window);
@@ -210,13 +228,21 @@ impl HookLogic {
         self.modifier_capture.clear();
     }
 
-    /// Recover regular keys whose releases happened outside this desktop.
-    /// Async state is pre-event in a low-level hook: never prune the current key.
-    /// Modifiers are reconciled separately by `modifiers_after`, including AltGr.
+    /// Recover keys whose releases happened outside this desktop. A swallowed
+    /// down never enters async state: only its observed release can clear it.
+    /// Async state is pre-event in a low-level hook: keep the current regular
+    /// key, but query even the current modifier. Its up state distinguishes a
+    /// fresh press after a lost release from repeat. Modifiers are never taken.
     pub fn prune_pressed(&mut self, current: u16, mut is_down: impl FnMut(u16) -> bool) {
         for vk in 0..256 {
-            if vk != current && !keymap::is_modifier(vk) && self.pressed.contains(vk) && !is_down(vk) {
+            let swallowed = (vk == VK_RETURN && self.enter.is_held())
+                || (vk == VK_ESCAPE && self.esc_take.is_held());
+            let modifier = keymap::is_modifier(vk);
+            if (vk != current || modifier) && !swallowed && self.pressed.contains(vk) && !is_down(vk) {
                 self.pressed.release(vk);
+                if modifier {
+                    self.modifier_capture.clear();
+                }
             }
         }
     }
@@ -265,7 +291,7 @@ impl HookLogic {
         }
         if keymap::is_modifier(event.vk) {
             let modifier_keys = keymap::modifier_keys(held);
-            if let Some(keys) = self.toggle_modifiers {
+            if let Some(keys) = self.toggle_modifiers.filter(|_| self.pointer_available) {
                 if event.down && !repeat {
                     if !self.pressed.has_regular_key() {
                         self.modifier_capture.press_tap(modifier_keys, now);
@@ -483,6 +509,51 @@ mod tests {
     }
 
     #[test]
+    fn regression_prune_first_win_or_ctrl_tap_after_secure_desktop() {
+        let now = Instant::now();
+        for (vk, binding) in [(VK_LWIN, "left_command"), (VK_LCONTROL, "left_control")] {
+            let mut l = logic();
+            l.set_toggle_modifiers(binding.parse::<Hotkey>().unwrap().modifier_keys());
+            l.handle(down(vk, &[]), now);
+            l.handle(down(0x4C, &[vk]), now);
+            // Both releases were lost. Pre-event async state is up even for
+            // the current modifier: this is its first NEW press, not repeat.
+            l.prune_pressed(vk, |_| false);
+            l.handle(down(vk, &[]), now);
+            assert_eq!(l.handle(up(vk, &[vk]), now).events, vec![HotkeyEvent::Toggle], "{binding}");
+        }
+    }
+
+    #[test]
+    fn regression_prune_preserves_real_ctrl_with_altgr_but_not_stale_ctrl() {
+        let now = Instant::now();
+        for real_ctrl in [false, true] {
+            let mut l = logic();
+            l.set_capturing(true);
+            l.handle(down(VK_LCONTROL, &[]), now);
+            // The synthetic Ctrl down is observed before Windows updates its
+            // async state. A real Ctrl still down is distinguishable here.
+            l.prune_pressed(VK_LCONTROL, |_| real_ctrl);
+            l.handle(altgr_ctrl(true, &[]), now);
+            l.prune_pressed(VK_RMENU, |vk| vk == VK_LCONTROL);
+            l.handle(down(VK_RMENU, &[VK_LCONTROL]), now);
+            let out = l.handle(down(KEY_Q, &[VK_LCONTROL, VK_RMENU]), now);
+            assert_eq!(out.captured, Some(if real_ctrl { "ctrl+opt+q" } else { "opt+q" }.parse().unwrap()));
+        }
+    }
+
+    #[test]
+    fn regression_prune_does_not_renew_a_genuinely_held_modifier() {
+        let now = Instant::now();
+        let mut l = logic();
+        l.set_toggle_modifiers("left_shift".parse::<Hotkey>().unwrap().modifier_keys());
+        l.handle(down(VK_LSHIFT, &[]), now);
+        l.prune_pressed(VK_LSHIFT, |vk| vk == VK_LSHIFT);
+        l.handle(down(VK_LSHIFT, &[VK_LSHIFT]), now + Duration::from_millis(390));
+        assert!(l.handle(up(VK_LSHIFT, &[VK_LSHIFT]), now + Duration::from_millis(401)).events.is_empty());
+    }
+
+    #[test]
     fn regression_prune_recovers_after_win_l_without_dropping_held_keys() {
         let now = Instant::now();
         for still_down in [false, true] {
@@ -491,8 +562,8 @@ mod tests {
             l.handle(down(VK_LWIN, &[]), now);
             l.handle(down(0x4C, &[VK_LWIN]), now);
             l.prune_pressed(VK_LSHIFT, |vk| {
-                assert_eq!(vk, 0x4C, "only tracked regular keys are queried");
-                still_down
+                assert!(vk == 0x4C || vk == VK_LWIN, "only tracked keys are queried");
+                vk == 0x4C && still_down
             });
             l.handle(down(VK_LSHIFT, &[]), now);
             let expected = if still_down { vec![] } else { vec![HotkeyEvent::Toggle] };
