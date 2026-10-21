@@ -26,7 +26,7 @@ pub enum Key {
     F(u8),
 }
 
-/// A modifier key on its own, used for push-to-talk.
+/// A modifier key on its own, used for toggle or push-to-talk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SoloModifier {
@@ -89,14 +89,65 @@ impl FromIterator<SoloModifier> for ModifierSet {
     }
 }
 
+#[cfg(test)]
+mod tap_timing_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn deliberate_taps_have_a_ceiling_without_renewing_on_expansion() {
+        let now = Instant::now();
+        let one: ModifierSet = [SoloModifier::LeftControl].into_iter().collect();
+        let two: ModifierSet = [SoloModifier::LeftControl, SoloModifier::LeftShift].into_iter().collect();
+        for (delay, expected) in [(400, true), (401, false)] {
+            let mut capture = ModifierCapture::default();
+            capture.press_tap(one, now);
+            capture.press_tap(two, now + Duration::from_millis(350));
+            assert_eq!(capture.release_tap(SoloModifier::LeftShift, now + Duration::from_millis(delay)).is_some(), expected);
+            assert!(!capture.is_active());
+        }
+    }
+
+    #[test]
+    fn clearing_a_tap_resets_its_clock() {
+        let now = Instant::now();
+        let keys = [SoloModifier::LeftControl].into_iter().collect();
+        let mut capture = ModifierCapture::default();
+        capture.press_tap(keys, now);
+        capture.clear();
+        capture.press_tap(keys, now + Duration::from_secs(1));
+        assert!(capture.release_tap(SoloModifier::LeftControl, now + Duration::from_millis(1100)).is_some());
+    }
+}
+
 /// The modifier-only part of hotkey recording, shared by the native listeners.
 #[derive(Debug, Default)]
 pub struct ModifierCapture {
     candidate: Option<ModifierSet>,
+    tap_started: Option<std::time::Instant>,
 }
 
 impl ModifierCapture {
-    pub fn clear(&mut self) { self.candidate = None; }
+    pub fn clear(&mut self) {
+        self.candidate = None;
+        self.tap_started = None;
+    }
+
+    /// A deliberate toggle tap ends within 400 ms of its first modifier.
+    /// Recorder gestures remain untimed; holding a key to choose it is harmless.
+    pub fn press_tap(&mut self, held: ModifierSet, now: std::time::Instant) {
+        let started = self.tap_started.unwrap_or(now);
+        self.press(held);
+        self.tap_started = self.candidate.map(|_| started);
+    }
+
+    pub fn release_tap(&mut self, modifier: SoloModifier, now: std::time::Instant) -> Option<Hotkey> {
+        if !self.tap_started.is_some_and(|start| now.saturating_duration_since(start) <= std::time::Duration::from_millis(400)) {
+            self.clear();
+            return None;
+        }
+        self.release(modifier)
+    }
     pub fn is_active(&self) -> bool { self.candidate.is_some() }
 
     pub fn press(&mut self, held: ModifierSet) {

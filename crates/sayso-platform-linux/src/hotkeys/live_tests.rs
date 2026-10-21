@@ -140,6 +140,44 @@ fn live_x11() {
 }
 
 #[test]
+#[ignore = "needs an isolated X server and xdotool; sends keyboard and mouse input"]
+fn live_x11_modifier_toggle_rejects_long_holds() {
+    let hotkeys = LinuxHotkeys::new(session(SessionKind::X11));
+    let rx = hotkeys.events();
+    assert!(hotkeys.register(&bindings("right_control", "right_shift")).failed.is_empty());
+    let control = (keymap::KEY_RIGHTCTRL + keymap::X11_OFFSET).to_string();
+    xdotool(&["keydown", &control]);
+    std::thread::sleep(Duration::from_millis(450));
+    xdotool(&["keyup", &control]);
+    expect_quiet(&rx);
+    xdotool(&["keydown", &control]);
+    xdotool(&["keyup", &control]);
+    expect(&rx, HotkeyEvent::Toggle);
+}
+
+#[test]
+#[ignore = "needs an isolated X server and xdotool; sends keyboard and mouse input"]
+fn live_x11_modifier_toggle_rejects_mouse_gestures() {
+    let hotkeys = LinuxHotkeys::new(session(SessionKind::X11));
+    let rx = hotkeys.events();
+    assert!(hotkeys.register(&bindings("right_control", "right_shift")).failed.is_empty());
+    let control = (keymap::KEY_RIGHTCTRL + keymap::X11_OFFSET).to_string();
+    for button in ["1", "2", "3", "4", "6", "8"] {
+        xdotool(&["keydown", &control]);
+        xdotool(&["click", button]);
+        xdotool(&["keyup", &control]);
+        expect_quiet(&rx);
+    }
+    xdotool(&["keydown", &control]);
+    xdotool(&["mousemove_relative", "--", "1", "0"]);
+    xdotool(&["keyup", &control]);
+    expect_quiet(&rx);
+    xdotool(&["keydown", &control]);
+    xdotool(&["keyup", &control]);
+    expect(&rx, HotkeyEvent::Toggle);
+}
+
+#[test]
 #[ignore = "needs /dev/uinput and read access to /dev/input (sudo)"]
 fn live_evdev() {
     use ::evdev::uinput::VirtualDevice;

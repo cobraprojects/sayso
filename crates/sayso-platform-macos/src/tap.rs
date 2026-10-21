@@ -220,10 +220,16 @@ fn spawn_tap(job: Job) -> Result<TapThread, String> {
     }
 }
 
+fn listen_mask() -> u64 {
+    (1u64 << kCGEventKeyDown) | (1 << kCGEventKeyUp) | (1 << kCGEventFlagsChanged)
+        | (1 << kCGEventLeftMouseDown) | (1 << kCGEventRightMouseDown)
+        | (1 << kCGEventOtherMouseDown) | (1 << kCGEventScrollWheel)
+}
+
 fn run_tap_thread(job: Job, ready: Sender<Result<usize, String>>) {
     let keys = (1u64 << kCGEventKeyDown) | (1 << kCGEventKeyUp);
     let (option, mask) = match job {
-        Job::Listen { .. } => (kCGEventTapOptionListenOnly, keys | (1 << kCGEventFlagsChanged)),
+        Job::Listen { .. } => (kCGEventTapOptionListenOnly, listen_mask()),
         Job::Active { .. } => (kCGEventTapOptionDefault, keys),
     };
     let listen = matches!(job, Job::Listen { .. });
@@ -325,6 +331,8 @@ fn handle(ctx: &CallbackContext, etype: u32, event: *mut c_void) -> bool {
 }
 
 fn listen(logic: &Mutex<TapLogic>, sink: &TapSink, etype: u32, event: *mut c_void) {
+    let pointer = [kCGEventLeftMouseDown, kCGEventRightMouseDown,
+        kCGEventOtherMouseDown, kCGEventScrollWheel].contains(&etype);
     // SAFETY: `event` is a live CGEvent for the duration of the callback.
     let (code, flags, repeat) = unsafe {
         (
@@ -333,7 +341,9 @@ fn listen(logic: &Mutex<TapLogic>, sink: &TapSink, etype: u32, event: *mut c_voi
             CGEventGetIntegerValueField(event, kCGKeyboardEventAutorepeat) != 0,
         )
     };
-    let raw = if etype == kCGEventKeyDown {
+    let raw = if pointer {
+        RawEvent::PointerActivity
+    } else if etype == kCGEventKeyDown {
         RawEvent::KeyDown { code, flags, repeat }
     } else if etype == kCGEventKeyUp {
         RawEvent::KeyUp { code, flags }
@@ -344,7 +354,18 @@ fn listen(logic: &Mutex<TapLogic>, sink: &TapSink, etype: u32, event: *mut c_voi
     } else {
         return;
     };
-    let outcome = logic.lock().handle(raw, Instant::now());
+    let outcome = {
+        let mut logic = logic.lock();
+        if etype == kCGEventFlagsChanged {
+            // SAFETY: this query takes only scalar values and reads HID state.
+            // Reconcile before gating the gesture, including the first event
+            // after secure input ended without any intervening flagsChanged.
+            logic.reconcile_pressed_keys(|code| unsafe {
+                CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, code)
+            });
+        }
+        logic.handle(raw, Instant::now())
+    };
     for event in outcome.events {
         let _ = sink.events.send(event);
     }
@@ -359,6 +380,17 @@ fn listen(logic: &Mutex<TapLogic>, sink: &TapSink, etype: u32, event: *mut c_voi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn listen_mask_includes_buttons_and_scroll_without_mouse_motion() {
+        let mask = listen_mask();
+        for etype in [kCGEventKeyDown, kCGEventKeyUp, kCGEventFlagsChanged,
+            kCGEventLeftMouseDown, kCGEventRightMouseDown, kCGEventOtherMouseDown, kCGEventScrollWheel] {
+            assert_ne!(mask & (1u64 << etype), 0);
+        }
+        // Pointer motion alone must not cancel a keyboard gesture.
+        assert_eq!(mask & (1u64 << 5), 0);
+    }
 
     #[test]
     #[ignore = "needs Accessibility for the test binary; sends no keys"]

@@ -1,5 +1,5 @@
-//! The low-level keyboard hook (`WH_KEYBOARD_LL`) on its own thread with its
-//! own message loop.
+//! Low-level keyboard and mouse hooks on one thread with its own message loop.
+//! Mouse buttons and wheels cancel modifier-only toggle candidates.
 //!
 //! The hook serves four jobs: push-to-talk (solo modifiers and chords), Esc
 //! cancel while recording, the key recorder, and Send with Enter. It passes
@@ -38,8 +38,9 @@ use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE, PeekMessageW,
-    PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_APP,
-    WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN,
+    PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP,
+    WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN, WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN,
+    WM_XBUTTONDOWN, WM_MOUSEWHEEL, WM_MOUSEHWHEEL,
 };
 
 /// Thread message: send the mask key.
@@ -223,6 +224,23 @@ fn spawn_hook(shared: Arc<Shared>) -> Result<HookThread, String> {
     }
 }
 
+/// Both listeners are required: never run a toggle without mouse cancellation.
+/// Roll back the keyboard hook if the second installation fails.
+fn install_hook_pair<T, E>(
+    keyboard: impl FnOnce() -> Result<T, E>,
+    mouse: impl FnOnce() -> Result<T, E>,
+    unhook: impl FnOnce(T),
+) -> Result<(T, T), E> {
+    let keyboard = keyboard()?;
+    match mouse() {
+        Ok(mouse) => Ok((keyboard, mouse)),
+        Err(err) => {
+            unhook(keyboard);
+            Err(err)
+        }
+    }
+}
+
 fn run_hook_thread(shared: Arc<Shared>, ready: Sender<Result<u32, String>>) {
     let mut msg = MSG::default();
     // The previous hook may have stopped before receiving key-up events.
@@ -238,11 +256,17 @@ fn run_hook_thread(shared: Arc<Shared>, ready: Sender<Result<u32, String>>) {
         let _ = PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE);
         CONTEXT.with(|c| *c.borrow_mut() = Some(shared.clone()));
         let module = GetModuleHandleW(None).ok().map(|m| m.into());
-        let hook = match SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), module, 0) {
-            Ok(hook) => hook,
+        let (hook, mouse_hook) = match install_hook_pair(
+            || SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), module, 0)
+                .map_err(|err| format!("keyboard SetWindowsHookExW failed: {err}")),
+            || SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0)
+                .map_err(|err| format!("mouse SetWindowsHookExW failed: {err}")),
+            |hook| { let _ = UnhookWindowsHookEx(hook); },
+        ) {
+            Ok(hooks) => hooks,
             Err(err) => {
                 CONTEXT.with(|c| c.borrow_mut().take());
-                let _ = ready.send(Err(format!("SetWindowsHookExW failed: {err}")));
+                let _ = ready.send(Err(err));
                 return;
             }
         };
@@ -271,6 +295,7 @@ fn run_hook_thread(shared: Arc<Shared>, ready: Sender<Result<u32, String>>) {
             }
         }
 
+        let _ = UnhookWindowsHookEx(mouse_hook);
         let _ = UnhookWindowsHookEx(hook);
         CONTEXT.with(|c| c.borrow_mut().take());
     }
@@ -319,6 +344,25 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
+unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code == HC_ACTION as i32 && matches!(wparam.0 as u32,
+        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN | WM_MOUSEWHEEL | WM_MOUSEHWHEEL
+    ) {
+        // Conservatively cancel even injected mouse gestures. They can change
+        // focus or selection too; missing a tap is safer than opening the mic.
+        // A panic must not unwind into Windows, and no mouse event is swallowed.
+        let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            CONTEXT.with(|c| {
+                if let Some(shared) = c.borrow().as_ref() {
+                    shared.logic.lock().cancel_modifier_tap();
+                }
+            });
+        }));
+    }
+    // SAFETY: passes the original hook arguments through unchanged.
+    unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
 /// The modifier keys that are down now, except `skip`.
 fn held_modifiers(skip: u16) -> ModKeys {
     let down: Vec<u16> = keymap::MODIFIER_VKS
@@ -350,7 +394,14 @@ fn handle(shared: &Shared, info: &KBDLLHOOKSTRUCT, message: u32) -> bool {
         down: message == WM_KEYDOWN || message == WM_SYSKEYDOWN,
         held: held_modifiers(vk),
     };
-    let outcome = shared.logic.lock().handle(event, Instant::now());
+    let outcome = {
+        let mut logic = shared.logic.lock();
+        logic.prune_pressed(vk, |key| {
+            // SAFETY: plain state query, excluding the current pre-event key.
+            (unsafe { GetAsyncKeyState(i32::from(key)) }) < 0
+        });
+        logic.handle(event, Instant::now())
+    };
     let swallow = outcome.swallow;
     if swallow && !event.down {
         // A taken Enter is up: it may have been the last reason for the hook.
@@ -379,6 +430,48 @@ fn handle(shared: &Shared, info: &KBDLLHOOKSTRUCT, message: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn regression_mouse_callback_cancels_buttons_and_both_wheels_only() {
+        use crate::keymap::VK_LSHIFT;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            MSLLHOOKSTRUCT, WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN,
+            WM_XBUTTONDOWN, WM_MOUSEWHEEL, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_LBUTTONUP,
+        };
+        let now = Instant::now();
+        for (message, cancels) in [
+            (WM_LBUTTONDOWN, true), (WM_RBUTTONDOWN, true), (WM_MBUTTONDOWN, true),
+            (WM_XBUTTONDOWN, true), (WM_MOUSEWHEEL, true), (WM_MOUSEHWHEEL, true),
+            (WM_MOUSEMOVE, false), (WM_LBUTTONUP, false),
+        ] {
+            let (tx, _rx) = crossbeam_channel::unbounded();
+            let hook = HookController::new(tx, Arc::default());
+            let mut logic = hook.shared.logic.lock();
+            logic.set_toggle_modifiers("left_shift".parse::<Hotkey>().unwrap().modifier_keys());
+            logic.handle(RawEvent { vk: VK_LSHIFT, scan: 0, flags: 0, down: true, held: ModKeys::of(&[]) }, now);
+            drop(logic);
+            CONTEXT.with(|c| *c.borrow_mut() = Some(hook.shared.clone()));
+            // Injected mouse gestures also cancel: focus changes are unsafe
+            // regardless of the input source. The callback never swallows them.
+            let info = MSLLHOOKSTRUCT { flags: 1, ..Default::default() };
+            // SAFETY: valid hook payload; no input is sent or window focused.
+            unsafe { mouse_proc(HC_ACTION as i32, WPARAM(message as usize), LPARAM(&info as *const _ as isize)); }
+            CONTEXT.with(|c| c.borrow_mut().take());
+            let out = hook.shared.logic.lock().handle(RawEvent { vk: VK_LSHIFT, scan: 0, flags: 0, down: false, held: ModKeys::of(&[VK_LSHIFT]) }, now);
+            assert_eq!(out.events, if cancels { vec![] } else { vec![HotkeyEvent::Toggle] }, "message={message:#x}");
+        }
+    }
+
+    #[test]
+    fn regression_mouse_hook_failure_unhooks_keyboard_and_returns_error() {
+        let cleaned = std::cell::Cell::new(None);
+        let result = install_hook_pair(|| Ok(1), || Err("mouse unavailable"), |hook| cleaned.set(Some(hook)));
+        assert_eq!(result, Err("mouse unavailable"));
+        assert_eq!(cleaned.get(), Some(1));
+        let result = install_hook_pair(|| Err("keyboard unavailable"), || -> Result<i32, _> { panic!("must not install mouse") }, |_| panic!("nothing to unhook"));
+        assert_eq!(result, Err("keyboard unavailable"));
+        assert_eq!(install_hook_pair(|| Ok::<_, &str>(1), || Ok(2), |_| panic!("keep both installed")), Ok((1, 2)));
+    }
 
     #[test]
     fn the_hook_is_installed_only_while_needed() {

@@ -9,7 +9,7 @@
 use super::listen::Listen;
 use super::logic::KeyAction;
 use evdev::raw_stream::RawDevice;
-use evdev::{EventType, KeyCode};
+use evdev::{AttributeSetRef, EventType, InputEvent, KeyCode, RelativeAxisCode};
 use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
@@ -42,18 +42,37 @@ fn event_paths() -> Vec<PathBuf> {
     paths
 }
 
-/// Open a device read-only and non-blocking. `None` when it is not a keyboard.
-fn open_keyboard(path: &Path) -> std::io::Result<Option<RawDevice>> {
+fn is_pointer_button(code: u16) -> bool {
+    (KeyCode::BTN_LEFT.0..=KeyCode::BTN_TASK.0).contains(&code)
+        || (KeyCode::BTN_TOOL_PEN.0..=KeyCode::BTN_TOOL_QUADTAP.0).contains(&code)
+}
+
+fn is_input_device(keys: Option<&AttributeSetRef<KeyCode>>, scroll: bool) -> bool {
+    scroll || keys.is_some_and(|keys| {
+        (keys.contains(KeyCode::KEY_A) && keys.contains(KeyCode::KEY_Z) && keys.contains(KeyCode::KEY_SPACE))
+            || keys.iter().any(|key| is_pointer_button(key.0))
+    })
+}
+
+fn is_pointer_activity(event: &InputEvent) -> bool {
+    (event.event_type() == EventType::KEY && is_pointer_button(event.code()) && event.value() != 0)
+        || (event.event_type() == EventType::RELATIVE && event.value() != 0
+            && matches!(RelativeAxisCode(event.code()), RelativeAxisCode::REL_WHEEL | RelativeAxisCode::REL_HWHEEL
+                | RelativeAxisCode::REL_WHEEL_HI_RES | RelativeAxisCode::REL_HWHEEL_HI_RES))
+}
+
+/// Open keyboards and pointers read-only: button/scroll gestures cancel taps.
+fn open_input(path: &Path) -> std::io::Result<Option<RawDevice>> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)
         .open(path)?;
     let device = RawDevice::from_fd(file.into())?;
-    let is_keyboard = device.supported_events().contains(EventType::KEY)
-        && device.supported_keys().is_some_and(|keys| {
-            keys.contains(KeyCode::KEY_A) && keys.contains(KeyCode::KEY_Z) && keys.contains(KeyCode::KEY_SPACE)
-        });
-    Ok(is_keyboard.then_some(device))
+    let scroll = device.supported_relative_axes().is_some_and(|axes| {
+        axes.contains(RelativeAxisCode::REL_WHEEL) || axes.contains(RelativeAxisCode::REL_HWHEEL)
+            || axes.contains(RelativeAxisCode::REL_WHEEL_HI_RES) || axes.contains(RelativeAxisCode::REL_HWHEEL_HI_RES)
+    });
+    Ok(is_input_device(device.supported_keys(), scroll).then_some(device))
 }
 
 /// The running reader thread. Dropping it stops the thread.
@@ -69,7 +88,7 @@ impl EvdevReader {
         let mut devices = BTreeMap::new();
         let mut denied = 0;
         for path in event_paths() {
-            match open_keyboard(&path) {
+            match open_input(&path) {
                 Ok(Some(device)) => {
                     log::info!("listening to keyboard {} ({})", device.name().unwrap_or("?"), path.display());
                     devices.insert(path, device);
@@ -79,7 +98,9 @@ impl EvdevReader {
                 Err(e) => log::debug!("cannot open {}: {e}", path.display()),
             }
         }
-        if devices.is_empty() && denied > 0 {
+        // An unreadable device could be a pointer: fail closed rather than run
+        // a keyboard-only stream that cannot cancel modifier+mouse gestures.
+        if denied > 0 {
             return Err(format!(
                 "no access to {INPUT_DIR}. Add the user to the input group and log in again"
             ));
@@ -128,7 +149,7 @@ fn watch_input_dir() -> Option<OwnedFd> {
         }
         let fd = OwnedFd::from_raw_fd(fd);
         let dir = c"/dev/input";
-        if libc::inotify_add_watch(fd.as_raw_fd(), dir.as_ptr(), libc::IN_CREATE | libc::IN_ATTRIB) < 0 {
+        if libc::inotify_add_watch(fd.as_raw_fd(), dir.as_ptr(), libc::IN_CREATE | libc::IN_ATTRIB | libc::IN_DELETE) < 0 {
             log::warn!("cannot watch {INPUT_DIR}: {}", std::io::Error::last_os_error());
             return None;
         }
@@ -170,33 +191,22 @@ impl Reader {
                 self.drain_notify();
                 self.rescan();
             }
+            let mut events = Vec::new();
             for (fd, path) in fds[first_device..].iter().zip(paths) {
                 if fd.revents != 0 {
-                    self.read_device(&path);
+                    self.read_device(&path, &mut events);
                 }
             }
+            dispatch_batch(&self.listen, events);
         }
         self.listen.reset_keys();
     }
 
-    fn read_device(&mut self, path: &Path) {
+    fn read_device(&mut self, path: &Path, batch: &mut Vec<InputEvent>) {
         let Some(device) = self.devices.get_mut(path) else { return };
-        let mut keys = Vec::new();
         let result = device.fetch_events().map(|events| {
-            for event in events {
-                if event.event_type() == EventType::KEY {
-                    let action = match event.value() {
-                        0 => KeyAction::Up,
-                        1 => KeyAction::Down,
-                        _ => KeyAction::Repeat,
-                    };
-                    keys.push((event.code(), action));
-                }
-            }
+            batch.extend(events);
         });
-        for (code, action) in keys {
-            self.listen.key(code, action);
-        }
         match result {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
@@ -217,25 +227,100 @@ impl Reader {
         while unsafe { libc::read(n.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) } > 0 {}
     }
 
-    /// Open keyboards that appeared since the last scan.
+    /// Open keyboards and pointers that appeared since the last scan.
     fn rescan(&mut self) {
+        let mut available = true;
         for path in event_paths() {
             if self.devices.contains_key(&path) {
                 continue;
             }
-            match open_keyboard(&path) {
+            match open_input(&path) {
                 Ok(Some(device)) => {
                     log::info!("listening to new keyboard {} ({})", device.name().unwrap_or("?"), path.display());
                     self.devices.insert(path, device);
                 }
                 Ok(None) => {}
-                // udev may not have set the permissions yet; IN_ATTRIB brings us back.
-                Err(e) => log::debug!("cannot open {} yet: {e}", path.display()),
+                // udev may not have set permissions yet; IN_ATTRIB brings us
+                // back. No toggle is safe while this could be an unseen mouse.
+                Err(e) => {
+                    available = false;
+                    log::warn!("modifier toggles paused: cannot open {} yet: {e}", path.display());
+                }
             }
+        }
+        self.listen.logic.lock().set_pointer_available(available);
+    }
+}
+
+/// Merge device queues before dispatch: a keyboard batch must not deliver the
+/// release before a click already queued on a separate pointer descriptor.
+fn dispatch_batch(listen: &Listen, mut events: Vec<InputEvent>) {
+    events.sort_by_key(InputEvent::timestamp);
+    for event in events {
+        if is_pointer_activity(&event) {
+            listen.pointer_activity();
+        } else if event.event_type() == EventType::KEY && !is_pointer_button(event.code()) {
+            let action = match event.value() {
+                0 => KeyAction::Up,
+                1 => KeyAction::Down,
+                _ => KeyAction::Repeat,
+            };
+            listen.key(event.code(), action);
         }
     }
 }
 
 fn pollfd(fd: RawFd) -> libc::pollfd {
     libc::pollfd { fd, events: libc::POLLIN, revents: 0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use evdev::{InputEvent, RelativeAxisCode};
+
+    #[test]
+    fn batches_merge_pointer_and_keyboard_events_by_kernel_time() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let listen = Listen::new(tx);
+        listen.logic.lock().set_toggle_modifiers("left_control".parse::<sayso_core::hotkey::Hotkey>().unwrap().modifier_keys());
+        let down = InputEvent::new_now(EventType::KEY.0, KeyCode::KEY_LEFTCTRL.0, 1);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let click = InputEvent::new_now(EventType::KEY.0, KeyCode::BTN_LEFT.0, 1);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let up = InputEvent::new_now(EventType::KEY.0, KeyCode::KEY_LEFTCTRL.0, 0);
+        // Poll happens to read the keyboard before the mouse.
+        dispatch_batch(&listen, vec![down, up, click]);
+        assert!(rx.try_recv().is_err());
+        dispatch_batch(&listen, vec![down, up]);
+        assert_eq!(rx.try_recv(), Ok(sayso_platform::HotkeyEvent::Toggle));
+    }
+
+    #[test]
+    fn mouse_buttons_touch_and_scroll_cancel_but_motion_does_not() {
+        for (kind, code, value, expected) in [
+            (EventType::KEY, KeyCode::BTN_LEFT.0, 1, true),
+            (EventType::KEY, KeyCode::BTN_TOUCH.0, 1, true),
+            (EventType::KEY, KeyCode::BTN_LEFT.0, 0, false),
+            (EventType::KEY, KeyCode::KEY_A.0, 1, false),
+            (EventType::RELATIVE, RelativeAxisCode::REL_WHEEL.0, -1, true),
+            (EventType::RELATIVE, RelativeAxisCode::REL_HWHEEL_HI_RES.0, 120, true),
+            (EventType::RELATIVE, RelativeAxisCode::REL_X.0, 10, false),
+        ] {
+            assert_eq!(is_pointer_activity(&InputEvent::new(kind.0, code, value)), expected);
+        }
+    }
+
+    #[test]
+    fn mice_and_touchpads_are_input_devices_too() {
+        let keyboard: evdev::AttributeSet<KeyCode> = [KeyCode::KEY_A, KeyCode::KEY_Z, KeyCode::KEY_SPACE].into_iter().collect();
+        let mouse: evdev::AttributeSet<KeyCode> = [KeyCode::BTN_LEFT].into_iter().collect();
+        let touch: evdev::AttributeSet<KeyCode> = [KeyCode::BTN_TOUCH].into_iter().collect();
+        let other: evdev::AttributeSet<KeyCode> = [KeyCode::KEY_POWER].into_iter().collect();
+        assert!(is_input_device(Some(&keyboard), false));
+        assert!(is_input_device(Some(&mouse), false));
+        assert!(is_input_device(Some(&touch), false));
+        assert!(is_input_device(None, true));
+        assert!(!is_input_device(Some(&other), false));
+    }
 }

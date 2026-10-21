@@ -15,12 +15,14 @@ use sayso_core::hotkey::{Hotkey, Key, ModifierCapture, ModifierSet, Modifiers, S
 use sayso_platform::HotkeyEvent;
 use std::time::Instant;
 
-/// One keyboard event from the tap, reduced to the fields we use.
+/// One keyboard or pointer event from the tap, reduced to the fields we use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RawEvent {
     KeyDown { code: u16, flags: u64, repeat: bool },
     KeyUp { code: u16, flags: u64 },
     FlagsChanged { code: u16, flags: u64, secure_input: bool },
+    /// A mouse button went down or the wheel scrolled.
+    PointerActivity,
 }
 
 /// What the tap should do for one raw event.
@@ -148,12 +150,17 @@ impl TapLogic {
         std::mem::take(&mut self.ptt_down).then_some(HotkeyEvent::PushToTalkUp)
     }
 
+    /// Reconcile releases hidden by Secure Event Input with current HID state.
+    /// Keep genuinely held keys: clearing everything would allow a modifier tap
+    /// begun while a regular key is still held to toggle.
+    pub fn reconcile_pressed_keys(&mut self, mut is_down: impl FnMut(u16) -> bool) {
+        self.pressed_keys.retain(|code| is_down(*code));
+    }
+
     pub fn handle(&mut self, event: RawEvent, now: Instant) -> Outcome {
         match event {
             RawEvent::KeyDown { code, .. } if !self.pressed_keys.contains(&code) => self.pressed_keys.push(code),
             RawEvent::KeyUp { code, .. } => self.pressed_keys.retain(|held| *held != code),
-            // Key releases may have been hidden while secure input was active.
-            RawEvent::FlagsChanged { secure_input: true, .. } => self.pressed_keys.clear(),
             _ => {}
         }
         if self.capturing {
@@ -169,8 +176,8 @@ impl TapLogic {
                 } else if let Some(keys) = self.toggle_modifiers {
                     if let Some(modifier) = solo_from_keycode(code) {
                         if solo_is_down(modifier, flags) {
-                            self.modifier_capture.press(held);
-                        } else if self.modifier_capture.release(modifier).and_then(Hotkey::modifier_keys) == Some(keys) {
+                            self.modifier_capture.press_tap(held, now);
+                        } else if self.modifier_capture.release_tap(modifier, now).and_then(Hotkey::modifier_keys) == Some(keys) {
                             out.events.push(HotkeyEvent::Toggle);
                         }
                     } else {
@@ -214,6 +221,7 @@ impl TapLogic {
                     out.events.push(HotkeyEvent::Cancel);
                 }
             }
+            RawEvent::PointerActivity => self.modifier_capture.clear(),
             RawEvent::KeyUp { code, .. } => {
                 if let Some(Ptt::Chord { keycode, .. }) = self.ptt
                     && code == keycode
@@ -269,6 +277,10 @@ impl TapLogic {
                 }
             }
             RawEvent::KeyUp { .. } => None,
+            RawEvent::PointerActivity => {
+                self.modifier_capture.clear();
+                None
+            }
         }
     }
 }
@@ -310,6 +322,90 @@ mod tests {
 
     fn flags(code: u16, flags: u64) -> RawEvent {
         RawEvent::FlagsChanged { code, flags, secure_input: false }
+    }
+
+    #[test]
+    fn pointer_activity_cancels_toggle_and_recorder_candidates() {
+        let now = Instant::now();
+        for capturing in [false, true] {
+            let mut l = logic();
+            l.set_toggle_modifiers("left_command".parse::<Hotkey>().unwrap().modifier_keys());
+            l.set_capturing(capturing);
+            l.handle(flags(55, LEFT_CMD_DOWN), now);
+            assert_eq!(l.handle(RawEvent::PointerActivity, now), Outcome::default());
+            assert_eq!(l.handle(flags(55, 0), now), Outcome::default());
+            // Cancellation must not poison the next clean tap.
+            l.handle(flags(55, LEFT_CMD_DOWN), now);
+            let out = l.handle(flags(55, 0), now);
+            if capturing {
+                assert_eq!(out.captured, Some(Hotkey::Solo(SoloModifier::LeftCommand)));
+            } else {
+                assert_eq!(out.events, vec![HotkeyEvent::Toggle]);
+            }
+        }
+    }
+
+    #[test]
+    fn reconciliation_retains_really_held_keys_and_prunes_only_released_keys() {
+        let now = Instant::now();
+        let mut l = logic();
+        l.set_toggle_modifiers("left_command".parse::<Hotkey>().unwrap().modifier_keys());
+        l.handle(key_down(48, 0), now);
+        l.handle(key_down(13, 0), now);
+        l.reconcile_pressed_keys(|code| code == 13);
+        l.handle(flags(55, LEFT_CMD_DOWN), now);
+        l.reconcile_pressed_keys(|code| code == 13);
+        assert!(l.handle(flags(55, 0), now).events.is_empty());
+        // Once W really is released, a clean gesture works again.
+        l.reconcile_pressed_keys(|_| false);
+        l.handle(flags(55, LEFT_CMD_DOWN), now);
+        assert_eq!(l.handle(flags(55, 0), now).events, vec![HotkeyEvent::Toggle]);
+    }
+
+    #[test]
+    fn tap_deadline_is_from_first_modifier_and_recorder_remains_unbounded() {
+        let now = Instant::now();
+        for capturing in [false, true] {
+            let mut l = logic();
+            l.set_toggle_modifiers("left_command+left_option".parse::<Hotkey>().unwrap().modifier_keys());
+            l.set_capturing(capturing);
+            l.handle(flags(55, LEFT_CMD_DOWN), now);
+            l.handle(flags(58, LEFT_CMD_DOWN | LEFT_OPT_DOWN), now + Duration::from_millis(350));
+            let out = l.handle(flags(58, LEFT_CMD_DOWN), now + Duration::from_millis(401));
+            assert!(out.events.is_empty());
+            assert_eq!(out.captured, capturing.then(|| "left_command+left_option".parse().unwrap()));
+        }
+    }
+
+    #[test]
+    fn tap_at_400ms_still_toggles() {
+        let now = Instant::now();
+        let mut l = logic();
+        l.set_toggle_modifiers("left_command".parse::<Hotkey>().unwrap().modifier_keys());
+        l.handle(flags(55, LEFT_CMD_DOWN), now);
+        assert_eq!(l.handle(flags(55, 0), now + Duration::from_millis(400)).events, vec![HotkeyEvent::Toggle]);
+    }
+
+    #[test]
+    fn long_hold_does_not_toggle() {
+        let now = Instant::now();
+        let mut l = logic();
+        l.set_toggle_modifiers("left_command".parse::<Hotkey>().unwrap().modifier_keys());
+        l.handle(flags(55, LEFT_CMD_DOWN), now);
+        assert!(l.handle(flags(55, 0), now + Duration::from_millis(401)).events.is_empty());
+    }
+
+    #[test]
+    fn hidden_keyup_from_secure_input_recovers_toggle() {
+        let now = Instant::now();
+        let mut l = logic();
+        l.set_toggle_modifiers("left_command".parse::<Hotkey>().unwrap().modifier_keys());
+        l.handle(key_down(48, 0), now);
+        // Tab moves focus into a password field; its release is hidden, and
+        // no flagsChanged arrives until secure input has ended.
+        l.reconcile_pressed_keys(|code| { assert_eq!(code, 48); false });
+        l.handle(flags(55, LEFT_CMD_DOWN), now);
+        assert_eq!(l.handle(flags(55, 0), now).events, vec![HotkeyEvent::Toggle]);
     }
 
     #[test]

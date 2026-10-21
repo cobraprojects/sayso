@@ -205,13 +205,27 @@ impl HookLogic {
         self.release_held()
     }
 
+    /// Mouse buttons and wheels make the held modifiers a gesture, not a tap.
+    pub fn cancel_modifier_tap(&mut self) {
+        self.modifier_capture.clear();
+    }
+
+    /// Recover regular keys whose releases happened outside this desktop.
+    /// Async state is pre-event in a low-level hook: never prune the current key.
+    /// Modifiers are reconciled separately by `modifiers_after`, including AltGr.
+    pub fn prune_pressed(&mut self, current: u16, mut is_down: impl FnMut(u16) -> bool) {
+        for vk in 0..256 {
+            if vk != current && !keymap::is_modifier(vk) && self.pressed.contains(vk) && !is_down(vk) {
+                self.pressed.release(vk);
+            }
+        }
+    }
+
     /// The modifier keys after this event, without the fake Ctrl of AltGr.
     fn modifiers_after(&self, event: &RawEvent) -> ModKeys {
         let held = event.held.with(event.vk, event.down);
-        if self.pressed.contains(VK_LCONTROL) {
-            held.with(VK_LCONTROL, true)
-        } else if self.altgr_ctrl {
-            held.with(VK_LCONTROL, false)
+        if self.altgr_ctrl {
+            held.with(VK_LCONTROL, self.pressed.contains(VK_LCONTROL))
         } else {
             held
         }
@@ -254,12 +268,12 @@ impl HookLogic {
             if let Some(keys) = self.toggle_modifiers {
                 if event.down && !repeat {
                     if !self.pressed.has_regular_key() {
-                        self.modifier_capture.press(modifier_keys);
+                        self.modifier_capture.press_tap(modifier_keys, now);
                     }
                     out.mask = modifier_keys == keys && self.modifier_capture.is_active()
                         && keys.iter().filter_map(keymap::solo_vk).any(keymap::release_has_meaning);
                 } else if !event.down
-                    && keymap::solo_from_vk(event.vk).and_then(|m| self.modifier_capture.release(m)).and_then(Hotkey::modifier_keys) == Some(keys)
+                    && keymap::solo_from_vk(event.vk).and_then(|m| self.modifier_capture.release_tap(m, now)).and_then(Hotkey::modifier_keys) == Some(keys)
                 {
                     out.events.push(HotkeyEvent::Toggle);
                 }
@@ -398,6 +412,105 @@ mod tests {
     /// The fake Left Ctrl of AltGr.
     fn altgr_ctrl(is_down: bool, held: &[u16]) -> RawEvent {
         RawEvent { vk: VK_LCONTROL, scan: 0x21D, flags: 0, down: is_down, held: ModKeys::of(held) }
+    }
+
+    #[test]
+    fn regression_long_hold_and_repeat_do_not_toggle() {
+        let now = Instant::now();
+        let mut l = logic();
+        l.set_toggle_modifiers("left_shift".parse::<Hotkey>().unwrap().modifier_keys());
+        l.handle(down(VK_LSHIFT, &[]), now);
+        l.handle(down(VK_LSHIFT, &[VK_LSHIFT]), now + Duration::from_millis(390));
+        assert!(l.handle(up(VK_LSHIFT, &[VK_LSHIFT]), now + Duration::from_millis(401)).events.is_empty());
+        l.handle(down(VK_LSHIFT, &[]), now + Duration::from_secs(1));
+        assert_eq!(l.handle(up(VK_LSHIFT, &[VK_LSHIFT]), now + Duration::from_millis(1100)).events, vec![HotkeyEvent::Toggle]);
+    }
+
+    #[test]
+    fn regression_modifier_expansion_does_not_renew_tap_time() {
+        let now = Instant::now();
+        let mut l = logic();
+        l.set_toggle_modifiers("left_shift+left_control".parse::<Hotkey>().unwrap().modifier_keys());
+        l.handle(down(VK_LSHIFT, &[]), now);
+        l.handle(down(VK_LCONTROL, &[VK_LSHIFT]), now + Duration::from_millis(390));
+        assert!(l.handle(up(VK_LCONTROL, &[VK_LSHIFT, VK_LCONTROL]), now + Duration::from_millis(401)).events.is_empty());
+    }
+
+    #[test]
+    fn regression_chord_ptt_after_missed_ctrl_keyup() {
+        let now = Instant::now();
+        for (binding, expected) in [("shift+d", vec![HotkeyEvent::PushToTalkDown]), ("ctrl+shift+d", vec![])] {
+            let mut l = logic();
+            l.set_ptt(Some(binding.parse().unwrap()));
+            l.handle(down(VK_LCONTROL, &[]), now);
+            // Ctrl's release happened on the secure desktop; async state is now up.
+            assert_eq!(l.handle(down(KEY_D, &[VK_LSHIFT]), now).events, expected, "{binding}");
+        }
+    }
+
+    #[test]
+    fn regression_esc_cancel_after_missed_ctrl_keyup() {
+        let now = Instant::now();
+        let mut l = logic();
+        l.configure_esc(true, Duration::from_millis(400));
+        l.set_take_escape(true);
+        l.set_recording(true);
+        l.handle(down(VK_LCONTROL, &[]), now);
+        let out = l.handle(down(VK_ESCAPE, &[]), now);
+        assert_eq!(out.events, vec![HotkeyEvent::Cancel]);
+        assert!(out.swallow);
+    }
+
+    #[test]
+    fn regression_recorder_keeps_unbounded_hold() {
+        let now = Instant::now();
+        let mut l = logic();
+        l.set_capturing(true);
+        l.handle(down(VK_LSHIFT, &[]), now);
+        assert_eq!(l.handle(up(VK_LSHIFT, &[VK_LSHIFT]), now + Duration::from_secs(2)).captured, Some("left_shift".parse().unwrap()));
+    }
+
+    #[test]
+    fn regression_mouse_cancels_tap_and_next_tap_recovers() {
+        let now = Instant::now();
+        let mut l = logic();
+        l.set_toggle_modifiers("left_shift".parse::<Hotkey>().unwrap().modifier_keys());
+        l.handle(down(VK_LSHIFT, &[]), now);
+        l.cancel_modifier_tap();
+        assert!(l.handle(up(VK_LSHIFT, &[VK_LSHIFT]), now).events.is_empty());
+        l.handle(down(VK_LSHIFT, &[]), now);
+        assert_eq!(l.handle(up(VK_LSHIFT, &[VK_LSHIFT]), now).events, vec![HotkeyEvent::Toggle]);
+    }
+
+    #[test]
+    fn regression_prune_recovers_after_win_l_without_dropping_held_keys() {
+        let now = Instant::now();
+        for still_down in [false, true] {
+            let mut l = logic();
+            l.set_toggle_modifiers("left_shift".parse::<Hotkey>().unwrap().modifier_keys());
+            l.handle(down(VK_LWIN, &[]), now);
+            l.handle(down(0x4C, &[VK_LWIN]), now);
+            l.prune_pressed(VK_LSHIFT, |vk| {
+                assert_eq!(vk, 0x4C, "only tracked regular keys are queried");
+                still_down
+            });
+            l.handle(down(VK_LSHIFT, &[]), now);
+            let expected = if still_down { vec![] } else { vec![HotkeyEvent::Toggle] };
+            assert_eq!(l.handle(up(VK_LSHIFT, &[VK_LSHIFT]), now).events, expected);
+        }
+    }
+
+    #[test]
+    fn regression_prune_excludes_current_pre_event_key_state() {
+        let now = Instant::now();
+        let mut l = logic();
+        l.set_ptt(Some("shift+d".parse().unwrap()));
+        assert_eq!(l.handle(down(KEY_D, &[VK_LSHIFT]), now).events, vec![HotkeyEvent::PushToTalkDown]);
+        // Async state can still be up for the current down event. Keep repeat tracking.
+        l.prune_pressed(KEY_D, |_| panic!("current event must not be queried"));
+        assert!(l.handle(down(KEY_D, &[VK_LSHIFT]), now).events.is_empty());
+        assert!(l.pressed.contains(KEY_D));
+        assert_eq!(l.handle(up(KEY_D, &[VK_LSHIFT]), now).events, vec![HotkeyEvent::PushToTalkUp]);
     }
 
     #[test]

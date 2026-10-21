@@ -272,12 +272,14 @@ pub fn system_hotkeys() -> Vec<SymbolicHotkey> {
         .collect()
 }
 
-/// AppleFnUsageType defaults to Emoji & Symbols when the preference is unset.
+/// An unset AppleFnUsageType is conservatively treated as a conflict: defaults
+/// differ across systems, so do not silently assume that Fn does nothing.
 fn fn_conflict(usage: Option<i64>) -> Option<ConflictSource> {
     let name = match usage.unwrap_or(2) {
         0 => return None,
         1 => "Select next input source",
         2 => "Emoji & Symbols",
+        3 => "Start Dictation (press twice)",
         _ => "A macOS keyboard shortcut",
     };
     Some(ConflictSource::System { name: name.into(), enabled: true })
@@ -380,7 +382,7 @@ mod tests {
         for (usage, name) in [
             (Some(1), "Select next input source"),
             (Some(2), "Emoji & Symbols"),
-            (Some(3), "A macOS keyboard shortcut"),
+            (Some(3), "Start Dictation (press twice)"),
             (None, "Emoji & Symbols"),
         ] {
             assert_eq!(fn_conflict(usage), Some(ConflictSource::System { name: name.into(), enabled: true }));
